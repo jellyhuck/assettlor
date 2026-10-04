@@ -411,6 +411,56 @@ describe('HTTP API Routes', () => {
       expect(assets).toHaveLength(1);
       expect(assets[0].id).toBe('f1');
     });
+
+    it('should hide member assets from /api/assets stacked results and serve each content asset via /api/stacks/:id/assets', async () => {
+      // Add a second frame and new multi-frame stack
+      upsertAsset({
+        id: 'f2',
+        path: 'f2.png',
+        absolutePath: '/f2.png',
+        name: 'f2.png',
+        extension: '.png',
+        category: 'image',
+        size: 20,
+        mtime: 20,
+        hash: 'h2',
+        isArchiveEntry: false,
+      });
+
+      createStack({
+        id: 'multi_frame_stack',
+        name: 'Multi Frame Stack',
+        type: 'animation',
+        itemCount: 2,
+        representativeAssetId: 'f1',
+        assetIdsWithIndex: [
+          { assetId: 'f1', index: 0 },
+          { assetId: 'f2', index: 1 },
+        ],
+      });
+
+      // GET /api/assets with stacked view (default)
+      const listRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?isStackedView=true',
+      });
+      expect(listRes.statusCode).toBe(200);
+      const items = listRes.json().items;
+      const itemIds = items.map((i: any) => i.id);
+      expect(itemIds).toContain('multi_frame_stack');
+      expect(itemIds).not.toContain('f2');
+
+      // GET /api/stacks/multi_frame_stack/assets provides each content asset separately
+      const stackAssetsRes = await app.inject({
+        method: 'GET',
+        url: '/api/stacks/multi_frame_stack/assets',
+      });
+      expect(stackAssetsRes.statusCode).toBe(200);
+      const stackAssets = stackAssetsRes.json();
+      expect(stackAssets).toHaveLength(2);
+      expect(stackAssets[0].name).toBe('f1.png');
+      expect(stackAssets[1].name).toBe('f2.png');
+    });
   });
 
   describe('Settings Routes (/api/settings)', () => {

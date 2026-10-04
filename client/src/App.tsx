@@ -37,6 +37,7 @@ function MainApp() {
 
   // Selection & Inspector State
   const [selectedItem, setSelectedItem] = useState<Asset | (AssetStack & { isStack: true }) | null>(null);
+  const [inspectorMode, setInspectorMode] = useState<'stack' | 'assets'>('stack');
   const [copyModalItem, setCopyModalItem] = useState<{
     asset?: Asset;
     stack?: AssetStack;
@@ -325,7 +326,17 @@ function MainApp() {
         <AssetGrid
           items={items}
           selectedItem={selectedItem}
-          onSelectItem={(item) => setSelectedItem(item)}
+          onSelectItem={(item, mode = 'stack') => {
+            setSelectedItem(item);
+            setInspectorMode(mode);
+          }}
+          onSelectAsset={(asset) => {
+            setSelectedItem(asset);
+          }}
+          onViewStackAssets={(stack) => {
+            setSelectedItem(stack);
+            setInspectorMode('assets');
+          }}
           viewMode={viewMode}
           cardZoom={cardZoom}
           onQuickCopy={handleQuickCopy}
@@ -339,10 +350,15 @@ function MainApp() {
       {selectedItem && (
         <Inspector
           item={selectedItem}
+          initialViewMode={inspectorMode}
           onClose={() => setSelectedItem(null)}
           settings={settings}
           onTagClick={handleSelectTag}
           selectedTag={selectedTag}
+          onSelectStack={(stack) => {
+            setSelectedItem(stack);
+            setInspectorMode('stack');
+          }}
         />
       )}
 

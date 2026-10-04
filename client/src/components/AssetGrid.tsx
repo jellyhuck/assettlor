@@ -6,13 +6,15 @@ import { Sparkles, Layers, SearchX, Loader2 } from 'lucide-react';
 interface AssetGridProps {
   items: (Asset | (AssetStack & { isStack: true }))[];
   selectedItem: Asset | (AssetStack & { isStack: true }) | null;
-  onSelectItem: (item: Asset | (AssetStack & { isStack: true })) => void;
+  onSelectItem: (item: Asset | (AssetStack & { isStack: true }), mode?: 'stack' | 'assets') => void;
   viewMode: ViewMode;
   cardZoom: CardZoom;
   onQuickCopy: (item: Asset | (AssetStack & { isStack: true })) => void;
   loading?: boolean;
   searchQuery?: string;
   onClearSearch?: () => void;
+  onSelectAsset?: (asset: Asset) => void;
+  onViewStackAssets?: (stack: AssetStack & { isStack: true }) => void;
 }
 
 export function AssetGrid({
@@ -25,6 +27,8 @@ export function AssetGrid({
   loading = false,
   searchQuery = '',
   onClearSearch,
+  onSelectAsset,
+  onViewStackAssets,
 }: AssetGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +91,13 @@ export function AssetGrid({
                 viewMode="list"
                 cardZoom={cardZoom}
                 onQuickCopy={() => onQuickCopy(item)}
+                onSelectAsset={onSelectAsset}
+                onViewStackAssets={() => {
+                  if ('isStack' in item && item.isStack) {
+                    if (onViewStackAssets) onViewStackAssets(item as AssetStack & { isStack: true });
+                    else onSelectItem(item, 'assets');
+                  }
+                }}
               />
             );
           })}
@@ -104,6 +115,13 @@ export function AssetGrid({
                 viewMode="grid"
                 cardZoom={cardZoom}
                 onQuickCopy={() => onQuickCopy(item)}
+                onSelectAsset={onSelectAsset}
+                onViewStackAssets={() => {
+                  if ('isStack' in item && item.isStack) {
+                    if (onViewStackAssets) onViewStackAssets(item as AssetStack & { isStack: true });
+                    else onSelectItem(item, 'assets');
+                  }
+                }}
               />
             );
           })}

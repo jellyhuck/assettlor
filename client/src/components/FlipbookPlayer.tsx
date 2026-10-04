@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Asset } from '../types';
-import { Play, Pause, SkipBack, SkipForward, Repeat, RotateCcw } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Repeat, RotateCcw, Eye } from 'lucide-react';
 
 interface FlipbookPlayerProps {
   frames: Asset[];
   pixelated?: boolean;
   checkerboard?: boolean;
   initialFps?: number;
+  initialFrameIndex?: number;
+  onFrameChange?: (index: number, asset: Asset) => void;
+  onViewFrameSeparately?: (asset: Asset, index: number) => void;
 }
 
 export function FlipbookPlayer({
@@ -14,8 +17,11 @@ export function FlipbookPlayer({
   pixelated = true,
   checkerboard = true,
   initialFps = 12,
+  initialFrameIndex = 0,
+  onFrameChange,
+  onViewFrameSeparately,
 }: FlipbookPlayerProps) {
-  const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(initialFrameIndex);
   const [isPlaying, setIsPlaying] = useState(true);
   const [fps, setFps] = useState(initialFps);
   const [isLooping, setIsLooping] = useState(true);
@@ -25,8 +31,19 @@ export function FlipbookPlayer({
   const currentAsset = frames[currentFrameIndex] || frames[0];
 
   useEffect(() => {
-    setCurrentFrameIndex(0);
-  }, [frames]);
+    if (initialFrameIndex >= 0 && initialFrameIndex < frames.length) {
+      setCurrentFrameIndex(initialFrameIndex);
+    } else {
+      setCurrentFrameIndex(0);
+    }
+  }, [frames, initialFrameIndex]);
+
+  const updateFrameIndex = (idx: number) => {
+    setCurrentFrameIndex(idx);
+    if (frames[idx] && onFrameChange) {
+      onFrameChange(idx, frames[idx]);
+    }
+  };
 
   useEffect(() => {
     if (!isPlaying || totalFrames <= 1) return;
@@ -34,24 +51,27 @@ export function FlipbookPlayer({
     const intervalMs = 1000 / fps;
     const timer = setInterval(() => {
       setCurrentFrameIndex((prev) => {
-        if (prev + 1 >= totalFrames) {
-          return isLooping ? 0 : prev;
+        const next = prev + 1 >= totalFrames ? (isLooping ? 0 : prev) : prev + 1;
+        if (frames[next] && onFrameChange) {
+          onFrameChange(next, frames[next]);
         }
-        return prev + 1;
+        return next;
       });
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [isPlaying, fps, totalFrames, isLooping]);
+  }, [isPlaying, fps, totalFrames, isLooping, frames, onFrameChange]);
 
   const handleStepBack = () => {
     setIsPlaying(false);
-    setCurrentFrameIndex((prev) => (prev > 0 ? prev - 1 : totalFrames - 1));
+    const nextIdx = currentFrameIndex > 0 ? currentFrameIndex - 1 : totalFrames - 1;
+    updateFrameIndex(nextIdx);
   };
 
   const handleStepForward = () => {
     setIsPlaying(false);
-    setCurrentFrameIndex((prev) => (prev + 1 < totalFrames ? prev + 1 : 0));
+    const nextIdx = currentFrameIndex + 1 < totalFrames ? currentFrameIndex + 1 : 0;
+    updateFrameIndex(nextIdx);
   };
 
   if (!currentAsset) {
@@ -74,8 +94,17 @@ export function FlipbookPlayer({
           }`}
         />
         {/* Frame badge overlay */}
-        <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/75 border border-white/10 text-[11px] font-mono font-medium text-cyan-300">
-          Frame {currentFrameIndex + 1} / {totalFrames}
+        <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 backdrop-blur-xs border border-white/10 text-[11px] font-mono font-medium text-cyan-300 flex items-center gap-2 shadow-sm">
+          <span>Frame {currentFrameIndex + 1} / {totalFrames}</span>
+          {onViewFrameSeparately && (
+            <button
+              onClick={() => onViewFrameSeparately(currentAsset, currentFrameIndex)}
+              title="View this frame separately as an individual asset"
+              className="text-[10px] text-indigo-300 hover:text-white underline cursor-pointer font-sans"
+            >
+              View Asset
+            </button>
+          )}
         </div>
       </div>
 
@@ -88,7 +117,7 @@ export function FlipbookPlayer({
           value={currentFrameIndex}
           onChange={(e) => {
             setIsPlaying(false);
-            setCurrentFrameIndex(Number(e.target.value));
+            updateFrameIndex(Number(e.target.value));
           }}
           className="flex-1 accent-indigo-500 h-1.5 bg-[#25253e] rounded-lg appearance-none cursor-pointer"
         />
@@ -102,7 +131,7 @@ export function FlipbookPlayer({
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => {
-              setCurrentFrameIndex(0);
+              updateFrameIndex(0);
               setIsPlaying(false);
             }}
             title="Reset to first frame"
@@ -142,18 +171,31 @@ export function FlipbookPlayer({
           </button>
         </div>
 
-        {/* FPS Control */}
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-400 font-medium">Speed:</span>
-          <input
-            type="range"
-            min="1"
-            max="30"
-            value={fps}
-            onChange={(e) => setFps(Number(e.target.value))}
-            className="w-16 accent-indigo-500 h-1 bg-[#25253e] rounded appearance-none cursor-pointer"
-          />
-          <span className="text-[11px] font-mono font-bold text-indigo-400 w-9 text-right">{fps} fps</span>
+        {/* View Frame action & FPS Control */}
+        <div className="flex items-center gap-3">
+          {onViewFrameSeparately && (
+            <button
+              onClick={() => onViewFrameSeparately(currentAsset, currentFrameIndex)}
+              title="Inspect this frame separately"
+              className="hidden sm:flex items-center gap-1 px-2 py-1 rounded bg-[#202035] hover:bg-indigo-600 hover:text-white text-slate-300 border border-[#2d2d46] text-xs font-medium transition-colors cursor-pointer"
+            >
+              <Eye className="w-3 h-3" />
+              <span>Inspect</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 font-medium">Speed:</span>
+            <input
+              type="range"
+              min="1"
+              max="30"
+              value={fps}
+              onChange={(e) => setFps(Number(e.target.value))}
+              className="w-16 accent-indigo-500 h-1 bg-[#25253e] rounded appearance-none cursor-pointer"
+            />
+            <span className="text-[11px] font-mono font-bold text-indigo-400 w-9 text-right">{fps} fps</span>
+          </div>
         </div>
       </div>
 
@@ -163,7 +205,7 @@ export function FlipbookPlayer({
           <button
             key={frame.id}
             onClick={() => {
-              setCurrentFrameIndex(index);
+              updateFrameIndex(index);
               setIsPlaying(false);
             }}
             className={`relative shrink-0 w-12 h-12 rounded border overflow-hidden p-0.5 transition-all cursor-pointer ${
@@ -171,6 +213,7 @@ export function FlipbookPlayer({
                 ? 'border-indigo-500 ring-2 ring-indigo-500/40 bg-[#25253e]'
                 : 'border-[#2d2d44] hover:border-slate-500 bg-[#161625]'
             }`}
+            title={`Frame ${index + 1}: ${frame.name}`}
           >
             <img
               src={frame.thumbnailUrl || frame.fileUrl}

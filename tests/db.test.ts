@@ -499,6 +499,30 @@ describe('Database Service', () => {
       expect(flat.items).toHaveLength(3);
     });
 
+    it('should hide member assets included into a stack in stacked view while allowing separate content asset inspection', () => {
+      const stacked = queryAssets({ isStackedView: true });
+      // The member assets (img_k1, img_k2) should NOT appear as standalone items in stacked view
+      const standaloneIds = stacked.items.map((i: any) => i.id);
+      expect(standaloneIds).not.toContain('img_k2');
+      expect(standaloneIds).toContain('stack_knight');
+      expect(standaloneIds).toContain('snd_laser');
+
+      // The stack must provide each of its content assets separately
+      const stackAssets = getStackAssets('stack_knight');
+      expect(stackAssets).toHaveLength(2);
+      expect(stackAssets[0].id).toBe('img_k1');
+      expect(stackAssets[0].name).toBe('Knight_Walk_01.png');
+      expect(stackAssets[1].id).toBe('img_k2');
+      expect(stackAssets[1].name).toBe('Knight_Walk_02.png');
+
+      // Full stack retrieval must also include the content assets array
+      const stackDetails = getStackById('stack_knight');
+      expect(stackDetails).not.toBeNull();
+      expect(stackDetails!.assets).toHaveLength(2);
+      expect(stackDetails!.assets![0].name).toBe('Knight_Walk_01.png');
+      expect(stackDetails!.assets![1].name).toBe('Knight_Walk_02.png');
+    });
+
     it('should filter by category', () => {
       const imgRes = queryAssets({ category: 'image', isStackedView: false });
       expect(imgRes.items).toHaveLength(2);
