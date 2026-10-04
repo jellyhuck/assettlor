@@ -91,6 +91,48 @@ function MainApp() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // Handler for tag selection (from Sidebar, Inspector, or chips)
+  const handleSelectTag = useCallback((tag: string | null) => {
+    if (!tag) {
+      setSelectedTag(null);
+      if (searchQuery.startsWith('#')) {
+        setSearchQuery('');
+        setDebouncedSearch('');
+      }
+      return;
+    }
+
+    const cleanTag = tag.replace(/^#/, '').trim();
+    if (selectedTag && selectedTag.toLowerCase() === cleanTag.toLowerCase()) {
+      // Toggle off if already selected
+      setSelectedTag(null);
+      if (searchQuery.toLowerCase() === `#${cleanTag.toLowerCase()}`) {
+        setSearchQuery('');
+        setDebouncedSearch('');
+      }
+    } else {
+      // Activate tag: automatically fill search bar and filter results!
+      setSelectedTag(cleanTag);
+      setSelectedCategory('all');
+      setSelectedFormat(null);
+      setSearchQuery(`#${cleanTag}`);
+      setDebouncedSearch(`#${cleanTag}`);
+    }
+  }, [selectedTag, searchQuery]);
+
+  // Handler for search bar input changes
+  const handleSearchChange = useCallback((query: string) => {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setSelectedTag(null);
+    } else if (query.startsWith('#')) {
+      const tagCandidate = query.slice(1).trim();
+      setSelectedTag(tagCandidate || null);
+    } else if (selectedTag) {
+      setSelectedTag(null);
+    }
+  }, [selectedTag]);
+
   // Load Settings
   useEffect(() => {
     fetch('/api/settings')
@@ -126,7 +168,9 @@ function MainApp() {
 
       if (selectedTag) params.append('tag', selectedTag);
       if (selectedFormat) params.append('format', selectedFormat);
-      if (debouncedSearch) params.append('search', debouncedSearch);
+      if (debouncedSearch && (!selectedTag || debouncedSearch.toLowerCase() !== `#${selectedTag.toLowerCase()}`)) {
+        params.append('search', debouncedSearch);
+      }
 
       params.append('isStackedView', String(isStackedView));
       params.append('sortBy', sortBy);
@@ -240,10 +284,10 @@ function MainApp() {
         selectedCategory={selectedCategory}
         onSelectCategory={(cat) => {
           setSelectedCategory(cat);
-          setSelectedTag(null);
+          handleSelectTag(null);
         }}
         selectedTag={selectedTag}
-        onSelectTag={(t) => setSelectedTag(t)}
+        onSelectTag={handleSelectTag}
         selectedFormat={selectedFormat}
         onSelectFormat={(f) => setSelectedFormat(f)}
         tags={tags}
@@ -260,7 +304,7 @@ function MainApp() {
         {/* Top Bar */}
         <TopBar
           searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
+          onSearchChange={handleSearchChange}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           isStackedView={isStackedView}
@@ -287,7 +331,7 @@ function MainApp() {
           onQuickCopy={handleQuickCopy}
           loading={loading}
           searchQuery={searchQuery}
-          onClearSearch={() => setSearchQuery('')}
+          onClearSearch={() => handleSearchChange('')}
         />
       </div>
 
@@ -297,7 +341,8 @@ function MainApp() {
           item={selectedItem}
           onClose={() => setSelectedItem(null)}
           settings={settings}
-          onTagClick={(tag) => setSelectedTag(tag)}
+          onTagClick={handleSelectTag}
+          selectedTag={selectedTag}
         />
       )}
 

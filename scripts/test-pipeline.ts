@@ -103,6 +103,25 @@ async function runTestPipeline() {
     console.log(`✓ Search "${st.query}": ${sRes.items.length} stacked, ${fRes.items.length} flat, 0 duplicates`);
   }
 
+  // 4c. Test Tag Filtering Engine
+  console.log('\n--- 4c. Testing Tag Filtering Engine ---');
+  const tagTests = [
+    { tag: 'pixel-art', expectedStacked: 2 },
+    { tag: '#pixel-art', expectedStacked: 2 },
+    { tag: 'RetroPack', expectedStacked: 4 },
+    { tag: '#retropack', expectedStacked: 4 },
+    { tag: 'animated', expectedStacked: 1 },
+    { tag: '#coins', expectedStacked: 3 },
+  ];
+
+  for (const tt of tagTests) {
+    const tRes = queryAssets({ tag: tt.tag, isStackedView: true });
+    if (tRes.items.length !== tt.expectedStacked) {
+      throw new Error(`Assertion failed: Tag filter "${tt.tag}" expected ${tt.expectedStacked} items, got ${tRes.items.length}`);
+    }
+    console.log(`✓ Tag filter "${tt.tag}": ${tRes.items.length} items returned correctly`);
+  }
+
   // 5. Test Copy to Game Project
   console.log('\n--- 5. Testing "Copy to Game Project" Workflow ---');
   fs.mkdirSync(projectDir, { recursive: true });

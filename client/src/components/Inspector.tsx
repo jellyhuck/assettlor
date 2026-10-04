@@ -26,9 +26,10 @@ interface InspectorProps {
   onClose: () => void;
   settings: AppSettings;
   onTagClick?: (tag: string) => void;
+  selectedTag?: string | null;
 }
 
-export function Inspector({ item, onClose, settings, onTagClick }: InspectorProps) {
+export function Inspector({ item, onClose, settings, onTagClick, selectedTag }: InspectorProps) {
   const { showToast } = useToast();
 
   const [pixelated, setPixelated] = useState(true);
@@ -335,15 +336,24 @@ export function Inspector({ item, onClose, settings, onTagClick }: InspectorProp
                 Tags ({asset.tags.length})
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {asset.tags.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => onTagClick && onTagClick(tag)}
-                    className="px-2 py-0.5 text-xs bg-[#202035] hover:bg-indigo-900/50 border border-[#2d2d46] hover:border-indigo-500/50 text-slate-300 hover:text-white rounded-md transition-colors cursor-pointer"
-                  >
-                    #{tag}
-                  </button>
-                ))}
+                {asset.tags.map((tag) => {
+                  const cleanTag = tag.replace(/^#/, '');
+                  const isSelected = selectedTag === cleanTag || selectedTag === `#${cleanTag}`;
+                  return (
+                    <button
+                      key={tag}
+                      onClick={() => onTagClick && onTagClick(tag)}
+                      title={`Filter by tag #${cleanTag}`}
+                      className={`px-2 py-0.5 text-xs rounded-md border transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white border-indigo-400 font-semibold shadow-xs ring-1 ring-indigo-400/50'
+                          : 'bg-[#202035] hover:bg-indigo-900/50 border-[#2d2d46] hover:border-indigo-500/50 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      #{cleanTag}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -281,7 +281,9 @@ export function Sidebar({
             {/* Tag list */}
             <div className="max-h-48 overflow-y-auto space-y-0.5 px-1">
               {filteredTags.map((tag) => {
-                const isSelected = selectedTag === tag.name;
+                const isSelected = selectedTag
+                  ? selectedTag.toLowerCase().replace(/^#/, '') === tag.name.toLowerCase()
+                  : false;
                 return (
                   <button
                     key={tag.name}
