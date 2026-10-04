@@ -15,9 +15,16 @@ import { fsRoutes } from './routes/fs.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function startServer() {
+export interface BuildServerOptions {
+  logger?: boolean | object;
+  initDb?: boolean;
+  libraryPath?: string;
+  clientDistPath?: string;
+}
+
+export async function buildServer(options: BuildServerOptions = {}) {
   const server = Fastify({
-    logger: {
+    logger: options.logger !== undefined ? options.logger : {
       level: process.env.LOG_LEVEL || 'info',
     },
   });
@@ -29,14 +36,16 @@ async function startServer() {
   });
 
   // Initialize DB with library path
-  try {
-    const libraryPath = config.defaultLibraryPath;
-    if (!fs.existsSync(libraryPath)) {
-      fs.mkdirSync(libraryPath, { recursive: true });
+  if (options.initDb !== false) {
+    try {
+      const libraryPath = options.libraryPath || config.defaultLibraryPath;
+      if (!fs.existsSync(libraryPath)) {
+        fs.mkdirSync(libraryPath, { recursive: true });
+      }
+      initDatabase(libraryPath);
+    } catch (err) {
+      console.warn('Initial database init note:', err);
     }
-    initDatabase(libraryPath);
-  } catch (err) {
-    console.warn('Initial database init note:', err);
   }
 
   // Register API routes
@@ -47,21 +56,29 @@ async function startServer() {
   await server.register(fsRoutes);
 
   // Serve frontend build if dist exists
-  const clientDistPath = path.resolve(__dirname, '../../client/dist');
+  const clientDistPath = options.clientDistPath || path.resolve(__dirname, '../../client/dist');
   if (fs.existsSync(clientDistPath)) {
     await server.register(fastifyStatic, {
       root: clientDistPath,
       prefix: '/',
     });
-
-    server.setNotFoundHandler((req, reply) => {
-      if (req.raw.url && req.raw.url.startsWith('/api')) {
-        return reply.status(404).send({ error: 'Endpoint not found' });
-      }
-      return reply.sendFile('index.html');
-    });
   }
 
+  server.setNotFoundHandler((req, reply) => {
+    if (req.raw.url && req.raw.url.startsWith('/api')) {
+      return reply.status(404).send({ error: 'Endpoint not found' });
+    }
+    if (fs.existsSync(clientDistPath)) {
+      return reply.sendFile('index.html');
+    }
+    return reply.status(404).send({ error: 'Endpoint not found' });
+  });
+
+  return server;
+}
+
+export async function startServer() {
+  const server = await buildServer();
   try {
     await server.listen({ port: config.port, host: config.host });
     console.log(`🚀 Assettlor Backend running on http://${config.host}:${config.port}`);
@@ -71,4 +88,10 @@ async function startServer() {
   }
 }
 
-startServer();
+const isDirectRun = Boolean(
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)
+);
+
+if (isDirectRun) {
+  startServer();
+}

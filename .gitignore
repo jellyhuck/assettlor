@@ -5,3 +5,4 @@ client/dist/
 sample-assets/.assettlor/
 *.log
 .DS_Store
+coverage/

@@ -28,6 +28,18 @@ export function getCurrentLibraryPath(): string {
   return currentLibraryPath;
 }
 
+export function closeDatabase(): void {
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch (e) {
+      console.error('Error closing database:', e);
+    }
+    dbInstance = null;
+    currentLibraryPath = '';
+  }
+}
+
 export function initDatabase(libraryPath: string): Database.Database {
   if (dbInstance && currentLibraryPath === libraryPath) {
     return dbInstance;
@@ -100,7 +112,7 @@ export function initDatabase(libraryPath: string): Database.Database {
       tag TEXT NOT NULL,
       source TEXT NOT NULL,
       PRIMARY KEY (asset_id, tag),
-      FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+      FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE ON UPDATE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -196,7 +208,7 @@ export function getAppSettings(): AppSettings {
 
   return {
     libraryPath: map.get('libraryPath') || currentLibraryPath || config.defaultLibraryPath,
-    activeProjectPath: map.get('activeProjectPath') || config.defaultActiveProjectPath,
+    activeProjectPath: map.has('activeProjectPath') ? map.get('activeProjectPath')! : config.defaultActiveProjectPath,
     thumbnailQuality: Number(map.get('thumbnailQuality') || 80),
     autoStackAnimations: map.get('autoStackAnimations') !== 'false',
     autoStackAudio: map.get('autoStackAudio') !== 'false',
@@ -292,10 +304,12 @@ export function upsertAsset(asset: {
       updated_at = excluded.updated_at
   `);
 
+  const deleteTagsByPathStmt = db.prepare('DELETE FROM tags WHERE asset_id IN (SELECT id FROM assets WHERE path = ?)');
   const deleteTagsStmt = db.prepare('DELETE FROM tags WHERE asset_id = ?');
   const insertTagStmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
 
   const tx = db.transaction(() => {
+    deleteTagsByPathStmt.run(asset.path);
     upsertStmt.run(
       asset.id,
       asset.path,

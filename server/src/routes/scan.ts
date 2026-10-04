@@ -19,12 +19,12 @@ export async function scanRoutes(fastify: FastifyInstance) {
       reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
     });
 
-    req.raw.on('close', () => {
-      unsubscribe();
+    return new Promise((resolve) => {
+      req.raw.on('close', () => {
+        unsubscribe();
+        resolve(undefined);
+      });
     });
-
-    // Keep connection open
-    return new Promise(() => {});
   });
 
   // Current status
@@ -35,7 +35,7 @@ export async function scanRoutes(fastify: FastifyInstance) {
   // Trigger scan
   fastify.post('/api/scan/start', async (req: FastifyRequest<{ Body: { libraryPath?: string } }>, reply) => {
     const settings = getAppSettings();
-    const targetPath = req.body?.libraryPath || settings.libraryPath;
+    const targetPath = req.body?.libraryPath !== undefined ? req.body.libraryPath : settings.libraryPath;
 
     if (!targetPath) {
       return reply.status(400).send({ error: 'Library path is required' });
