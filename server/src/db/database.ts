@@ -489,7 +489,7 @@ export function removeDeletedAssets(existingPaths: Set<string>): number {
 
 export function queryAssets(params: AssetQueryParams): AssetListResponse {
   const db = getDatabase();
-  const isStackedView = params.isStackedView !== false; // default true
+  const isStackedView = params.isStackedView !== false && String(params.isStackedView) !== 'false';
   const page = Math.max(1, Number(params.page) || 1);
   const limit = Math.max(1, Math.min(200, Number(params.limit) || 60));
   const offset = (page - 1) * limit;
@@ -524,49 +524,127 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
   const conditions: string[] = [];
   const args: any[] = [];
 
+  if (isStackedView) {
+    // In stacked view, each item (stack or standalone asset) is represented by exactly one row.
+    // For stacks, only include the representative asset row!
+    conditions.push('(a.stack_id IS NULL OR a.id = s.representative_asset_id)');
+  }
+
   if (params.category && params.category !== 'all') {
-    conditions.push('a.category = ?');
-    args.push(params.category);
+    if (isStackedView) {
+      if (params.category === 'image') {
+        conditions.push("(a.category = 'image' OR s.type = 'animation')");
+      } else if (params.category === 'audio') {
+        conditions.push("(a.category = 'audio' OR s.type = 'audio_variation')");
+      } else {
+        conditions.push('a.category = ?');
+        args.push(params.category);
+      }
+    } else {
+      conditions.push('a.category = ?');
+      args.push(params.category);
+    }
   }
 
   if (params.format) {
-    conditions.push('LOWER(a.extension) = ?');
-    args.push(params.format.toLowerCase());
+    const fmt = params.format.toLowerCase();
+    if (isStackedView) {
+      conditions.push('(LOWER(a.extension) = ? OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND LOWER(m.extension) = ?)))');
+      args.push(fmt, fmt);
+    } else {
+      conditions.push('LOWER(a.extension) = ?');
+      args.push(fmt);
+    }
   }
 
   if (params.tag) {
-    conditions.push(`EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ?)`);
-    args.push(params.tag);
+    if (isStackedView) {
+      conditions.push('(EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ?) OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m JOIN tags mt ON mt.asset_id = m.id WHERE m.stack_id = a.stack_id AND mt.tag = ?)))');
+      args.push(params.tag, params.tag);
+    } else {
+      conditions.push('EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ?)');
+      args.push(params.tag);
+    }
   }
 
   if (params.search && params.search.trim()) {
-    const s = `%${params.search.trim().toLowerCase()}%`;
-    conditions.push(`(
-      LOWER(a.name) LIKE ? OR
-      LOWER(a.path) LIKE ? OR
-      EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) LIKE ?)
-    )`);
-    args.push(s, s, s);
+    const rawTokens = params.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    for (const token of rawTokens) {
+      const cleanToken = token.replace(/^#/, '');
+      const tParam = `%${token}%`;
+      const tCleanParam = `%${cleanToken}%`;
+
+      if (isStackedView) {
+        conditions.push(`(
+          LOWER(a.name) LIKE ? OR
+          REPLACE(LOWER(a.name), '_', ' ') LIKE ? OR
+          REPLACE(LOWER(a.name), '-', ' ') LIKE ? OR
+          LOWER(a.path) LIKE ? OR
+          (s.id IS NOT NULL AND (
+            LOWER(s.name) LIKE ? OR
+            REPLACE(LOWER(s.name), '_', ' ') LIKE ?
+          )) OR
+          EXISTS (
+            SELECT 1 FROM tags t
+            WHERE t.asset_id = a.id
+              AND (LOWER(t.tag) LIKE ? OR LOWER(t.tag) LIKE ?)
+          ) OR
+          (a.stack_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM assets m
+            WHERE m.stack_id = a.stack_id
+              AND (
+                LOWER(m.name) LIKE ? OR
+                REPLACE(LOWER(m.name), '_', ' ') LIKE ? OR
+                REPLACE(LOWER(m.name), '-', ' ') LIKE ? OR
+                LOWER(m.path) LIKE ? OR
+                EXISTS (
+                  SELECT 1 FROM tags mt
+                  WHERE mt.asset_id = m.id
+                    AND (LOWER(mt.tag) LIKE ? OR LOWER(mt.tag) LIKE ?)
+                )
+              )
+          ))
+        )`);
+        args.push(
+          tParam, tParam, tParam, tParam,
+          tParam, tParam,
+          tParam, tCleanParam,
+          tParam, tParam, tParam, tParam,
+          tParam, tCleanParam
+        );
+      } else {
+        conditions.push(`(
+          LOWER(a.name) LIKE ? OR
+          REPLACE(LOWER(a.name), '_', ' ') LIKE ? OR
+          REPLACE(LOWER(a.name), '-', ' ') LIKE ? OR
+          LOWER(a.path) LIKE ? OR
+          (s.id IS NOT NULL AND LOWER(s.name) LIKE ?) OR
+          EXISTS (
+            SELECT 1 FROM tags t
+            WHERE t.asset_id = a.id
+              AND (LOWER(t.tag) LIKE ? OR LOWER(t.tag) LIKE ?)
+          )
+        )`);
+        args.push(
+          tParam, tParam, tParam, tParam,
+          tParam,
+          tParam, tCleanParam
+        );
+      }
+    }
   }
 
   // Special stackType filter:
   if (params.stackType === 'animation') {
-    conditions.push(`a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM stacks st WHERE st.id = a.stack_id AND st.type = 'animation')`);
+    conditions.push("s.type = 'animation'");
   } else if (params.stackType === 'audio_variation') {
-    conditions.push(`a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM stacks st WHERE st.id = a.stack_id AND st.type = 'audio_variation')`);
-  }
-
-  if (isStackedView) {
-    // In stacked view:
-    // If an asset belongs to a stack, only include it if it is the representative asset!
-    // Or we show stack items as stack representations.
-    conditions.push(`(a.stack_id IS NULL OR a.stack_index = 0 OR a.stack_index = 1)`);
+    conditions.push("s.type = 'audio_variation'");
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   // Sort clause
-  let sortField = 'a.name';
+  let sortField = isStackedView ? 'COALESCE(s.name, a.name)' : 'a.name';
   let sortOrder = params.sortOrder === 'desc' ? 'DESC' : 'ASC';
 
   switch (params.sortBy) {
@@ -578,15 +656,20 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
       break;
     case 'resolution':
     case 'duration':
-      sortField = 'a.name';
+      sortField = isStackedView ? 'COALESCE(s.name, a.name)' : 'a.name';
       break;
     case 'name':
     default:
-      sortField = 'a.name';
+      sortField = isStackedView ? 'COALESCE(s.name, a.name)' : 'a.name';
       break;
   }
 
-  const countQuery = `SELECT COUNT(DISTINCT a.id) as count FROM assets a ${whereClause}`;
+  const countQuery = `
+    SELECT COUNT(DISTINCT ${isStackedView ? 'COALESCE(s.id, a.id)' : 'a.id'}) as count
+    FROM assets a
+    LEFT JOIN stacks s ON a.stack_id = s.id
+    ${whereClause}
+  `;
   const totalCount = (db.prepare(countQuery).get(...args) as { count: number }).count;
 
   const dataQuery = `
@@ -623,6 +706,13 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
         stackMeta = {};
       }
 
+      // Collect unique tags across all stack members
+      const stackTagRows = db.prepare(`
+        SELECT DISTINCT t.tag FROM tags t
+        JOIN assets m ON m.id = t.asset_id
+        WHERE m.stack_id = ?
+      `).all(r.s_id) as { tag: string }[];
+
       const stackItem: AssetStack & { isStack: true } = {
         isStack: true,
         id: r.s_id,
@@ -632,7 +722,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
         representativeAssetId: r.id,
         representativeAsset: asset,
         metadata: stackMeta,
-        tags: asset.tags,
+        tags: stackTagRows.map((t) => t.tag),
         createdAt: r.created_at,
       };
       return stackItem;

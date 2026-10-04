@@ -8,6 +8,7 @@ import {
   Layers,
   ArrowUpDown,
   ZoomIn,
+  Loader2,
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -23,6 +24,7 @@ interface TopBarProps {
   sortOrder: 'asc' | 'desc';
   onSortChange: (by: 'name' | 'size' | 'mtime', order: 'asc' | 'desc') => void;
   totalItems: number;
+  loading?: boolean;
 }
 
 export function TopBar({
@@ -38,22 +40,38 @@ export function TopBar({
   sortOrder,
   onSortChange,
   totalItems,
+  loading = false,
 }: TopBarProps) {
   return (
     <header className="h-14 shrink-0 bg-[#151524] border-b border-[#242438] px-4 flex items-center justify-between gap-4 text-slate-300">
       {/* Search Bar */}
       <div className="relative flex-1 max-w-md">
-        <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+        {loading ? (
+          <Loader2 className="w-4 h-4 text-indigo-400 animate-spin absolute left-3 top-2.5" />
+        ) : (
+          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+        )}
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              if (searchQuery) {
+                e.stopPropagation();
+                onSearchChange('');
+              } else {
+                (e.target as HTMLInputElement).blur();
+              }
+            }
+          }}
           placeholder="Search assets, tags, or paths (e.g. knight, sfx, ui)..."
-          className="w-full pl-9 pr-8 py-1.5 text-xs bg-[#12121d] border border-[#27273d] rounded-lg text-slate-200 placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 transition-colors"
+          className="w-full pl-9 pr-8 py-1.5 text-xs bg-[#12121d] border border-[#27273d] rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/40 transition-colors"
         />
         {searchQuery && (
           <button
             onClick={() => onSearchChange('')}
+            title="Clear search (Esc)"
             className="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
@@ -65,7 +83,7 @@ export function TopBar({
       <div className="flex items-center gap-3">
         {/* Results Counter */}
         <span className="text-xs font-mono text-slate-400 hidden sm:inline-block">
-          {totalItems} {totalItems === 1 ? 'item' : 'items'}
+          {totalItems} {searchQuery ? (totalItems === 1 ? 'match' : 'matches') : (totalItems === 1 ? 'item' : 'items')}
         </span>
 
         {/* Stack Toggle Button */}

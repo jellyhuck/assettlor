@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { Asset, AssetStack, ViewMode, CardZoom } from '../types';
 import { AssetCard } from './AssetCard';
-import { Sparkles, Layers, SearchX } from 'lucide-react';
+import { Sparkles, Layers, SearchX, Loader2 } from 'lucide-react';
 
 interface AssetGridProps {
   items: (Asset | (AssetStack & { isStack: true }))[];
@@ -11,6 +11,8 @@ interface AssetGridProps {
   cardZoom: CardZoom;
   onQuickCopy: (item: Asset | (AssetStack & { isStack: true })) => void;
   loading?: boolean;
+  searchQuery?: string;
+  onClearSearch?: () => void;
 }
 
 export function AssetGrid({
@@ -21,10 +23,21 @@ export function AssetGrid({
   cardZoom,
   onQuickCopy,
   loading = false,
+  searchQuery = '',
+  onClearSearch,
 }: AssetGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  if (items.length === 0 && !loading) {
+  if (items.length === 0) {
+    if (loading) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500">
+          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-3" />
+          <h3 className="text-sm font-semibold text-slate-300">Searching assets...</h3>
+          <p className="text-xs text-slate-500 mt-1">Filtering asset library</p>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500">
         <div className="w-12 h-12 rounded-2xl bg-[#1b1b2c] border border-[#27273d] flex items-center justify-center mb-3">
@@ -32,8 +45,18 @@ export function AssetGrid({
         </div>
         <h3 className="text-sm font-semibold text-slate-300">No assets found</h3>
         <p className="text-xs text-slate-500 mt-1 max-w-sm">
-          No files match your current filters, category, or search term. Try resetting your search or triggering a library scan.
+          {searchQuery
+            ? `No assets match "${searchQuery}". Check for typos or try searching by category or tags.`
+            : 'No files match your current filters or category. Try resetting your search or triggering a library scan.'}
         </p>
+        {searchQuery && onClearSearch && (
+          <button
+            onClick={onClearSearch}
+            className="mt-4 px-3 py-1.5 text-xs font-medium bg-[#202033] hover:bg-indigo-600 hover:text-white text-slate-300 border border-[#2f2f48] rounded-lg transition-colors cursor-pointer"
+          >
+            Clear search
+          </button>
+        )}
       </div>
     );
   }

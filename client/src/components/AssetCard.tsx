@@ -39,6 +39,12 @@ export function AssetCard({
   const stack = isStack ? (item as AssetStack & { isStack: true }) : null;
   const asset = !isStack ? (item as Asset) : stack?.representativeAsset;
 
+  // Reset frame cache if card identity changes
+  useEffect(() => {
+    setStackFrames([]);
+    setHoverFrameIndex(0);
+  }, [item.id]);
+
   // Format file size
   const formatBytes = (bytes?: number) => {
     if (!bytes) return '0 B';

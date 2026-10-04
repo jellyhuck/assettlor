@@ -76,11 +76,18 @@ function MainApp() {
     indexedCount: 0,
   });
 
-  // Debounce search input
+  // Track active request ID to ignore stale responses
+  const activeRequestIdRef = React.useRef(0);
+
+  // Debounce search input (immediate on clear, 200ms debounce on type)
   useEffect(() => {
+    if (!searchQuery.trim()) {
+      setDebouncedSearch('');
+      return;
+    }
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
-    }, 250);
+    }, 200);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -107,6 +114,7 @@ function MainApp() {
 
   // Fetch Assets based on query
   const loadAssets = useCallback(async () => {
+    const requestId = ++activeRequestIdRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -129,15 +137,21 @@ function MainApp() {
       if (!res.ok) throw new Error('Failed to load assets');
       const data: AssetListResponse = await res.json();
 
+      if (requestId !== activeRequestIdRef.current) return;
+
       setItems(data.items);
       setTotalCount(data.total);
       if (data.summary) {
         setSummary(data.summary);
       }
     } catch (err: any) {
-      console.error('Error fetching assets:', err);
+      if (requestId === activeRequestIdRef.current) {
+        console.error('Error fetching assets:', err);
+      }
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [
     selectedCategory,
@@ -260,6 +274,7 @@ function MainApp() {
             setSortOrder(o);
           }}
           totalItems={totalCount}
+          loading={loading}
         />
 
         {/* Gallery Grid */}
@@ -271,6 +286,8 @@ function MainApp() {
           cardZoom={cardZoom}
           onQuickCopy={handleQuickCopy}
           loading={loading}
+          searchQuery={searchQuery}
+          onClearSearch={() => setSearchQuery('')}
         />
       </div>
 
