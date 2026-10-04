@@ -1,0 +1,7 @@
+node_modules/
+client/node_modules/
+client/dist/
+.assettlor/
+sample-assets/.assettlor/
+*.log
+.DS_Store
