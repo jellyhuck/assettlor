@@ -8,6 +8,8 @@ interface FlipbookPlayerProps {
   checkerboard?: boolean;
   initialFps?: number;
   initialFrameIndex?: number;
+  selectedFrameIndex?: number;
+  onSelectFrame?: (index: number, asset: Asset) => void;
   onFrameChange?: (index: number, asset: Asset) => void;
   onViewFrameSeparately?: (asset: Asset, index: number) => void;
 }
@@ -18,6 +20,8 @@ export function FlipbookPlayer({
   checkerboard = true,
   initialFps = 12,
   initialFrameIndex = 0,
+  selectedFrameIndex = 0,
+  onSelectFrame,
   onFrameChange,
   onViewFrameSeparately,
 }: FlipbookPlayerProps) {
@@ -42,6 +46,16 @@ export function FlipbookPlayer({
     setCurrentFrameIndex(idx);
     if (frames[idx] && onFrameChange) {
       onFrameChange(idx, frames[idx]);
+    }
+  };
+
+  const handleFrameClick = (idx: number) => {
+    if (frames[idx] && onSelectFrame) {
+      onSelectFrame(idx, frames[idx]);
+    }
+    // If playback is paused, also sync the player canvas to the clicked frame
+    if (!isPlaying) {
+      updateFrameIndex(idx);
     }
   };
 
@@ -201,30 +215,50 @@ export function FlipbookPlayer({
 
       {/* Frame Strip Thumbnails */}
       <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-0.5">
-        {frames.map((frame, index) => (
-          <button
-            key={frame.id}
-            onClick={() => {
-              updateFrameIndex(index);
-              setIsPlaying(false);
-            }}
-            className={`relative shrink-0 w-12 h-12 rounded border overflow-hidden p-0.5 transition-all cursor-pointer ${
-              currentFrameIndex === index
-                ? 'border-indigo-500 ring-2 ring-indigo-500/40 bg-[#25253e]'
-                : 'border-[#2d2d44] hover:border-slate-500 bg-[#161625]'
-            }`}
-            title={`Frame ${index + 1}: ${frame.name}`}
-          >
-            <img
-              src={frame.thumbnailUrl || frame.fileUrl}
-              alt={frame.name}
-              className={`w-full h-full object-contain ${pixelated ? 'pixelated' : 'smooth-render'}`}
-            />
-            <span className="absolute bottom-0 right-0 px-1 text-[9px] font-mono bg-black/80 text-slate-300 rounded-tl">
-              {index + 1}
-            </span>
-          </button>
-        ))}
+        {frames.map((frame, index) => {
+          const isSelected = selectedFrameIndex === index;
+          const isCurrentPlayback = currentFrameIndex === index;
+
+          let borderRingClass = 'border-[#2d2d44] hover:border-slate-500 bg-[#161625]';
+          let badgeClass = 'bg-black/80 text-slate-400';
+          let titleSuffix = '';
+
+          if (isSelected && isCurrentPlayback) {
+            borderRingClass = 'border-indigo-400 ring-2 ring-indigo-500 bg-[#252542] shadow-sm';
+            badgeClass = 'bg-indigo-600 text-white font-bold';
+            titleSuffix = ' (Selected & Playing)';
+          } else if (isSelected) {
+            borderRingClass = 'border-indigo-500 ring-2 ring-indigo-500/50 bg-[#202038] shadow-sm';
+            badgeClass = 'bg-indigo-600 text-white font-bold';
+            titleSuffix = ' (Selected)';
+          } else if (isCurrentPlayback) {
+            borderRingClass = 'border-slate-300 ring-2 ring-slate-400/50 bg-[#222232]';
+            badgeClass = 'bg-slate-700 text-slate-200 font-semibold';
+            titleSuffix = ' (Playing)';
+          }
+
+          return (
+            <button
+              key={frame.id}
+              onClick={() => handleFrameClick(index)}
+              onDoubleClick={() => {
+                handleFrameClick(index);
+                updateFrameIndex(index);
+              }}
+              className={`relative shrink-0 w-12 h-12 rounded-lg border overflow-hidden p-0.5 transition-all cursor-pointer ${borderRingClass}`}
+              title={`Frame ${index + 1}: ${frame.name}${titleSuffix}`}
+            >
+              <img
+                src={frame.thumbnailUrl || frame.fileUrl}
+                alt={frame.name}
+                className={`w-full h-full object-contain ${pixelated ? 'pixelated' : 'smooth-render'}`}
+              />
+              <span className={`absolute bottom-0 right-0 px-1 text-[9px] font-mono rounded-tl ${badgeClass}`}>
+                {index + 1}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

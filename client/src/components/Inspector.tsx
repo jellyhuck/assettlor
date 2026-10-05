@@ -103,7 +103,7 @@ export function Inspector({
 
   if (!item) return null;
 
-  // Active content asset when browsing stack members separately
+  // Active content asset when browsing stack members separately or viewing selected frame
   const currentSeparateAsset =
     isStack && stackAssets.length > 0
       ? stackAssets[selectedFrameIndex] || stackAssets[0]
@@ -111,11 +111,9 @@ export function Inspector({
 
   // Asset to display in metadata section and single preview
   const displayedAsset =
-    isStack && stackViewMode === 'assets'
-      ? currentSeparateAsset
-      : !isStack
+    !isStack
       ? (item as Asset)
-      : selectedVariant || stack?.representativeAsset || currentSeparateAsset;
+      : currentSeparateAsset || selectedVariant || stack?.representativeAsset;
 
   if (!displayedAsset) return null;
 
@@ -263,7 +261,8 @@ export function Inspector({
                 checkerboard={checkerboard}
                 initialFps={settings.defaultFps}
                 initialFrameIndex={selectedFrameIndex}
-                onFrameChange={(idx, frame) => {
+                selectedFrameIndex={selectedFrameIndex}
+                onSelectFrame={(idx, frame) => {
                   setSelectedFrameIndex(idx);
                   setSelectedVariant(frame);
                 }}
@@ -548,9 +547,9 @@ export function Inspector({
           <div className="space-y-3 pt-3 border-t border-[#25253c]">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                {isStack && stackViewMode === 'assets' ? 'Frame Metadata' : 'Asset Metadata'}
+                {isStack ? 'Frame Metadata' : 'Asset Metadata'}
               </h4>
-              {isStack && stackViewMode === 'assets' && (
+              {isStack && stackAssets.length > 0 && (
                 <span className="text-[10px] font-mono text-indigo-400">
                   Frame {selectedFrameIndex + 1}/{stackAssets.length}
                 </span>
