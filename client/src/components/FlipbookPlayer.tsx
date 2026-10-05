@@ -185,31 +185,18 @@ export function FlipbookPlayer({
           </button>
         </div>
 
-        {/* View Frame action & FPS Control */}
-        <div className="flex items-center gap-3">
-          {onViewFrameSeparately && (
-            <button
-              onClick={() => onViewFrameSeparately(currentAsset, currentFrameIndex)}
-              title="Inspect this frame separately"
-              className="hidden sm:flex items-center gap-1 px-2 py-1 rounded bg-[#202035] hover:bg-indigo-600 hover:text-white text-slate-300 border border-[#2d2d46] text-xs font-medium transition-colors cursor-pointer"
-            >
-              <Eye className="w-3 h-3" />
-              <span>Inspect</span>
-            </button>
-          )}
-
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-400 font-medium">Speed:</span>
-            <input
-              type="range"
-              min="1"
-              max="30"
-              value={fps}
-              onChange={(e) => setFps(Number(e.target.value))}
-              className="w-16 accent-indigo-500 h-1 bg-[#25253e] rounded appearance-none cursor-pointer"
-            />
-            <span className="text-[11px] font-mono font-bold text-indigo-400 w-9 text-right">{fps} fps</span>
-          </div>
+        {/* FPS Control */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-400 font-medium">Speed:</span>
+          <input
+            type="range"
+            min="1"
+            max="30"
+            value={fps}
+            onChange={(e) => setFps(Number(e.target.value))}
+            className="w-16 accent-indigo-500 h-1 bg-[#25253e] rounded appearance-none cursor-pointer"
+          />
+          <span className="text-[11px] font-mono font-bold text-indigo-400 w-9 text-right">{fps} fps</span>
         </div>
       </div>
 
@@ -260,6 +247,25 @@ export function FlipbookPlayer({
           );
         })}
       </div>
+
+      {/* Inspect Frame Action */}
+      {onViewFrameSeparately && (
+        <button
+          onClick={() => {
+            const targetIndex =
+              selectedFrameIndex !== undefined && selectedFrameIndex >= 0 && selectedFrameIndex < totalFrames
+                ? selectedFrameIndex
+                : currentFrameIndex;
+            const targetAsset = frames[targetIndex] || currentAsset;
+            onViewFrameSeparately(targetAsset, targetIndex);
+          }}
+          title="Inspect this frame separately"
+          className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#202035] hover:bg-indigo-600 hover:text-white text-slate-300 border border-[#2d2d46] text-xs font-medium transition-colors cursor-pointer w-full"
+        >
+          <Eye className="w-3.5 h-3.5" />
+          <span>Inspect</span>
+        </button>
+      )}
     </div>
   );
 }
