@@ -6,7 +6,8 @@ export type FilterType =
   | 'duration'
   | 'bpm'
   | 'tag'
-  | 'sprite';
+  | 'sprite'
+  | 'pack';
 
 export interface ParsedFilters {
   format: string | null;
@@ -17,6 +18,7 @@ export interface ParsedFilters {
   bpm: string | null;
   tag: string | null;
   sprite: string | null;
+  pack: string | null;
 }
 
 /**
@@ -48,6 +50,10 @@ export function formatFilterToken(filterType: FilterType, value: string | null):
     }
     case 'sprite':
       return `sprite:${v.toLowerCase()}`;
+    case 'pack': {
+      const clean = v.trim();
+      return clean.includes(' ') ? `pack:"${clean}"` : `pack:${clean}`;
+    }
     default:
       return null;
   }
@@ -74,6 +80,8 @@ export function getFilterPattern(filterType: FilterType): RegExp {
       return /(?:^|\s)(?:(?:tag|t):(?:"[^"]*"|[^\s]+)|#[a-zA-Z0-9_\-]+)/gi;
     case 'sprite':
       return /\b(?:sprite|spritetype):[^\s]+/gi;
+    case 'pack':
+      return /\b(?:pack|p):(?:"[^"]*"|[^\s]+)/gi;
     default:
       return /(?!)/g;
   }
@@ -93,6 +101,7 @@ export function parseFiltersFromQuery(query: string): ParsedFilters {
     bpm: null,
     tag: null,
     sprite: null,
+    pack: null,
   };
 
   if (!q) return res;
@@ -178,6 +187,12 @@ export function parseFiltersFromQuery(query: string): ParsedFilters {
   const spriteMatch = q.match(/\b(?:sprite|spritetype):([^\s]+)/i);
   if (spriteMatch) {
     res.sprite = spriteMatch[1].toLowerCase();
+  }
+
+  // 9. Pack: pack:RetroPack, pack:"Fantasy Pack", p:RetroPack
+  const packMatch = q.match(/\b(?:pack|p):"([^"]+)"|\b(?:pack|p):([^\s]+)/i);
+  if (packMatch) {
+    res.pack = (packMatch[1] || packMatch[2]).toLowerCase();
   }
 
   return res;

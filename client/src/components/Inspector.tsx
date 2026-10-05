@@ -18,6 +18,7 @@ import {
   Activity,
   RefreshCw,
   Sparkles,
+  Package,
 } from 'lucide-react';
 import { FlipbookPlayer } from './FlipbookPlayer';
 import { AudioWaveformPlayer } from './AudioWaveformPlayer';
@@ -70,6 +71,7 @@ export function Inspector({
   const [parentStack, setParentStack] = useState<(AssetStack & { isStack: true }) | null>(null);
   const [analyzingBpm, setAnalyzingBpm] = useState(false);
   const [classifyingSprite, setClassifyingSprite] = useState(false);
+  const [classifyingPack, setClassifyingPack] = useState(false);
 
   const isStack = Boolean(item && 'isStack' in item && item.isStack);
   const stack = isStack ? (item as AssetStack & { isStack: true }) : null;
@@ -241,6 +243,53 @@ export function Inspector({
       showToast('error', 'Sprite Classification Error', err?.message || 'Failed to classify sprite');
     } finally {
       setClassifyingSprite(false);
+    }
+  };
+
+  const handleClassifyPack = async () => {
+    if (!displayedAsset) return;
+    setClassifyingPack(true);
+    try {
+      const res = await fetch('/api/classifiers/pack/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetType: 'asset',
+          targetValue: displayedAsset.id,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to run Pack classifier');
+      const runRes = await res.json();
+      const detail = runRes.details?.[0];
+      if (detail && detail.success && detail.result?.pack) {
+        const packName = String(detail.result.pack);
+        showToast(
+          'success',
+          'Pack Classified',
+          `${displayedAsset.name}: ${packName}`
+        );
+        const updatedAsset: Asset = {
+          ...displayedAsset,
+          metadata: {
+            ...displayedAsset.metadata,
+            pack: packName,
+          },
+          tags: [
+            ...displayedAsset.tags.filter((t) => !t.startsWith('pack:')),
+            ...(detail.tagsAdded || []),
+          ],
+        };
+        if (selectedVariant) {
+          setSelectedVariant(updatedAsset);
+        }
+        onAssetUpdated?.(updatedAsset);
+      } else {
+        showToast('info', 'Pack Classification', detail?.error || 'Could not classify pack');
+      }
+    } catch (err: any) {
+      showToast('error', 'Pack Classification Error', err?.message || 'Failed to classify pack');
+    } finally {
+      setClassifyingPack(false);
     }
   };
 
@@ -874,6 +923,44 @@ export function Inspector({
                   </div>
                 </div>
               )}
+
+              {/* Asset Pack */}
+              <div className="flex justify-between py-1 border-b border-[#202033] items-center">
+                <span className="text-slate-400 flex items-center gap-1">
+                  <Package className="w-3.5 h-3.5 text-amber-400" />
+                  Asset Pack
+                </span>
+                <div className="flex items-center gap-1.5">
+                  {displayedAsset.metadata.pack ? (
+                    <span
+                      title={`Pack: ${displayedAsset.metadata.pack}`}
+                      className="font-mono font-bold text-amber-300 bg-amber-950/40 border border-amber-500/40 px-1.5 py-0.5 rounded text-[11px] truncate max-w-[150px]"
+                    >
+                      {displayedAsset.metadata.pack}
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 italic text-[11px]">Not classified</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleClassifyPack}
+                    disabled={classifyingPack}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-amber-950/40 text-amber-300 border border-[#3b3b5c] hover:border-amber-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50"
+                    title="Run Pack Classifier on this asset"
+                  >
+                    {classifyingPack ? (
+                      <>
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                        Classifying
+                      </>
+                    ) : displayedAsset.metadata.pack ? (
+                      'Re-classify'
+                    ) : (
+                      'Classify'
+                    )}
+                  </button>
+                </div>
+              </div>
 
               {displayedAsset.isArchiveEntry && (
                 <div className="flex justify-between py-1 border-b border-[#202033]">

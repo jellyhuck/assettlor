@@ -15,6 +15,7 @@ import {
   Archive,
   Music,
   Image as ImageIcon,
+  Package,
   Check,
   RefreshCw,
   Sliders,
@@ -177,7 +178,7 @@ export function ClassifierModal({
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
               Classifier
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {classifiers.map((clf) => (
                 <button
                   key={clf.id}
@@ -187,11 +188,17 @@ export function ClassifierModal({
                   }}
                   className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all cursor-pointer ${
                     clf.id === selectedClassifierId
-                      ? 'bg-pink-950/30 border-pink-500/60 ring-1 ring-pink-500/30'
+                      ? clf.id === 'pack'
+                        ? 'bg-amber-950/30 border-amber-500/60 ring-1 ring-amber-500/30'
+                        : clf.category === 'image'
+                        ? 'bg-purple-950/30 border-purple-500/60 ring-1 ring-purple-500/30'
+                        : 'bg-pink-950/30 border-pink-500/60 ring-1 ring-pink-500/30'
                       : 'bg-[#12121d] border-[#292942] hover:border-[#38385a]'
                   }`}
                 >
-                  {clf.category === 'image' ? (
+                  {clf.id === 'pack' ? (
+                    <Package className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  ) : clf.category === 'image' ? (
                     <ImageIcon className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
                   ) : (
                     <Music className="w-5 h-5 text-pink-400 shrink-0 mt-0.5" />
@@ -209,7 +216,13 @@ export function ClassifierModal({
           {currentClassifier && (
             <div className="space-y-2 bg-[#12121e] border border-[#232338] rounded-lg p-3.5">
               <div className="flex items-center justify-between text-xs font-medium text-slate-300">
-                <span className="flex items-center gap-1.5 text-pink-400">
+                <span className={`flex items-center gap-1.5 ${
+                  currentClassifier.id === 'pack'
+                    ? 'text-amber-400'
+                    : currentClassifier.category === 'image'
+                    ? 'text-purple-400'
+                    : 'text-pink-400'
+                }`}>
                   <Sliders className="w-3.5 h-3.5" />
                   Multi-Step Execution Pipeline
                 </span>
@@ -223,7 +236,13 @@ export function ClassifierModal({
                     key={step.id}
                     className="flex flex-col p-2 rounded-md bg-[#181829] border border-[#2a2a42] text-[11px]"
                   >
-                    <div className="flex items-center gap-1 text-[10px] font-mono text-pink-400 font-bold mb-1">
+                    <div className={`flex items-center gap-1 text-[10px] font-mono font-bold mb-1 ${
+                      currentClassifier.id === 'pack'
+                        ? 'text-amber-400'
+                        : currentClassifier.category === 'image'
+                        ? 'text-purple-400'
+                        : 'text-pink-400'
+                    }`}>
                       <span>Step {idx + 1}</span>
                     </div>
                     <span className="font-medium text-slate-200 line-clamp-1">{step.name}</span>

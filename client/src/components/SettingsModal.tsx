@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppSettings, BpmClassifierSettings, SpriteClassifierSettings, ClassifierInfo } from '../types';
+import { AppSettings, BpmClassifierSettings, SpriteClassifierSettings, PackClassifierSettings, ClassifierInfo } from '../types';
 import {
   Settings,
   Folder,
@@ -8,6 +8,7 @@ import {
   Sparkles,
   Music,
   Image as ImageIcon,
+  Package,
   Sliders,
   ArrowUp,
   ArrowDown,
@@ -57,6 +58,23 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     enableStackAnalysis: true,
   });
   const [spriteClassifierInfo, setSpriteClassifierInfo] = useState<ClassifierInfo | null>(null);
+
+  const [packSettings, setPackSettings] = useState<PackClassifierSettings>({
+    enabled: true,
+    inferFromArchive: true,
+    inferFromDirectory: true,
+    directoryStrategy: 'top',
+    directoryDepth: 1,
+    cleanSeparators: true,
+    stripVersionSuffix: true,
+    stripAffixes: false,
+    caseConvention: 'as-is',
+    applyTag: true,
+    tagPrefix: 'pack:',
+    targetArchives: [],
+    targetDirectories: [],
+  });
+  const [packClassifierInfo, setPackClassifierInfo] = useState<ClassifierInfo | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [browserMode, setBrowserMode] = useState<'add_library' | 'add_project' | null>(null);
@@ -183,6 +201,19 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
           }
         })
         .catch(() => {});
+
+      fetch('/api/classifiers/pack')
+        .then((res) => res.json())
+        .then((info: ClassifierInfo) => {
+          setPackClassifierInfo(info);
+          if (info.settings) {
+            setPackSettings((prev) => ({
+              ...prev,
+              ...(info.settings as unknown as Partial<PackClassifierSettings>),
+            }));
+          }
+        })
+        .catch(() => {});
     }
   }, [isOpen]);
 
@@ -232,6 +263,14 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
         body: JSON.stringify(spriteSettings),
       });
       if (!spriteRes.ok) throw new Error('Failed to update Sprite classifier settings');
+
+      // 4. Save Pack classifier settings
+      const packRes = await fetch('/api/classifiers/pack/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(packSettings),
+      });
+      if (!packRes.ok) throw new Error('Failed to update Pack classifier settings');
 
       showToast('success', 'Settings Saved', 'App and classifier preferences updated');
       onClose();
@@ -835,6 +874,181 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                     <div className="pt-2 border-t border-[#232338]">
                       <div className="p-2.5 rounded-lg bg-[#181829] border border-[#25253a] text-slate-400 text-[11px] leading-relaxed">
                         <span className="font-semibold text-purple-300">Search Keywords:</span> Archetypes are accessible using special search queries like <code className="text-purple-400 font-mono">sprite:character</code>, <code className="text-purple-400 font-mono">sprite:texture</code>, <code className="text-purple-400 font-mono">sprite:object</code>, or <code className="text-purple-400 font-mono">sprite:background</code>. No tags are assigned.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pack Classifier Section */}
+                <div className="bg-[#12121e] border border-[#232338] rounded-xl p-4 space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#202033]">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-400">
+                        <Package className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-200">Pack Classifier</h4>
+                        <p className="text-xs text-slate-400">
+                          Identifies asset pack names from archive names or directory hierarchy
+                        </p>
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <span className="text-xs font-medium text-slate-300">Auto-scan</span>
+                      <input
+                        type="checkbox"
+                        checked={packSettings.enabled}
+                        onChange={(e) => setPackSettings({ ...packSettings, enabled: e.target.checked })}
+                        className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Multi-step Pipeline View */}
+                  {packClassifierInfo && (
+                    <div className="bg-[#181829] border border-[#25253a] rounded-lg p-3 space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+                        <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                        4-Step Pipeline Stages
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                        {packClassifierInfo.steps.map((st, i) => (
+                          <div key={st.id} className="p-2 rounded bg-[#131320] border border-[#222238]">
+                            <div className="text-[10px] font-mono text-amber-400 font-bold">Step {i + 1}</div>
+                            <div className="font-semibold text-slate-200">{st.name}</div>
+                            <div className="text-[10px] text-slate-400">{st.description}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Classifier Settings Form */}
+                  <div className="space-y-3 pt-2 text-xs">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex items-center justify-between p-2 rounded bg-[#181829] border border-[#25253a]">
+                        <div>
+                          <span className="font-medium text-slate-200">Infer from Archives</span>
+                          <p className="text-[10px] text-slate-400">Extracts pack name from zip filename</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={packSettings.inferFromArchive}
+                          onChange={(e) => setPackSettings({ ...packSettings, inferFromArchive: e.target.checked })}
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 rounded bg-[#181829] border border-[#25253a]">
+                        <div>
+                          <span className="font-medium text-slate-200">Infer from Directories</span>
+                          <p className="text-[10px] text-slate-400">Extracts pack name from folder structure</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={packSettings.inferFromDirectory}
+                          onChange={(e) => setPackSettings({ ...packSettings, inferFromDirectory: e.target.checked })}
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-400 mb-1">Directory Strategy</label>
+                        <select
+                          value={packSettings.directoryStrategy}
+                          onChange={(e) =>
+                            setPackSettings({
+                              ...packSettings,
+                              directoryStrategy: e.target.value as 'top' | 'enclosing' | 'pattern',
+                            })
+                          }
+                          className="w-full bg-[#181829] border border-[#2c2c45] rounded-lg px-3 py-1.5 font-mono text-slate-200 cursor-pointer"
+                        >
+                          <option value="top">Top Folder (Library Subfolder)</option>
+                          <option value="enclosing">Enclosing Folder (Immediate Parent)</option>
+                          <option value="pattern">Pattern (Detect 'pack'/'bundle' in Path)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">Case Convention</label>
+                        <select
+                          value={packSettings.caseConvention}
+                          onChange={(e) =>
+                            setPackSettings({
+                              ...packSettings,
+                              caseConvention: e.target.value as 'as-is' | 'title' | 'lower' | 'upper',
+                            })
+                          }
+                          className="w-full bg-[#181829] border border-[#2c2c45] rounded-lg px-3 py-1.5 font-mono text-slate-200 cursor-pointer"
+                        >
+                          <option value="as-is">As-Is (Preserve Original Casing)</option>
+                          <option value="title">Title Case (Capitalize Words)</option>
+                          <option value="lower">Lowercase</option>
+                          <option value="upper">UPPERCASE</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex items-center justify-between p-2 rounded bg-[#181829] border border-[#25253a]">
+                        <div>
+                          <span className="font-medium text-slate-200">Clean Separators</span>
+                          <p className="text-[10px] text-slate-400">Convert underscores and dashes to spaces</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={packSettings.cleanSeparators}
+                          onChange={(e) => setPackSettings({ ...packSettings, cleanSeparators: e.target.checked })}
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 rounded bg-[#181829] border border-[#25253a]">
+                        <div>
+                          <span className="font-medium text-slate-200">Strip Version Suffixes</span>
+                          <p className="text-[10px] text-slate-400">Remove _v1.0, -v2, etc.</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={packSettings.stripVersionSuffix}
+                          onChange={(e) => setPackSettings({ ...packSettings, stripVersionSuffix: e.target.checked })}
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex items-center justify-between p-2 rounded bg-[#181829] border border-[#25253a]">
+                        <div>
+                          <span className="font-medium text-slate-200">Apply Database Tag</span>
+                          <p className="text-[10px] text-slate-400">Create tag on classified assets</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={packSettings.applyTag}
+                          onChange={(e) => setPackSettings({ ...packSettings, applyTag: e.target.checked })}
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">Tag Prefix</label>
+                        <input
+                          type="text"
+                          value={packSettings.tagPrefix || ''}
+                          onChange={(e) => setPackSettings({ ...packSettings, tagPrefix: e.target.value })}
+                          placeholder="e.g. pack: (leave blank for raw name)"
+                          className="w-full bg-[#181829] border border-[#2c2c45] rounded-lg px-3 py-1.5 font-mono text-slate-200"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-[#232338]">
+                      <div className="p-2.5 rounded-lg bg-[#181829] border border-[#25253a] text-slate-400 text-[11px] leading-relaxed">
+                        <span className="font-semibold text-amber-300">Search Keywords:</span> Asset packs are accessible using special search queries like <code className="text-amber-400 font-mono">pack:RetroPack</code>, <code className="text-amber-400 font-mono">pack:retro*</code>, or <code className="text-amber-400 font-mono">pack:none</code>.
                       </div>
                     </div>
                   </div>

@@ -263,6 +263,12 @@ function compileAstNode(
       return parseSpriteClause(rawVal, isStackedView);
     }
 
+    // 2c. Pack: pack:RetroPack, p:RetroPack
+    if (fieldName === 'pack' || fieldName === 'p') {
+      const rawVal = expr.value !== undefined ? String(expr.value) : '';
+      return parsePackClause(rawVal, isStackedView);
+    }
+
     // 3. Size: size:<2MB, size:>500KB, size:>=1MB, size:[100KB TO 2MB]
     if (fieldName === 'size' || fieldName === 's') {
       if (expr.type === 'RangeExpression' && expr.range) {
@@ -1163,6 +1169,82 @@ export function parseSpriteClause(
 }
 
 /**
+ * Builds SQL condition for pack filter: pack:RetroPack, pack:retro*, pack:none, pack:any
+ */
+export function parsePackClause(
+  rawVal: string,
+  isStackedView: boolean
+): { sql: string; args: any[] } | null {
+  const packVal = rawVal.toLowerCase().trim();
+  if (!packVal) return null;
+
+  const buildFinalSql = (
+    flatCondition: string,
+    stackedMemberCondition: string,
+    flatArgs: any[],
+    stackedMemberArgs: any[]
+  ) => {
+    if (isStackedView) {
+      return {
+        sql: `(
+          ${flatCondition} OR
+          (a.stack_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM assets m
+            WHERE m.stack_id = a.stack_id AND (
+              ${stackedMemberCondition}
+            )
+          ))
+        )`,
+        args: [...flatArgs, ...stackedMemberArgs],
+      };
+    }
+    return {
+      sql: flatCondition,
+      args: flatArgs,
+    };
+  };
+
+  // Status presets: pack:none / pack:unanalyzed
+  if (packVal === 'none' || packVal === 'unanalyzed') {
+    return buildFinalSql(
+      `json_extract(a.metadata, '$.pack') IS NULL`,
+      `json_extract(m.metadata, '$.pack') IS NULL`,
+      [],
+      []
+    );
+  }
+
+  // Status presets: pack:any / pack:classified
+  if (packVal === 'any' || packVal === 'classified') {
+    return buildFinalSql(
+      `json_extract(a.metadata, '$.pack') IS NOT NULL`,
+      `json_extract(m.metadata, '$.pack') IS NOT NULL`,
+      [],
+      []
+    );
+  }
+
+  const isWildcard = packVal.includes('*') || packVal.includes('%');
+  const sqlPattern = isWildcard ? packVal.replace(/\*/g, '%') : `%${packVal}%`;
+  const packTag = `pack:${packVal}`;
+
+  return buildFinalSql(
+    `(
+      LOWER(json_extract(a.metadata, '$.pack')) LIKE ? OR
+      LOWER(json_extract(a.metadata, '$.pack')) = ? OR
+      EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) = ? OR LOWER(t.tag) LIKE ?))
+    )`,
+    `(
+      LOWER(json_extract(m.metadata, '$.pack')) LIKE ? OR
+      LOWER(json_extract(m.metadata, '$.pack')) = ? OR
+      EXISTS (SELECT 1 FROM tags mt WHERE mt.asset_id = m.id AND (LOWER(mt.tag) = ? OR LOWER(mt.tag) = ? OR LOWER(mt.tag) LIKE ?))
+    )`,
+    [sqlPattern, packVal, packTag, packVal, sqlPattern],
+    [sqlPattern, packVal, packTag, packVal, sqlPattern]
+  );
+}
+
+/**
  * Fallback parser used when Liqe throws an error (e.g. while a user is actively typing).
  * Splits raw query into simple whitespace-separated keywords and applies fuzzy LIKE matching.
  */
@@ -1224,6 +1306,18 @@ function compileFallbackQuery(rawQuery: string, isStackedView: boolean): Compile
       if (spriteClause) {
         clauses.push(spriteClause.sql);
         args.push(...spriteClause.args);
+      } else {
+        const freeRes = buildFreeTextClause(token, isStackedView);
+        clauses.push(freeRes.sql);
+        args.push(...freeRes.args);
+      }
+    } else if (token.toLowerCase().startsWith('pack:') || token.toLowerCase().startsWith('p:')) {
+      const colonIdx = token.indexOf(':');
+      const val = token.slice(colonIdx + 1);
+      const packClause = parsePackClause(val, isStackedView);
+      if (packClause) {
+        clauses.push(packClause.sql);
+        args.push(...packClause.args);
       } else {
         const freeRes = buildFreeTextClause(token, isStackedView);
         clauses.push(freeRes.sql);

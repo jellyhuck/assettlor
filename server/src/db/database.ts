@@ -21,6 +21,7 @@ import {
   parseResolutionClause,
   parseBpmClause,
   parseSpriteClause,
+  parsePackClause,
   parseWidthClause,
   parseHeightClause,
   parseDurationClause,
@@ -786,6 +787,14 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     if (spriteClause && spriteClause.sql) {
       conditions.push(spriteClause.sql);
       args.push(...spriteClause.args);
+    }
+  }
+
+  if (params.pack && params.pack.trim()) {
+    const packClause = parsePackClause(params.pack.trim(), isStackedView);
+    if (packClause && packClause.sql) {
+      conditions.push(packClause.sql);
+      args.push(...packClause.args);
     }
   }
 

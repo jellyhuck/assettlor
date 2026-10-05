@@ -6,4 +6,4 @@
   - BPM (for music) classifier as the first implementation.
 - [x] New filters: BPM, width, height, duration.
 - [x] Sprite classifier: character/object/texture/background.
-- [ ] Pack classifier: name-based classifier for asset packs, for example, based on the archive name or based on the directory name (customizable, could be applied selectively to certain archives or dirs).
+- [x] Pack classifier: name-based classifier for asset packs, for example, based on the archive name or based on the directory name (customizable, could be applied selectively to certain archives or dirs).

@@ -58,6 +58,11 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
       expect(formatFilterToken('sprite', 'character')).toBe('sprite:character');
       expect(formatFilterToken('sprite', 'texture')).toBe('sprite:texture');
     });
+
+    it('should format pack tokens', () => {
+      expect(formatFilterToken('pack', 'RetroPack')).toBe('pack:RetroPack');
+      expect(formatFilterToken('pack', 'Fantasy Pack')).toBe('pack:"Fantasy Pack"');
+    });
   });
 
   describe('parseFiltersFromQuery', () => {
@@ -72,6 +77,7 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
         bpm: null,
         tag: null,
         sprite: null,
+        pack: null,
       });
       expect(parseFiltersFromQuery('   ')).toEqual(res);
     });
@@ -144,8 +150,14 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
       expect(parseFiltersFromQuery('spritetype:texture').sprite).toBe('texture');
     });
 
+    it('should parse pack tokens', () => {
+      expect(parseFiltersFromQuery('pack:RetroPack').pack).toBe('retropack');
+      expect(parseFiltersFromQuery('pack:"Fantasy Pack"').pack).toBe('fantasy pack');
+      expect(parseFiltersFromQuery('p:SciFi').pack).toBe('scifi');
+    });
+
     it('should parse multiple filters simultaneously from a complex search query', () => {
-      const q = 'knight ext:png res:square width:<=64 height:<=64 dur:5-30 bpm:120 tag:hero sprite:character';
+      const q = 'knight ext:png res:square width:<=64 height:<=64 dur:5-30 bpm:120 tag:hero sprite:character pack:RetroPack';
       const parsed = parseFiltersFromQuery(q);
 
       expect(parsed.format).toBe('.png');
@@ -156,6 +168,7 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
       expect(parsed.bpm).toBe('120');
       expect(parsed.tag).toBe('hero');
       expect(parsed.sprite).toBe('character');
+      expect(parsed.pack).toBe('retropack');
     });
   });
 
@@ -284,6 +297,7 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
         bpm: null,
         tag: null,
         sprite: null,
+        pack: null,
       });
     });
   });

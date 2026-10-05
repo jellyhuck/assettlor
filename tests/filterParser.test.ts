@@ -457,5 +457,47 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
       expect(res.args).toEqual(['sprite:character']);
     });
   });
+
+  describe('compileFilterExpression - Pack Filters (Todo #6)', () => {
+    it('should compile pack:RetroPack exact and p:RetroPack filters', () => {
+      const res = compileFilterExpression('pack:RetroPack', false);
+      expect(res.isParsed).toBe(true);
+      expect(res.sql).toContain("json_extract(a.metadata, '$.pack')");
+      expect(res.args).toContain('retropack');
+      expect(res.args).toContain('pack:retropack');
+
+      const pRes = compileFilterExpression('p:Fantasy', false);
+      expect(pRes.isParsed).toBe(true);
+      expect(pRes.args).toContain('fantasy');
+    });
+
+    it('should compile wildcard pack:retro* and status presets pack:none, pack:any', () => {
+      const wild = compileFilterExpression('pack:retro*', false);
+      expect(wild.isParsed).toBe(true);
+      expect(wild.args).toContain('retro%');
+
+      const none = compileFilterExpression('pack:none', false);
+      expect(none.isParsed).toBe(true);
+      expect(none.sql).toContain("json_extract(a.metadata, '$.pack') IS NULL");
+
+      const any = compileFilterExpression('pack:any', false);
+      expect(any.isParsed).toBe(true);
+      expect(any.sql).toContain("json_extract(a.metadata, '$.pack') IS NOT NULL");
+    });
+
+    it('should compile pack filters in stacked view', () => {
+      const res = compileFilterExpression('pack:SciFi', true);
+      expect(res.isParsed).toBe(true);
+      expect(res.sql).toContain('a.stack_id IS NOT NULL');
+      expect(res.args).toContain('scifi');
+    });
+
+    it('should extract pack: in fallback query when syntax errors occur', () => {
+      const res = compileFilterExpression('pack:RetroPack ( unmatched', false);
+      expect(res.isParsed).toBe(false);
+      expect(res.sql).toContain("json_extract(a.metadata, '$.pack')");
+      expect(res.args).toContain('retropack');
+    });
+  });
 });
 

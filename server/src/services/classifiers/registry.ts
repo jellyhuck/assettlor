@@ -2,6 +2,7 @@ import { ClassifierInfo } from '../../../shared/types.js';
 import { Classifier } from './types.js';
 import { spriteClassifier } from './spriteClassifier.js';
 import { bpmClassifier } from './bpmClassifier.js';
+import { packClassifier } from './packClassifier.js';
 import { getClassifierSettings, updateClassifierSettings } from '../../db/database.js';
 
 const registry = new Map<string, Classifier>();
@@ -52,3 +53,4 @@ export function getClassifierInfo(classifier: Classifier): ClassifierInfo {
 // Register built-in classifiers
 registerClassifier(bpmClassifier);
 registerClassifier(spriteClassifier);
+registerClassifier(packClassifier);

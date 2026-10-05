@@ -27,6 +27,7 @@ export interface AudioMetadata {
 }
 
 export type AssetMetadata = ImageMetadata & AudioMetadata & {
+  pack?: string;
   raw?: Record<string, unknown>;
 };
 
@@ -146,6 +147,7 @@ export interface AssetQueryParams {
   resolution?: string;
   bpm?: string;
   sprite?: string;
+  pack?: string;
   width?: string;
   height?: string;
   duration?: string;
@@ -214,6 +216,22 @@ export interface SpriteClassifierSettings {
   enableVisualAnalysis: boolean;
   enablePathAnalysis: boolean;
   enableStackAnalysis: boolean;
+}
+
+export interface PackClassifierSettings {
+  enabled: boolean;
+  inferFromArchive: boolean;
+  inferFromDirectory: boolean;
+  directoryStrategy: 'top' | 'enclosing' | 'pattern';
+  directoryDepth: number;
+  cleanSeparators: boolean;
+  stripVersionSuffix: boolean;
+  stripAffixes: boolean;
+  caseConvention: 'as-is' | 'title' | 'lower' | 'upper';
+  applyTag: boolean;
+  tagPrefix?: string;
+  targetArchives?: string[];
+  targetDirectories?: string[];
 }
 
 export type ClassifierTargetType = 'all' | 'asset' | 'directory' | 'archive';
