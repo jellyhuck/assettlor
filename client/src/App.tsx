@@ -5,6 +5,8 @@ import {
   AppSettings,
   TagInfo,
   FormatInfo,
+  ResolutionInfo,
+  BpmInfo,
   ScanProgressEvent,
   ViewMode,
   CardZoom,
@@ -17,6 +19,7 @@ import { AssetGrid } from './components/AssetGrid';
 import { Inspector } from './components/Inspector';
 import { SettingsModal } from './components/SettingsModal';
 import { CopyModal } from './components/CopyModal';
+import { ClassifierModal } from './components/ClassifierModal';
 
 function MainApp() {
   const { showToast } = useToast();
@@ -25,6 +28,11 @@ function MainApp() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
+  const [selectedResolution, setSelectedResolution] = useState<string | null>(null);
+  const [selectedWidth, setSelectedWidth] = useState<string | null>(null);
+  const [selectedHeight, setSelectedHeight] = useState<string | null>(null);
+  const [selectedDuration, setSelectedDuration] = useState<string | null>(null);
+  const [selectedBpm, setSelectedBpm] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
 
@@ -32,7 +40,9 @@ function MainApp() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [isStackedView, setIsStackedView] = useState<boolean>(true);
   const [cardZoom, setCardZoom] = useState<CardZoom>('medium');
-  const [sortBy, setSortBy] = useState<'name' | 'size' | 'mtime'>('name');
+  const [sortBy, setSortBy] = useState<
+    'name' | 'size' | 'mtime' | 'resolution' | 'duration' | 'bpm' | 'width' | 'height'
+  >('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Selection & Inspector State
@@ -43,8 +53,9 @@ function MainApp() {
     stack?: AssetStack;
   } | null>(null);
 
-  // Settings State
+  // Settings & Classifier Modal State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isClassifierModalOpen, setIsClassifierModalOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
     libraryPath: '',
     activeProjectPath: '',
@@ -58,6 +69,8 @@ function MainApp() {
   const [items, setItems] = useState<(Asset | (AssetStack & { isStack: true }))[]>([]);
   const [tags, setTags] = useState<TagInfo[]>([]);
   const [formats, setFormats] = useState<FormatInfo[]>([]);
+  const [resolutions, setResolutions] = useState<ResolutionInfo[]>([]);
+  const [bpms, setBpms] = useState<BpmInfo[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [summary, setSummary] = useState({
     totalAssets: 0,
@@ -142,7 +155,7 @@ function MainApp() {
       .catch(() => {});
   }, []);
 
-  // Fetch Tags & Formats
+  // Fetch Tags, Formats & Resolutions
   const refreshFilters = useCallback(() => {
     fetch('/api/tags')
       .then((res) => res.json())
@@ -152,6 +165,16 @@ function MainApp() {
     fetch('/api/formats')
       .then((res) => res.json())
       .then((data) => setFormats(data))
+      .catch(() => {});
+
+    fetch('/api/resolutions')
+      .then((res) => res.json())
+      .then((data) => setResolutions(data))
+      .catch(() => {});
+
+    fetch('/api/bpms')
+      .then((res) => res.json())
+      .then((data) => setBpms(data))
       .catch(() => {});
   }, []);
 
@@ -169,6 +192,11 @@ function MainApp() {
 
       if (selectedTag) params.append('tag', selectedTag);
       if (selectedFormat) params.append('format', selectedFormat);
+      if (selectedResolution) params.append('resolution', selectedResolution);
+      if (selectedWidth) params.append('width', selectedWidth);
+      if (selectedHeight) params.append('height', selectedHeight);
+      if (selectedDuration) params.append('duration', selectedDuration);
+      if (selectedBpm) params.append('bpm', selectedBpm);
       if (debouncedSearch && (!selectedTag || debouncedSearch.toLowerCase() !== `#${selectedTag.toLowerCase()}`)) {
         params.append('search', debouncedSearch);
       }
@@ -202,6 +230,11 @@ function MainApp() {
     selectedCategory,
     selectedTag,
     selectedFormat,
+    selectedResolution,
+    selectedWidth,
+    selectedHeight,
+    selectedDuration,
+    selectedBpm,
     debouncedSearch,
     isStackedView,
     sortBy,
@@ -286,16 +319,37 @@ function MainApp() {
         onSelectCategory={(cat) => {
           setSelectedCategory(cat);
           handleSelectTag(null);
+          if (cat === 'audio' || cat === 'audio_stack') {
+            setSelectedResolution(null);
+            setSelectedWidth(null);
+            setSelectedHeight(null);
+          } else if (cat === 'image' || cat === 'animation_stack') {
+            setSelectedDuration(null);
+            setSelectedBpm(null);
+          }
         }}
         selectedTag={selectedTag}
         onSelectTag={handleSelectTag}
         selectedFormat={selectedFormat}
         onSelectFormat={(f) => setSelectedFormat(f)}
+        selectedResolution={selectedResolution}
+        onSelectResolution={(r) => setSelectedResolution(r)}
+        selectedWidth={selectedWidth}
+        onSelectWidth={(w) => setSelectedWidth(w)}
+        selectedHeight={selectedHeight}
+        onSelectHeight={(h) => setSelectedHeight(h)}
+        selectedDuration={selectedDuration}
+        onSelectDuration={(dur) => setSelectedDuration(dur)}
+        selectedBpm={selectedBpm}
+        onSelectBpm={(bpm) => setSelectedBpm(bpm)}
         tags={tags}
         formats={formats}
+        resolutions={resolutions}
+        bpms={bpms}
         scanStatus={scanStatus}
         onTriggerScan={handleTriggerScan}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenClassifiers={() => setIsClassifierModalOpen(true)}
         settings={settings}
         summary={summary}
       />
@@ -359,6 +413,16 @@ function MainApp() {
             setSelectedItem(stack);
             setInspectorMode('stack');
           }}
+          onSelectResolution={(r) => setSelectedResolution(r)}
+          onSelectWidth={(w) => setSelectedWidth(w)}
+          onSelectHeight={(h) => setSelectedHeight(h)}
+          onSelectDuration={(dur) => setSelectedDuration(dur)}
+          onSelectBpm={(bpm) => setSelectedBpm(bpm)}
+          onAssetUpdated={(updatedAsset) => {
+            setSelectedItem(updatedAsset);
+            loadAssets();
+            refreshFilters();
+          }}
         />
       )}
 
@@ -369,6 +433,21 @@ function MainApp() {
         onSettingsSaved={(newSettings) => {
           setSettings(newSettings);
           loadAssets();
+        }}
+      />
+
+      {/* Classifier Modal */}
+      <ClassifierModal
+        isOpen={isClassifierModalOpen}
+        onClose={() => setIsClassifierModalOpen(false)}
+        selectedAsset={
+          selectedItem && !('isStack' in selectedItem && selectedItem.isStack)
+            ? (selectedItem as Asset)
+            : null
+        }
+        onRunComplete={() => {
+          loadAssets();
+          refreshFilters();
         }}
       />
 

@@ -1,0 +1,129 @@
+import fs from 'fs';
+import path from 'path';
+import {
+  Asset,
+  ClassifierRunResult,
+  ClassifierAssetResult,
+} from '../../../shared/types.js';
+import {
+  Classifier,
+  RunClassifierOptions,
+} from './types.js';
+import {
+  findAssetsByScope,
+  getCurrentLibraryPath,
+} from '../../db/database.js';
+import { getZipEntryBuffer } from '../archive.js';
+import { getEffectiveClassifierSettings } from './registry.js';
+
+export async function loadAssetBuffer(asset: Asset): Promise<Buffer | null> {
+  const libraryPath = getCurrentLibraryPath();
+
+  if (asset.isArchiveEntry && asset.archiveEntryPath) {
+    let archiveDisk = asset.archivePath || asset.absolutePath;
+    if (archiveDisk && !path.isAbsolute(archiveDisk) && libraryPath) {
+      archiveDisk = path.resolve(libraryPath, archiveDisk);
+    }
+    if (archiveDisk && fs.existsSync(archiveDisk)) {
+      return getZipEntryBuffer(archiveDisk, asset.archiveEntryPath);
+    }
+    return null;
+  }
+
+  let filePath = asset.absolutePath;
+  if (!path.isAbsolute(filePath) && libraryPath) {
+    filePath = path.resolve(libraryPath, filePath);
+  }
+
+  if (filePath && fs.existsSync(filePath)) {
+    try {
+      return await fs.promises.readFile(filePath);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+export async function runClassifier(
+  classifier: Classifier,
+  options: RunClassifierOptions
+): Promise<ClassifierRunResult> {
+  const startTime = Date.now();
+  const effectiveSettings = {
+    ...getEffectiveClassifierSettings(classifier),
+    ...(options.settingsOverride || {}),
+  };
+
+  // Find target assets based on scope
+  const targetCategory = classifier.category === 'general' ? undefined : classifier.category;
+  const assets = findAssetsByScope({
+    targetType: options.targetType,
+    targetValue: options.targetValue,
+    category: targetCategory,
+  });
+
+  const totalTargeted = assets.length;
+  const results: ClassifierAssetResult[] = [];
+
+  for (let i = 0; i < assets.length; i++) {
+    const asset = assets[i];
+    const intermediate = classifier.createIntermediateState(asset, effectiveSettings);
+
+    try {
+      const buffer = await loadAssetBuffer(asset);
+      const context = {
+        asset,
+        buffer,
+        settings: effectiveSettings,
+        intermediate,
+      };
+
+      for (let s = 0; s < classifier.steps.length; s++) {
+        const step = classifier.steps[s];
+
+        if (options.onProgress) {
+          options.onProgress({
+            processedCount: i,
+            totalTargeted,
+            currentAsset: asset.path,
+            stepIndex: s + 1,
+            totalSteps: classifier.steps.length,
+            stepName: step.name,
+          });
+        }
+
+        const continueExecution = await step.execute(context);
+        if (continueExecution === false || (intermediate as any).skipped) {
+          break;
+        }
+      }
+
+      const assetResult = classifier.createAssetResult(asset, intermediate, effectiveSettings);
+      results.push(assetResult);
+    } catch (err: any) {
+      results.push({
+        assetId: asset.id,
+        assetPath: asset.path,
+        success: false,
+        error: err?.message || 'Unexpected classifier error',
+      });
+    }
+  }
+
+  const classifiedCount = results.filter((r) => r.success).length;
+  const failedCount = results.length - classifiedCount;
+
+  return {
+    classifierId: classifier.id,
+    targetType: options.targetType,
+    targetValue: options.targetValue,
+    totalTargeted,
+    processedCount: results.length,
+    classifiedCount,
+    failedCount,
+    details: results,
+    elapsedMs: Date.now() - startTime,
+  };
+}

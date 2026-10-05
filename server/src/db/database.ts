@@ -8,12 +8,22 @@ import {
   AssetStack,
   TagInfo,
   FormatInfo,
+  ResolutionInfo,
+  BpmInfo,
   AppSettings,
   AssetQueryParams,
   AssetListResponse,
+  ClassifierTargetType,
 } from '../../shared/types.js';
 import { config } from '../config.js';
-import { compileFilterExpression } from '../services/filterParser.js';
+import {
+  compileFilterExpression,
+  parseResolutionClause,
+  parseBpmClause,
+  parseWidthClause,
+  parseHeightClause,
+  parseDurationClause,
+} from '../services/filterParser.js';
 
 let dbInstance: Database.Database | null = null;
 let currentLibraryPath: string = '';
@@ -375,6 +385,54 @@ export function getAllFormats(): FormatInfo[] {
   }));
 }
 
+export function getAllResolutions(): ResolutionInfo[] {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT
+      CAST(json_extract(metadata, '$.width') AS INTEGER) as width,
+      CAST(json_extract(metadata, '$.height') AS INTEGER) as height,
+      COUNT(id) as count
+    FROM assets
+    WHERE category = 'image'
+      AND json_extract(metadata, '$.width') IS NOT NULL
+      AND json_extract(metadata, '$.height') IS NOT NULL
+      AND CAST(json_extract(metadata, '$.width') AS INTEGER) > 0
+      AND CAST(json_extract(metadata, '$.height') AS INTEGER) > 0
+    GROUP BY width, height
+    ORDER BY count DESC, width DESC, height DESC
+    LIMIT 60
+  `).all() as { width: number; height: number; count: number }[];
+
+  return rows.map((r) => ({
+    width: r.width,
+    height: r.height,
+    formatted: `${r.width}x${r.height}`,
+    count: r.count,
+  }));
+}
+
+export function getAllBpms(): BpmInfo[] {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT
+      ROUND(CAST(json_extract(metadata, '$.bpm') AS NUMERIC)) as bpm,
+      COUNT(id) as count
+    FROM assets
+    WHERE category = 'audio'
+      AND json_extract(metadata, '$.bpm') IS NOT NULL
+      AND CAST(json_extract(metadata, '$.bpm') AS NUMERIC) > 0
+    GROUP BY bpm
+    ORDER BY count DESC, bpm ASC
+    LIMIT 30
+  `).all() as { bpm: number; count: number }[];
+
+  return rows.map((r) => ({
+    bpm: r.bpm,
+    formatted: `${r.bpm} BPM`,
+    count: r.count,
+  }));
+}
+
 export function clearStacks(): void {
   const db = getDatabase();
   db.transaction(() => {
@@ -583,6 +641,46 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     }
   }
 
+  if (params.resolution && params.resolution.trim()) {
+    const resClause = parseResolutionClause(params.resolution.trim(), isStackedView);
+    if (resClause && resClause.sql) {
+      conditions.push(resClause.sql);
+      args.push(...resClause.args);
+    }
+  }
+
+  if (params.bpm && params.bpm.trim()) {
+    const bpmClause = parseBpmClause(params.bpm.trim(), isStackedView);
+    if (bpmClause && bpmClause.sql) {
+      conditions.push(bpmClause.sql);
+      args.push(...bpmClause.args);
+    }
+  }
+
+  if (params.width && params.width.trim()) {
+    const widthClause = parseWidthClause(params.width.trim(), isStackedView);
+    if (widthClause && widthClause.sql) {
+      conditions.push(widthClause.sql);
+      args.push(...widthClause.args);
+    }
+  }
+
+  if (params.height && params.height.trim()) {
+    const heightClause = parseHeightClause(params.height.trim(), isStackedView);
+    if (heightClause && heightClause.sql) {
+      conditions.push(heightClause.sql);
+      args.push(...heightClause.args);
+    }
+  }
+
+  if (params.duration && params.duration.trim()) {
+    const durClause = parseDurationClause(params.duration.trim(), isStackedView);
+    if (durClause && durClause.sql) {
+      conditions.push(durClause.sql);
+      args.push(...durClause.args);
+    }
+  }
+
   if (params.search && params.search.trim()) {
     const filterRes = compileFilterExpression(params.search, isStackedView);
     if (filterRes.sql) {
@@ -612,8 +710,19 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
       sortField = 'a.mtime';
       break;
     case 'resolution':
+      sortField = '(COALESCE(CAST(json_extract(a.metadata, \'$.width\') AS INTEGER), 0) * COALESCE(CAST(json_extract(a.metadata, \'$.height\') AS INTEGER), 0))';
+      break;
     case 'duration':
-      sortField = isStackedView ? 'COALESCE(s.name, a.name)' : 'a.name';
+      sortField = 'COALESCE(CAST(json_extract(a.metadata, \'$.duration\') AS NUMERIC), 0)';
+      break;
+    case 'bpm':
+      sortField = 'COALESCE(CAST(json_extract(a.metadata, \'$.bpm\') AS NUMERIC), 0)';
+      break;
+    case 'width':
+      sortField = 'COALESCE(CAST(json_extract(a.metadata, \'$.width\') AS NUMERIC), 0)';
+      break;
+    case 'height':
+      sortField = 'COALESCE(CAST(json_extract(a.metadata, \'$.height\') AS NUMERIC), 0)';
       break;
     case 'name':
     default:
@@ -697,3 +806,111 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     summary,
   };
 }
+
+export function getClassifierSettings(classifierId: string): Record<string, unknown> | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`classifier:${classifierId}`) as { value: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value);
+  } catch {
+    return null;
+  }
+}
+
+export function updateClassifierSettings(classifierId: string, settings: Record<string, unknown>): Record<string, unknown> {
+  const db = getDatabase();
+  const current = getClassifierSettings(classifierId) || {};
+  const merged = { ...current, ...settings };
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(`classifier:${classifierId}`, JSON.stringify(merged));
+  return merged;
+}
+
+export function updateAssetMetadata(assetId: string, metadataUpdates: Partial<AssetMetadata>): Asset | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT metadata FROM assets WHERE id = ?').get(assetId) as { metadata: string | null } | undefined;
+  if (!row) return null;
+
+  let meta: AssetMetadata = {};
+  if (row.metadata) {
+    try {
+      meta = JSON.parse(row.metadata);
+    } catch {
+      meta = {};
+    }
+  }
+
+  const newMeta = { ...meta, ...metadataUpdates };
+  const now = Date.now();
+  db.prepare('UPDATE assets SET metadata = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(newMeta), now, assetId);
+
+  return getAssetById(assetId);
+}
+
+export function addAssetTags(assetId: string, tags: { tag: string; source: string }[]): void {
+  const db = getDatabase();
+  const stmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
+  const tx = db.transaction(() => {
+    for (const t of tags) {
+      if (t.tag && t.tag.trim().length > 0) {
+        stmt.run(assetId, t.tag.trim(), t.source || 'auto');
+      }
+    }
+  });
+  tx();
+}
+
+export function removeAssetTagsBySource(assetId: string, source: string): void {
+  const db = getDatabase();
+  db.prepare('DELETE FROM tags WHERE asset_id = ? AND source = ?').run(assetId, source);
+}
+
+export function findAssetsByScope(scope: {
+  targetType: ClassifierTargetType;
+  targetValue?: string | string[];
+  category?: AssetCategory;
+}): Asset[] {
+  const db = getDatabase();
+  const conditions: string[] = [];
+  const args: any[] = [];
+
+  if (scope.category) {
+    conditions.push('category = ?');
+    args.push(scope.category);
+  }
+
+  if (scope.targetType === 'asset') {
+    const rawVal = scope.targetValue;
+    const ids: string[] = Array.isArray(rawVal) ? rawVal : (rawVal ? [rawVal] : []);
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    conditions.push(`id IN (${placeholders})`);
+    args.push(...ids);
+  } else if (scope.targetType === 'directory') {
+    const dir = typeof scope.targetValue === 'string' ? scope.targetValue.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
+    if (dir) {
+      conditions.push("(path = ? OR path LIKE ? || '/%' OR (is_archive_entry = 1 AND (path LIKE ? || '#%' OR path LIKE '%/' || ? || '#%')))");
+      args.push(dir, dir, dir, dir);
+    }
+  } else if (scope.targetType === 'archive') {
+    const archive = typeof scope.targetValue === 'string' ? path.basename(scope.targetValue.trim()) : '';
+    if (archive) {
+      conditions.push("(is_archive_entry = 1 AND (archive_path LIKE '%' || ? OR path LIKE ? || '#%' OR path LIKE '%' || ? || '#%'))");
+      args.push(archive, archive, archive);
+    } else {
+      conditions.push('is_archive_entry = 1');
+    }
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const rows = db.prepare(`SELECT * FROM assets ${whereClause} ORDER BY name ASC`).all(...args) as AssetRow[];
+
+  return rows.map((r) => {
+    const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(r.id) as { tag: string }[];
+    return rowToAsset(r, tagRows.map((t) => t.tag));
+  });
+}
+

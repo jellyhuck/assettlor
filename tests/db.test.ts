@@ -13,6 +13,8 @@ import {
   getAssetByPath,
   getAllTags,
   getAllFormats,
+  getAllResolutions,
+  getAllBpms,
   createStack,
   getStackById,
   getStackAssets,
@@ -290,6 +292,76 @@ describe('Database Service', () => {
       expect(wav!.category).toBe('audio');
       expect(wav!.count).toBe(1);
     });
+
+    it('should aggregate image resolutions with counts', () => {
+      upsertAsset({
+        id: 'img_res_1',
+        path: 'icon1.png',
+        absolutePath: '/icon1.png',
+        name: 'icon1.png',
+        extension: '.png',
+        category: 'image',
+        size: 100,
+        mtime: 10,
+        hash: 'hr1',
+        isArchiveEntry: false,
+        metadata: { width: 64, height: 64 },
+      });
+
+      upsertAsset({
+        id: 'img_res_2',
+        path: 'icon2.png',
+        absolutePath: '/icon2.png',
+        name: 'icon2.png',
+        extension: '.png',
+        category: 'image',
+        size: 100,
+        mtime: 10,
+        hash: 'hr2',
+        isArchiveEntry: false,
+        metadata: { width: 64, height: 64 },
+      });
+
+      upsertAsset({
+        id: 'img_res_3',
+        path: 'banner.png',
+        absolutePath: '/banner.png',
+        name: 'banner.png',
+        extension: '.png',
+        category: 'image',
+        size: 500,
+        mtime: 10,
+        hash: 'hr3',
+        isArchiveEntry: false,
+        metadata: { width: 1920, height: 1080 },
+      });
+
+      upsertAsset({
+        id: 'audio_no_res',
+        path: 'sound.wav',
+        absolutePath: '/sound.wav',
+        name: 'sound.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 500,
+        mtime: 10,
+        hash: 'hr4',
+        isArchiveEntry: false,
+      });
+
+      const resolutions = getAllResolutions();
+      expect(resolutions).toHaveLength(2);
+
+      const res64 = resolutions.find((r) => r.formatted === '64x64');
+      expect(res64).toBeDefined();
+      expect(res64!.count).toBe(2);
+      expect(res64!.width).toBe(64);
+      expect(res64!.height).toBe(64);
+
+      const res1080 = resolutions.find((r) => r.formatted === '1920x1080');
+      expect(res1080).toBeDefined();
+      expect(res1080!.count).toBe(1);
+    });
   });
 
   describe('Stack Management', () => {
@@ -433,6 +505,7 @@ describe('Database Service', () => {
         mtime: 1000,
         hash: 'hk1',
         isArchiveEntry: false,
+        metadata: { width: 64, height: 64 },
         tags: [{ tag: 'knight', source: 'folder' }, { tag: 'pixel-art', source: 'auto' }],
       });
 
@@ -447,6 +520,7 @@ describe('Database Service', () => {
         mtime: 2000,
         hash: 'hk2',
         isArchiveEntry: false,
+        metadata: { width: 64, height: 64 },
         tags: [{ tag: 'knight', source: 'folder' }],
       });
 
@@ -631,6 +705,75 @@ describe('Database Service', () => {
       expect(mtimeDesc.items[0].id).toBe('snd_laser');
     });
 
+    it('should filter queryAssets by resolution parameter', () => {
+      upsertAsset({
+        id: 'img_hd_1',
+        path: 'backgrounds/forest.png',
+        absolutePath: '/backgrounds/forest.png',
+        name: 'forest.png',
+        extension: '.png',
+        category: 'image',
+        size: 3000,
+        mtime: 4000,
+        hash: 'h_hd',
+        isArchiveEntry: false,
+        metadata: { width: 1920, height: 1080 },
+        tags: [{ tag: 'env', source: 'auto' }],
+      });
+
+      // Exact resolution: 64x64 matches img_k1 and img_k2
+      const res64Flat = queryAssets({ resolution: '64x64', isStackedView: false });
+      expect(res64Flat.items).toHaveLength(2);
+      expect(res64Flat.items.map((i: any) => i.id)).toEqual(['img_k1', 'img_k2']);
+
+      // Exact resolution in stacked view matches stack_knight
+      const res64Stacked = queryAssets({ resolution: '64x64', isStackedView: true });
+      expect(res64Stacked.items).toHaveLength(1);
+      expect(res64Stacked.items[0].name).toBe('Knight Walk');
+
+      // Preset resolution: square matches 64x64
+      const resSquare = queryAssets({ resolution: 'square', isStackedView: false });
+      expect(resSquare.items).toHaveLength(2);
+
+      // Preset resolution: <=64
+      const resTiny = queryAssets({ resolution: '<=64', isStackedView: false });
+      expect(resTiny.items).toHaveLength(2);
+
+      // Preset resolution: large or >1024 matches 1920x1080
+      const resLarge = queryAssets({ resolution: 'large', isStackedView: false });
+      expect(resLarge.items).toHaveLength(1);
+      expect(resLarge.items[0].id).toBe('img_hd_1');
+
+      // Audio is never matched by resolution
+      const resAudio = queryAssets({ resolution: '64x64', category: 'audio', isStackedView: false });
+      expect(resAudio.items).toHaveLength(0);
+    });
+
+    it('should sort queryAssets by resolution ascending and descending', () => {
+      upsertAsset({
+        id: 'img_hd_2',
+        path: 'backgrounds/sky.png',
+        absolutePath: '/backgrounds/sky.png',
+        name: 'sky.png',
+        extension: '.png',
+        category: 'image',
+        size: 2500,
+        mtime: 4500,
+        hash: 'h_sky',
+        isArchiveEntry: false,
+        metadata: { width: 1920, height: 1080 },
+      });
+
+      const resDesc = queryAssets({ sortBy: 'resolution', sortOrder: 'desc', isStackedView: false });
+      // 1920x1080 (2,073,600) should come before 64x64 (4096)
+      expect(resDesc.items[0].id).toBe('img_hd_2');
+
+      const resAsc = queryAssets({ category: 'image', sortBy: 'resolution', sortOrder: 'asc', isStackedView: false });
+      // 64x64 (4096) should come before 1920x1080
+      expect((resAsc.items[0] as any).metadata.width).toBe(64);
+      expect((resAsc.items[resAsc.items.length - 1] as any).metadata.width).toBe(1920);
+    });
+
     it('should paginate results properly', () => {
       const page1 = queryAssets({ limit: 1, page: 1, isStackedView: false });
       expect(page1.items).toHaveLength(1);
@@ -641,6 +784,273 @@ describe('Database Service', () => {
       const page2 = queryAssets({ limit: 1, page: 2, isStackedView: false });
       expect(page2.items).toHaveLength(1);
       expect(page2.items[0].id).not.toBe(page1.items[0].id);
+    });
+
+    it('should aggregate detected BPMs via getAllBpms', () => {
+      upsertAsset({
+        id: 'snd_bpm1',
+        path: 'music/track1.wav',
+        absolutePath: '/music/track1.wav',
+        name: 'track1.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_b1',
+        isArchiveEntry: false,
+        metadata: { duration: 120, bpm: 128 },
+      });
+
+      upsertAsset({
+        id: 'snd_bpm2',
+        path: 'music/track2.wav',
+        absolutePath: '/music/track2.wav',
+        name: 'track2.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_b2',
+        isArchiveEntry: false,
+        metadata: { duration: 60, bpm: 128 },
+      });
+
+      upsertAsset({
+        id: 'snd_bpm3',
+        path: 'music/track3.wav',
+        absolutePath: '/music/track3.wav',
+        name: 'track3.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_b3',
+        isArchiveEntry: false,
+        metadata: { duration: 45, bpm: 85 },
+      });
+
+      const bpms = getAllBpms();
+      expect(bpms.length).toBeGreaterThanOrEqual(2);
+      const b128 = bpms.find((b) => b.bpm === 128);
+      expect(b128).toBeDefined();
+      expect(b128!.count).toBe(2);
+      expect(b128!.formatted).toBe('128 BPM');
+
+      const b85 = bpms.find((b) => b.bpm === 85);
+      expect(b85).toBeDefined();
+      expect(b85!.count).toBe(1);
+    });
+
+    it('should filter queryAssets by bpm parameter', () => {
+      upsertAsset({
+        id: 'snd_dance',
+        path: 'music/dance.wav',
+        absolutePath: '/music/dance.wav',
+        name: 'dance.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_dance',
+        isArchiveEntry: false,
+        metadata: { bpm: 128 },
+      });
+      upsertAsset({
+        id: 'snd_chill',
+        path: 'music/chill.wav',
+        absolutePath: '/music/chill.wav',
+        name: 'chill.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_chill',
+        isArchiveEntry: false,
+        metadata: { bpm: 75 },
+      });
+
+      // Exact BPM
+      const exact = queryAssets({ bpm: '128', isStackedView: false });
+      expect(exact.items.map((i: any) => i.id)).toContain('snd_dance');
+      expect(exact.items.map((i: any) => i.id)).not.toContain('snd_chill');
+
+      // Preset BPM: slow (<90)
+      const slow = queryAssets({ bpm: 'slow', isStackedView: false });
+      expect(slow.items.map((i: any) => i.id)).toContain('snd_chill');
+      expect(slow.items.map((i: any) => i.id)).not.toContain('snd_dance');
+
+      // Preset BPM: fast (120-160)
+      const fast = queryAssets({ bpm: 'fast', isStackedView: false });
+      expect(fast.items.map((i: any) => i.id)).toContain('snd_dance');
+      expect(fast.items.map((i: any) => i.id)).not.toContain('snd_chill');
+
+      // Comparison BPM
+      const gt100 = queryAssets({ bpm: '>100', isStackedView: false });
+      expect(gt100.items.map((i: any) => i.id)).toContain('snd_dance');
+      expect(gt100.items.map((i: any) => i.id)).not.toContain('snd_chill');
+
+      // Range BPM
+      const range = queryAssets({ bpm: '70-80', isStackedView: false });
+      expect(range.items.map((i: any) => i.id)).toContain('snd_chill');
+      expect(range.items.map((i: any) => i.id)).not.toContain('snd_dance');
+    });
+
+    it('should filter queryAssets by width and height parameters', () => {
+      upsertAsset({
+        id: 'img_wide',
+        path: 'ui/banner.png',
+        absolutePath: '/ui/banner.png',
+        name: 'banner.png',
+        extension: '.png',
+        category: 'image',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_wide',
+        isArchiveEntry: false,
+        metadata: { width: 800, height: 100 },
+      });
+
+      // Width filter
+      const w800 = queryAssets({ width: '800', isStackedView: false });
+      expect(w800.items.map((i: any) => i.id)).toContain('img_wide');
+      expect(w800.items.map((i: any) => i.id)).not.toContain('img_k1');
+
+      // Height filter
+      const h100 = queryAssets({ height: '100', isStackedView: false });
+      expect(h100.items.map((i: any) => i.id)).toContain('img_wide');
+      expect(h100.items.map((i: any) => i.id)).not.toContain('img_k1');
+
+      // Height preset <=64 matches 64x64 knight
+      const hTiny = queryAssets({ height: '<=64', isStackedView: false });
+      expect(hTiny.items.map((i: any) => i.id)).toContain('img_k1');
+      expect(hTiny.items.map((i: any) => i.id)).not.toContain('img_wide');
+    });
+
+    it('should filter queryAssets by duration parameter', () => {
+      upsertAsset({
+        id: 'snd_sfx_short',
+        path: 'sfx/coin.wav',
+        absolutePath: '/sfx/coin.wav',
+        name: 'coin.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 100,
+        mtime: 1000,
+        hash: 'h_coin',
+        isArchiveEntry: false,
+        metadata: { duration: 0.8 },
+      });
+      upsertAsset({
+        id: 'snd_song_long',
+        path: 'music/theme.ogg',
+        absolutePath: '/music/theme.ogg',
+        name: 'theme.ogg',
+        extension: '.ogg',
+        category: 'audio',
+        size: 5000,
+        mtime: 1000,
+        hash: 'h_theme',
+        isArchiveEntry: false,
+        metadata: { duration: 180 },
+      });
+
+      // Duration preset short (< 5s)
+      const short = queryAssets({ duration: 'short', isStackedView: false });
+      expect(short.items.map((i: any) => i.id)).toContain('snd_sfx_short');
+      expect(short.items.map((i: any) => i.id)).not.toContain('snd_song_long');
+
+      // Duration preset music (> 120s)
+      const music = queryAssets({ duration: 'music', isStackedView: false });
+      expect(music.items.map((i: any) => i.id)).toContain('snd_song_long');
+      expect(music.items.map((i: any) => i.id)).not.toContain('snd_sfx_short');
+
+      // Comparison duration
+      const gt10 = queryAssets({ duration: '>10', isStackedView: false });
+      expect(gt10.items.map((i: any) => i.id)).toContain('snd_song_long');
+      expect(gt10.items.map((i: any) => i.id)).not.toContain('snd_sfx_short');
+    });
+
+    it('should sort queryAssets by bpm, duration, width, height', () => {
+      upsertAsset({
+        id: 'snd_fast_bpm',
+        path: 'music/fast.wav',
+        absolutePath: '/music/fast.wav',
+        name: 'fast.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_fbpm',
+        isArchiveEntry: false,
+        metadata: { bpm: 175, duration: 15 },
+      });
+      upsertAsset({
+        id: 'snd_slow_bpm',
+        path: 'music/slow.wav',
+        absolutePath: '/music/slow.wav',
+        name: 'slow.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_sbpm',
+        isArchiveEntry: false,
+        metadata: { bpm: 60, duration: 240 },
+      });
+
+      // Sort by BPM desc
+      const bpmDesc = queryAssets({ category: 'audio', sortBy: 'bpm', sortOrder: 'desc', isStackedView: false });
+      expect(bpmDesc.items[0].id).toBe('snd_fast_bpm');
+
+      // Sort by BPM asc
+      const bpmAsc = queryAssets({ category: 'audio', sortBy: 'bpm', sortOrder: 'asc', isStackedView: false });
+      const nonZeroBpm = bpmAsc.items.filter((i: any) => i.metadata?.bpm);
+      expect(nonZeroBpm[0].id).toBe('snd_slow_bpm');
+
+      // Sort by Duration desc
+      const durDesc = queryAssets({ category: 'audio', sortBy: 'duration', sortOrder: 'desc', isStackedView: false });
+      expect(durDesc.items[0].id).toBe('snd_slow_bpm');
+
+      // Sort by Duration asc
+      const durAsc = queryAssets({ category: 'audio', sortBy: 'duration', sortOrder: 'asc', isStackedView: false });
+      const nonZeroDur = durAsc.items.filter((i: any) => i.metadata?.duration);
+      expect(nonZeroDur[0].id).toBe('snd_fast_bpm');
+
+      // Sort by Width desc
+      upsertAsset({
+        id: 'img_huge_w',
+        path: 'ui/huge.png',
+        absolutePath: '/ui/huge.png',
+        name: 'huge.png',
+        extension: '.png',
+        category: 'image',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_huge',
+        isArchiveEntry: false,
+        metadata: { width: 2560, height: 100 },
+      });
+
+      const wDesc = queryAssets({ category: 'image', sortBy: 'width', sortOrder: 'desc', isStackedView: false });
+      expect(wDesc.items[0].id).toBe('img_huge_w');
+
+      // Sort by Height desc
+      upsertAsset({
+        id: 'img_tall_h',
+        path: 'ui/tall.png',
+        absolutePath: '/ui/tall.png',
+        name: 'tall.png',
+        extension: '.png',
+        category: 'image',
+        size: 1000,
+        mtime: 1000,
+        hash: 'h_tall',
+        isArchiveEntry: false,
+        metadata: { width: 100, height: 3000 },
+      });
+
+      const hDesc = queryAssets({ category: 'image', sortBy: 'height', sortOrder: 'desc', isStackedView: false });
+      expect(hDesc.items[0].id).toBe('img_tall_h');
     });
   });
 });

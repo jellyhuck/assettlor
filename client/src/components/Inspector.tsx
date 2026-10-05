@@ -15,6 +15,9 @@ import {
   Play,
   ChevronLeft,
   ChevronRight,
+  Activity,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import { FlipbookPlayer } from './FlipbookPlayer';
 import { AudioWaveformPlayer } from './AudioWaveformPlayer';
@@ -29,6 +32,12 @@ interface InspectorProps {
   selectedTag?: string | null;
   initialViewMode?: 'stack' | 'assets';
   onSelectStack?: (stack: AssetStack & { isStack: true }) => void;
+  onSelectResolution?: (res: string | null) => void;
+  onSelectWidth?: (width: string | null) => void;
+  onSelectHeight?: (height: string | null) => void;
+  onSelectDuration?: (duration: string | null) => void;
+  onSelectBpm?: (bpm: string | null) => void;
+  onAssetUpdated?: (updatedAsset: Asset) => void;
 }
 
 export function Inspector({
@@ -39,6 +48,12 @@ export function Inspector({
   selectedTag,
   initialViewMode = 'stack',
   onSelectStack,
+  onSelectResolution,
+  onSelectWidth,
+  onSelectHeight,
+  onSelectDuration,
+  onSelectBpm,
+  onAssetUpdated,
 }: InspectorProps) {
   const { showToast } = useToast();
 
@@ -51,6 +66,8 @@ export function Inspector({
   const [stackViewMode, setStackViewMode] = useState<'stack' | 'assets'>(initialViewMode);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [parentStack, setParentStack] = useState<(AssetStack & { isStack: true }) | null>(null);
+  const [analyzingBpm, setAnalyzingBpm] = useState(false);
+  const [classifyingSprite, setClassifyingSprite] = useState(false);
 
   const isStack = Boolean(item && 'isStack' in item && item.isStack);
   const stack = isStack ? (item as AssetStack & { isStack: true }) : null;
@@ -131,6 +148,96 @@ export function Inspector({
   const copyPathToClipboard = () => {
     navigator.clipboard.writeText(displayedAsset.absolutePath);
     showToast('success', 'Path Copied', displayedAsset.absolutePath);
+  };
+
+  const handleAnalyzeBpm = async () => {
+    if (!displayedAsset || displayedAsset.category !== 'audio') return;
+    setAnalyzingBpm(true);
+    try {
+      const res = await fetch('/api/classifiers/bpm/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetType: 'asset',
+          targetValue: displayedAsset.id,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to run BPM classifier');
+      const runRes = await res.json();
+      const detail = runRes.details?.[0];
+      if (detail && detail.success && detail.result?.bpm) {
+        showToast(
+          'success',
+          'BPM Detected',
+          `${displayedAsset.name}: ${detail.result.bpm} BPM (${detail.result.tempoDescription || 'classified'})`
+        );
+        const updatedAsset: Asset = {
+          ...displayedAsset,
+          metadata: {
+            ...displayedAsset.metadata,
+            bpm: detail.result.bpm,
+            tempoDescription: detail.result.tempoDescription,
+          },
+          tags: Array.from(new Set([...displayedAsset.tags, ...(detail.tagsAdded || [])])),
+        };
+        if (selectedVariant) {
+          setSelectedVariant(updatedAsset);
+        }
+        onAssetUpdated?.(updatedAsset);
+      } else {
+        showToast('info', 'No Rhythmic Beats', detail?.error || 'Could not detect rhythmic tempo');
+      }
+    } catch (err: any) {
+      showToast('error', 'BPM Analysis Error', err?.message || 'Failed to detect BPM');
+    } finally {
+      setAnalyzingBpm(false);
+    }
+  };
+
+  const handleClassifySprite = async () => {
+    if (!displayedAsset || displayedAsset.category !== 'image') return;
+    setClassifyingSprite(true);
+    try {
+      const res = await fetch('/api/classifiers/sprite/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetType: 'asset',
+          targetValue: displayedAsset.id,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to run Sprite classifier');
+      const runRes = await res.json();
+      const detail = runRes.details?.[0];
+      if (detail && detail.success && detail.result?.spriteType) {
+        const typeStr = String(detail.result.spriteType);
+        const confStr = detail.result.confidence !== undefined ? ` (${Math.round(Number(detail.result.confidence) * 100)}%)` : '';
+        showToast(
+          'success',
+          'Sprite Classified',
+          `${displayedAsset.name}: ${typeStr}${confStr}`
+        );
+        const updatedAsset: Asset = {
+          ...displayedAsset,
+          metadata: {
+            ...displayedAsset.metadata,
+            spriteType: detail.result.spriteType,
+            spriteConfidence: detail.result.confidence,
+          },
+          tags: Array.from(new Set([...displayedAsset.tags, ...(detail.tagsAdded || [])])),
+        };
+        if (selectedVariant) {
+          setSelectedVariant(updatedAsset);
+        }
+        onAssetUpdated?.(updatedAsset);
+      } else {
+        showToast('info', 'Sprite Classification', detail?.error || 'Could not classify sprite');
+      }
+    } catch (err: any) {
+      showToast('error', 'Sprite Classification Error', err?.message || 'Failed to classify sprite');
+    } finally {
+      setClassifyingSprite(false);
+    }
   };
 
   return (
@@ -581,11 +688,41 @@ export function Inspector({
               {isDisplayedImage &&
                 displayedAsset.metadata.width &&
                 displayedAsset.metadata.height && (
-                  <div className="flex justify-between py-1 border-b border-[#202033]">
+                  <div className="flex justify-between py-1 border-b border-[#202033] items-center">
                     <span className="text-slate-400">Dimensions</span>
-                    <span className="font-mono font-medium text-cyan-300">
-                      {displayedAsset.metadata.width} × {displayedAsset.metadata.height} px
-                    </span>
+                    <div className="flex items-center gap-1 font-mono text-xs">
+                      <button
+                        onClick={() =>
+                          onSelectWidth &&
+                          onSelectWidth(String(displayedAsset.metadata.width))
+                        }
+                        title={`Filter library by width = ${displayedAsset.metadata.width}px`}
+                        className="font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer"
+                      >
+                        {displayedAsset.metadata.width}w
+                      </button>
+                      <span className="text-slate-500">×</span>
+                      <button
+                        onClick={() =>
+                          onSelectHeight &&
+                          onSelectHeight(String(displayedAsset.metadata.height))
+                        }
+                        title={`Filter library by height = ${displayedAsset.metadata.height}px`}
+                        className="font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer"
+                      >
+                        {displayedAsset.metadata.height}h
+                      </button>
+                      <button
+                        onClick={() =>
+                          onSelectResolution &&
+                          onSelectResolution(`${displayedAsset.metadata.width}x${displayedAsset.metadata.height}`)
+                        }
+                        title={`Filter library by resolution ${displayedAsset.metadata.width}x${displayedAsset.metadata.height}`}
+                        className="ml-1 text-[10px] text-slate-400 hover:text-slate-200 px-1 py-0.5 rounded bg-[#202033] hover:bg-[#282842] border border-[#2b2b40] cursor-pointer"
+                      >
+                        px
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -598,12 +735,70 @@ export function Inspector({
                 </div>
               )}
 
-              {isDisplayedAudio && displayedAsset.metadata.duration && (
-                <div className="flex justify-between py-1 border-b border-[#202033]">
-                  <span className="text-slate-400">Duration</span>
-                  <span className="font-mono font-medium text-cyan-300">
-                    {displayedAsset.metadata.duration.toFixed(2)} seconds
+              {isDisplayedImage && (
+                <div className="flex justify-between py-1 border-b border-[#202033] items-center">
+                  <span className="text-slate-400 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                    Sprite Type
                   </span>
+                  <div className="flex items-center gap-1.5">
+                    {displayedAsset.metadata.spriteType ? (
+                      <span
+                        className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] capitalize border ${
+                          displayedAsset.metadata.spriteType === 'character'
+                            ? 'text-purple-300 bg-purple-950/40 border-purple-500/40'
+                            : displayedAsset.metadata.spriteType === 'object'
+                            ? 'text-amber-300 bg-amber-950/40 border-amber-500/40'
+                            : displayedAsset.metadata.spriteType === 'texture'
+                            ? 'text-emerald-300 bg-emerald-950/40 border-emerald-500/40'
+                            : displayedAsset.metadata.spriteType === 'background'
+                            ? 'text-sky-300 bg-sky-950/40 border-sky-500/40'
+                            : 'text-slate-400 bg-slate-800/40 border-slate-600/40'
+                        }`}
+                      >
+                        {displayedAsset.metadata.spriteType}
+                        {displayedAsset.metadata.spriteConfidence !== undefined
+                          ? ` (${Math.round(displayedAsset.metadata.spriteConfidence * 100)}%)`
+                          : ''}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 italic text-[11px]">Not classified</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleClassifySprite}
+                      disabled={classifyingSprite}
+                      className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-purple-950/40 text-purple-300 border border-[#3b3b5c] hover:border-purple-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50"
+                      title="Run Sprite Classifier on this image asset"
+                    >
+                      {classifyingSprite ? (
+                        <>
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                          Classifying
+                        </>
+                      ) : displayedAsset.metadata.spriteType ? (
+                        'Re-classify'
+                      ) : (
+                        'Classify'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isDisplayedAudio && displayedAsset.metadata.duration && (
+                <div className="flex justify-between py-1 border-b border-[#202033] items-center">
+                  <span className="text-slate-400">Duration</span>
+                  <button
+                    onClick={() =>
+                      onSelectDuration &&
+                      onSelectDuration(String(Math.round(displayedAsset.metadata.duration!)))
+                    }
+                    title={`Filter library by duration ≈ ${Math.round(displayedAsset.metadata.duration)}s`}
+                    className="font-mono font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer"
+                  >
+                    {displayedAsset.metadata.duration.toFixed(2)} seconds
+                  </button>
                 </div>
               )}
 
@@ -622,6 +817,51 @@ export function Inspector({
                   <span className="font-mono text-slate-300">
                     {displayedAsset.metadata.numberOfChannels === 1 ? 'Mono' : 'Stereo'}
                   </span>
+                </div>
+              )}
+
+              {isDisplayedAudio && (
+                <div className="flex justify-between py-1 border-b border-[#202033] items-center">
+                  <span className="text-slate-400 flex items-center gap-1">
+                    <Activity className="w-3.5 h-3.5 text-pink-400" />
+                    Tempo / BPM
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {displayedAsset.metadata.bpm ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onSelectBpm &&
+                          onSelectBpm(String(displayedAsset.metadata.bpm))
+                        }
+                        title={`Filter library by ${displayedAsset.metadata.bpm} BPM`}
+                        className="font-mono font-bold text-pink-400 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 hover:border-pink-500/70 px-1.5 py-0.5 rounded text-[11px] cursor-pointer transition-colors"
+                      >
+                        {displayedAsset.metadata.bpm} BPM
+                        {displayedAsset.metadata.tempoDescription ? ` (${displayedAsset.metadata.tempoDescription})` : ''}
+                      </button>
+                    ) : (
+                      <span className="text-slate-500 italic text-[11px]">Not analyzed</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleAnalyzeBpm}
+                      disabled={analyzingBpm}
+                      className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-pink-950/40 text-pink-300 border border-[#3b3b5c] hover:border-pink-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50"
+                      title="Run BPM Classifier on this audio file"
+                    >
+                      {analyzingBpm ? (
+                        <>
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                          Analyzing
+                        </>
+                      ) : displayedAsset.metadata.bpm ? (
+                        'Re-detect'
+                      ) : (
+                        'Detect BPM'
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
 

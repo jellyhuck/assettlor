@@ -11,6 +11,7 @@ import { stacksRoutes } from './routes/stacks.js';
 import { scanRoutes } from './routes/scan.js';
 import { settingsRoutes } from './routes/settings.js';
 import { fsRoutes } from './routes/fs.js';
+import { classifiersRoutes } from './routes/classifiers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   await server.register(scanRoutes);
   await server.register(settingsRoutes);
   await server.register(fsRoutes);
+  await server.register(classifiersRoutes);
 
   // Serve frontend build if dist exists
   const clientDistPath = options.clientDistPath || path.resolve(__dirname, '../../client/dist');

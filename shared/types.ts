@@ -1,5 +1,7 @@
 export type AssetCategory = 'image' | 'audio' | 'archive' | 'other';
 
+export type SpriteCategory = 'character' | 'object' | 'texture' | 'background' | 'unclassified';
+
 export interface ImageMetadata {
   width?: number;
   height?: number;
@@ -9,7 +11,7 @@ export interface ImageMetadata {
   hasAlpha?: boolean;
   density?: number;
   // Sprite classification fields
-  spriteType?: 'character' | 'object' | 'texture' | 'background' | 'unclassified';
+  spriteType?: SpriteCategory;
   spriteConfidence?: number;
 }
 

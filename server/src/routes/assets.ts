@@ -6,6 +6,8 @@ import {
   getAssetById,
   getAllTags,
   getAllFormats,
+  getAllResolutions,
+  getAllBpms,
   getAppSettings,
 } from '../db/database.js';
 import { copyAssetToProject } from '../services/copier.js';
@@ -158,6 +160,26 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     try {
       const formats = getAllFormats();
       return reply.send(formats);
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
+  // Get all image resolutions
+  fastify.get('/api/resolutions', async (_req, reply) => {
+    try {
+      const resolutions = getAllResolutions();
+      return reply.send(resolutions);
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
+  // Get all detected BPMs
+  fastify.get('/api/bpms', async (_req, reply) => {
+    try {
+      const bpms = getAllBpms();
+      return reply.send(bpms);
     } catch (err: any) {
       return reply.status(500).send({ error: err.message });
     }

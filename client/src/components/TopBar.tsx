@@ -21,9 +21,12 @@ interface TopBarProps {
   onToggleStackedView: () => void;
   cardZoom: CardZoom;
   onCardZoomChange: (zoom: CardZoom) => void;
-  sortBy: 'name' | 'size' | 'mtime';
+  sortBy: 'name' | 'size' | 'mtime' | 'resolution' | 'duration' | 'bpm' | 'width' | 'height';
   sortOrder: 'asc' | 'desc';
-  onSortChange: (by: 'name' | 'size' | 'mtime', order: 'asc' | 'desc') => void;
+  onSortChange: (
+    by: 'name' | 'size' | 'mtime' | 'resolution' | 'duration' | 'bpm' | 'width' | 'height',
+    order: 'asc' | 'desc'
+  ) => void;
   totalItems: number;
   loading?: boolean;
 }
@@ -174,9 +177,37 @@ export function TopBar({
                 </div>
               </div>
               <div>
-                <div className="text-slate-300 font-medium mb-1">Flags & Metadata:</div>
+                <div className="text-slate-300 font-medium mb-1">Image Dimensions & Resolution:</div>
                 <div className="flex flex-wrap gap-1">
-                  {['is:archive', 'is:disk', 'width:>128', 'dur:>5s'].map((sample) => (
+                  {['res:64x64', 'width:>128', 'height:<=64', 'width:[64 TO 512]', 'res:square', 'res:1080p', 'w:tiny'].map((sample) => (
+                    <button
+                      key={sample}
+                      onClick={() => handleAddFilter(sample)}
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-indigo-900/50 hover:text-indigo-200 text-indigo-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                    >
+                      {sample}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-300 font-medium mb-1">Audio BPM & Duration:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['bpm:120', 'bpm:>120', 'bpm:[80 TO 140]', 'bpm:fast', 'dur:>5s', 'dur:<30s', 'dur:[5s TO 1m]', 'dur:music'].map((sample) => (
+                    <button
+                      key={sample}
+                      onClick={() => handleAddFilter(sample)}
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-indigo-900/50 hover:text-indigo-200 text-indigo-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                    >
+                      {sample}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-300 font-medium mb-1">Flags & Location:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['is:archive', 'is:disk', 'in:sprites', 'path:hero'].map((sample) => (
                     <button
                       key={sample}
                       onClick={() => handleAddFilter(sample)}
@@ -281,6 +312,16 @@ export function TopBar({
             <option value="name_desc" className="bg-[#181828]">Name (Z-A)</option>
             <option value="size_desc" className="bg-[#181828]">Size (Largest)</option>
             <option value="size_asc" className="bg-[#181828]">Size (Smallest)</option>
+            <option value="resolution_desc" className="bg-[#181828]">Resolution (Highest)</option>
+            <option value="resolution_asc" className="bg-[#181828]">Resolution (Lowest)</option>
+            <option value="width_desc" className="bg-[#181828]">Width (Widest)</option>
+            <option value="width_asc" className="bg-[#181828]">Width (Narrowest)</option>
+            <option value="height_desc" className="bg-[#181828]">Height (Tallest)</option>
+            <option value="height_asc" className="bg-[#181828]">Height (Shortest)</option>
+            <option value="duration_desc" className="bg-[#181828]">Duration (Longest)</option>
+            <option value="duration_asc" className="bg-[#181828]">Duration (Shortest)</option>
+            <option value="bpm_desc" className="bg-[#181828]">BPM (Fastest)</option>
+            <option value="bpm_asc" className="bg-[#181828]">BPM (Slowest)</option>
             <option value="mtime_desc" className="bg-[#181828]">Date (Newest)</option>
             <option value="mtime_asc" className="bg-[#181828]">Date (Oldest)</option>
           </select>

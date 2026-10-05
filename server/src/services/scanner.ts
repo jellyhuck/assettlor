@@ -12,6 +12,7 @@ import { isSupportedImageExtension, processImageFile } from './image.js';
 import { isSupportedAudioExtension, processAudioFile } from './audio.js';
 import { isArchiveFile, inspectZipArchive } from './archive.js';
 import { runStackingEngine } from './stacker.js';
+import { getAllClassifiers, getEffectiveClassifierSettings, runClassifier } from './classifiers/index.js';
 import { ScanProgressEvent, ScanStatusType } from '../../shared/types.js';
 import { config } from '../config.js';
 
@@ -305,12 +306,41 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
     // Run Stacking Engine
     const stackStats = runStackingEngine();
 
+    // Run Automatic Classifiers
+    broadcastProgress({
+      message: 'Running automatic asset classifiers...',
+    });
+
+    const classifiers = getAllClassifiers();
+    let totalClassified = 0;
+
+    for (const classifier of classifiers) {
+      if (cancelRequested) break;
+      const settings = getEffectiveClassifierSettings(classifier) as { enabled?: boolean };
+      if (settings.enabled !== false) {
+        try {
+          const runRes = await runClassifier(classifier, {
+            targetType: 'all',
+            onProgress: (p) => {
+              broadcastProgress({
+                currentFile: p.currentAsset,
+                message: `${classifier.name} [${p.stepName}]: ${p.processedCount + 1}/${p.totalTargeted}`,
+              });
+            },
+          });
+          totalClassified += runRes.classifiedCount;
+        } catch (err) {
+          console.warn(`Automatic classifier ${classifier.id} note:`, err);
+        }
+      }
+    }
+
     const elapsedMs = Date.now() - startTime;
     broadcastProgress({
       status: 'completed',
       scannedCount,
       indexedCount,
-      message: `Completed in ${(elapsedMs / 1000).toFixed(1)}s: ${indexedCount} assets indexed (${stackStats.animationStacksCreated} animation stacks, ${stackStats.audioStacksCreated} audio variations).`,
+      message: `Completed in ${(elapsedMs / 1000).toFixed(1)}s: ${indexedCount} assets indexed (${stackStats.animationStacksCreated} animation stacks, ${stackStats.audioStacksCreated} audio variations${totalClassified > 0 ? `, ${totalClassified} classified` : ''}).`,
       elapsedMs,
     });
   } catch (err: any) {

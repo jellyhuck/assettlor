@@ -104,3 +104,42 @@ export function createTestTgaBuffer(width = 2, height = 2, topDown = false): Buf
 
   return Buffer.concat([header, pixelData]);
 }
+
+// Generate rhythmic WAV buffer with clear beats for BPM testing
+export function createTestBpmWavBuffer(bpm = 120, durationSec = 4, sampleRate = 22050): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const blockAlign = 2;
+  const byteRate = sampleRate * blockAlign;
+  const numSamples = Math.floor(sampleRate * durationSec);
+  const dataSize = numSamples * blockAlign;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  const beatInterval = 60 / bpm;
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const timeInBeat = t % beatInterval;
+    let sample = 0;
+    // 50ms pulse of 150Hz sine wave on each beat
+    if (timeInBeat < 0.05) {
+      sample = Math.sin(2 * Math.PI * 150 * timeInBeat) * 30000;
+    }
+    buffer.writeInt16LE(Math.floor(sample), 44 + i * 2);
+  }
+  return buffer;
+}
+

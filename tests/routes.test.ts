@@ -16,6 +16,7 @@ import {
   createTestZipArchive,
   TINY_PNG_BUFFER,
   createTestWavBuffer,
+  createTestBpmWavBuffer,
 } from './helpers.js';
 
 describe('HTTP API Routes', () => {
@@ -87,6 +88,7 @@ describe('HTTP API Routes', () => {
         mtime: 2000,
         hash: 'h_laser',
         isArchiveEntry: false,
+        metadata: { duration: 0.1, bpm: 120 },
         tags: [{ tag: 'sfx', source: 'auto' }],
       });
     });
@@ -133,6 +135,77 @@ describe('HTTP API Routes', () => {
       const exprBody = exprRes.json();
       expect(exprBody.items).toHaveLength(1);
       expect(exprBody.items[0].id).toBe('hero_id');
+
+      // Test resolution parameter
+      const resParamRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?resolution=1x1',
+      });
+      expect(resParamRes.statusCode).toBe(200);
+      const resParamBody = resParamRes.json();
+      expect(resParamBody.items).toHaveLength(1);
+      expect(resParamBody.items[0].id).toBe('hero_id');
+
+      // Test resolution expression in search parameter
+      const resExprRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?search=' + encodeURIComponent('res:1x1'),
+      });
+      expect(resExprRes.statusCode).toBe(200);
+      const resExprBody = resExprRes.json();
+      expect(resExprBody.items).toHaveLength(1);
+      expect(resExprBody.items[0].id).toBe('hero_id');
+
+      // Test bpm query parameter
+      const bpmRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?bpm=120',
+      });
+      expect(bpmRes.statusCode).toBe(200);
+      const bpmBody = bpmRes.json();
+      expect(bpmBody.items).toHaveLength(1);
+      expect(bpmBody.items[0].id).toBe('laser_id');
+
+      // Test width and height query parameters
+      const widthRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?width=1',
+      });
+      expect(widthRes.statusCode).toBe(200);
+      expect(widthRes.json().items).toHaveLength(1);
+      expect(widthRes.json().items[0].id).toBe('hero_id');
+
+      const heightRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?height=1',
+      });
+      expect(heightRes.statusCode).toBe(200);
+      expect(heightRes.json().items).toHaveLength(1);
+      expect(heightRes.json().items[0].id).toBe('hero_id');
+
+      // Test duration query parameter
+      const durRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?duration=<1',
+      });
+      expect(durRes.statusCode).toBe(200);
+      expect(durRes.json().items).toHaveLength(1);
+      expect(durRes.json().items[0].id).toBe('laser_id');
+
+      // Test sorting by bpm and duration
+      const sortBpmRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?sortBy=bpm&sortOrder=desc',
+      });
+      expect(sortBpmRes.statusCode).toBe(200);
+      expect(sortBpmRes.json().items[0].id).toBe('laser_id');
+
+      const sortDurRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?sortBy=duration&sortOrder=desc',
+      });
+      expect(sortDurRes.statusCode).toBe(200);
+      expect(sortDurRes.json().items[0].id).toBe('laser_id');
     });
 
     it('GET /api/assets/:id should return asset by id or 404', async () => {
@@ -321,6 +394,28 @@ describe('HTTP API Routes', () => {
       const formats = res.json();
       expect(Array.isArray(formats)).toBe(true);
       expect(formats.some((f: any) => f.extension === '.png')).toBe(true);
+    });
+
+    it('GET /api/resolutions should return list of image resolutions', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/resolutions',
+      });
+      expect(res.statusCode).toBe(200);
+      const resolutions = res.json();
+      expect(Array.isArray(resolutions)).toBe(true);
+      expect(resolutions.some((r: any) => r.formatted === '1x1')).toBe(true);
+    });
+
+    it('GET /api/bpms should return list of detected BPMs', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/bpms',
+      });
+      expect(res.statusCode).toBe(200);
+      const bpms = res.json();
+      expect(Array.isArray(bpms)).toBe(true);
+      expect(bpms.some((b: any) => b.bpm === 120)).toBe(true);
     });
 
     it('POST /api/assets/copy should copy asset or return 400 on error', async () => {
@@ -628,6 +723,108 @@ describe('HTTP API Routes', () => {
     });
   });
 
+  describe('Classifier API Routes', () => {
+    it('GET /api/classifiers should list registered classifiers', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/classifiers',
+      });
+      expect(res.statusCode).toBe(200);
+      const classifiers = res.json();
+      expect(Array.isArray(classifiers)).toBe(true);
+      const bpm = classifiers.find((c: any) => c.id === 'bpm');
+      expect(bpm).toBeDefined();
+      expect(bpm.name).toBe('BPM & Tempo Classifier');
+      expect(bpm.steps.length).toBe(4);
+    });
+
+    it('GET /api/classifiers/:id should return details for valid classifier or 404', async () => {
+      const okRes = await app.inject({
+        method: 'GET',
+        url: '/api/classifiers/bpm',
+      });
+      expect(okRes.statusCode).toBe(200);
+      expect(okRes.json().id).toBe('bpm');
+
+      const notFoundRes = await app.inject({
+        method: 'GET',
+        url: '/api/classifiers/nonexistent',
+      });
+      expect(notFoundRes.statusCode).toBe(404);
+    });
+
+    it('PUT /api/classifiers/:id/settings should update and persist classifier settings', async () => {
+      const updateRes = await app.inject({
+        method: 'PUT',
+        url: '/api/classifiers/bpm/settings',
+        payload: {
+          minBpm: 65,
+          maxBpm: 195,
+          applyTempoTag: true,
+        },
+      });
+      expect(updateRes.statusCode).toBe(200);
+      const body = updateRes.json();
+      expect(body.success).toBe(true);
+      expect(body.settings.minBpm).toBe(65);
+      expect(body.settings.maxBpm).toBe(195);
+
+      // Verify subsequent GET reflects updated settings
+      const getRes = await app.inject({
+        method: 'GET',
+        url: '/api/classifiers/bpm',
+      });
+      expect(getRes.json().settings.minBpm).toBe(65);
+    });
+
+    it('POST /api/classifiers/:id/run should execute classifier on target scope', async () => {
+      // Seed a test music track
+      const rhythmicWav = createTestBpmWavBuffer(120, 4, 22050);
+      const trackPath = path.join(tempLibraryDir, 'beat_track.wav');
+      fs.writeFileSync(trackPath, rhythmicWav);
+
+      upsertAsset({
+        id: 'beat_track_id',
+        path: 'beat_track.wav',
+        absolutePath: trackPath,
+        name: 'beat_track.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: rhythmicWav.length,
+        mtime: Date.now(),
+        hash: 'h_beat',
+        isArchiveEntry: false,
+        metadata: { duration: 4.0 },
+      });
+
+      const runRes = await app.inject({
+        method: 'POST',
+        url: '/api/classifiers/bpm/run',
+        payload: {
+          targetType: 'asset',
+          targetValue: 'beat_track_id',
+        },
+      });
+
+      expect(runRes.statusCode).toBe(200);
+      const result = runRes.json();
+      expect(result.classifierId).toBe('bpm');
+      expect(result.totalTargeted).toBe(1);
+      expect(result.classifiedCount).toBe(1);
+      expect(result.details[0].result.bpm).toBe(120);
+
+      // Verify asset metadata via GET /api/assets
+      const assetRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?search=beat_track',
+      });
+      expect(assetRes.statusCode).toBe(200);
+      const items = assetRes.json().items;
+      expect(items.length).toBe(1);
+      expect(items[0].metadata.bpm).toBe(120);
+    });
+  });
+
   describe('Not Found handler for API', () => {
     it('should return JSON error 404 for unknown /api routes', async () => {
       const res = await app.inject({
@@ -639,3 +836,4 @@ describe('HTTP API Routes', () => {
     });
   });
 });
+
