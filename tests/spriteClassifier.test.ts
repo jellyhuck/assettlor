@@ -7,7 +7,9 @@ import {
   upsertAsset,
   getAssetById,
   saveClassifierSettings,
+  queryAssets,
 } from '../server/src/db/database.js';
+import { compileFilterExpression } from '../server/src/services/filterParser.js';
 import {
   spriteClassifier,
   DEFAULT_SPRITE_SETTINGS,
@@ -68,8 +70,7 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(info.category).toBe('image');
       expect(info.steps.length).toBe(5);
       expect((info.settings as any).minConfidence).toBe(DEFAULT_SPRITE_SETTINGS.minConfidence);
-      expect((info.settings as any).spriteTagPrefix).toBe('sprite:');
-      expect((info.settings as any).applySpriteTag).toBe(true);
+      expect((info.settings as any).enableVisualAnalysis).toBe(true);
     });
   });
 
@@ -107,11 +108,12 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('character');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
+      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_knight');
       expect(updated?.metadata.spriteType).toBe('character');
       expect(updated?.metadata.spriteConfidence).toBeGreaterThanOrEqual(0.5);
-      expect(updated?.tags).toContain('sprite:character');
+      expect(updated?.tags).toEqual([]);
     });
 
     it('should classify object sprite (Coin_Spin_01.png)', async () => {
@@ -143,10 +145,11 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('object');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
+      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_coin');
       expect(updated?.metadata.spriteType).toBe('object');
-      expect(updated?.tags).toContain('sprite:object');
+      expect(updated?.tags).toEqual([]);
     });
 
     it('should classify background image (dungeon_background.jpg)', async () => {
@@ -178,10 +181,11 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('background');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
+      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_bg');
       expect(updated?.metadata.spriteType).toBe('background');
-      expect(updated?.tags).toContain('sprite:background');
+      expect(updated?.tags).toEqual([]);
     });
 
     it('should classify texture / tile (stone_brick_tile.tga)', async () => {
@@ -213,10 +217,11 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('texture');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
+      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_tile');
       expect(updated?.metadata.spriteType).toBe('texture');
-      expect(updated?.tags).toContain('sprite:texture');
+      expect(updated?.tags).toEqual([]);
     });
   });
 
@@ -249,10 +254,11 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       const detail = res.details[0];
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('unclassified');
+      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_unknown');
       expect(updated?.metadata.spriteType).toBe('unclassified');
-      expect(updated?.tags).toContain('sprite:unclassified');
+      expect(updated?.tags).toEqual([]);
     });
   });
 
@@ -291,7 +297,7 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       const detail = res.details[0];
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('character');
-      expect(detail.tagsAdded).toContain('sprite:character');
+      expect(detail.tagsAdded).toEqual([]);
     });
 
     it('should trigger progress callbacks across all 5 steps', async () => {
@@ -321,48 +327,46 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
 
       expect(progressEvents.length).toBe(5);
       expect(progressEvents[0].stepName).toBe('Validate Image Buffer');
-      expect(progressEvents[4].stepName).toBe('Persist Metadata & Tags');
+      expect(progressEvents[4].stepName).toBe('Persist Metadata');
       expect(progressEvents[4].stepIndex).toBe(5);
       expect(progressEvents[4].totalSteps).toBe(5);
     });
 
-    it('should respect custom tag prefix and applySpriteTag: false', async () => {
+    it('should not assign tags and make labels accessible via sprite: search keyword', async () => {
       const knightPath = path.join(sampleAssetsDir, 'characters/knight/Knight_Walk_01.png');
-      const testPath = path.join(tempLibraryDir, 'prefix_knight.png');
+      const testPath = path.join(tempLibraryDir, 'search_knight.png');
       fs.writeFileSync(testPath, fs.readFileSync(knightPath));
 
       upsertAsset({
-        id: 'asset_prefix',
-        path: 'prefix_knight.png',
+        id: 'asset_search_test',
+        path: 'sprites/search_knight.png',
         absolutePath: testPath,
-        name: 'prefix_knight.png',
+        name: 'search_knight.png',
         extension: '.png',
         category: 'image',
         size: 500,
         mtime: Date.now(),
-        hash: 'hash_prefix',
+        hash: 'hash_search_test',
         isArchiveEntry: false,
       });
 
-      // Run with custom tag prefix
       await runClassifier(spriteClassifier, {
         targetType: 'asset',
-        targetValue: 'asset_prefix',
-        settingsOverride: { spriteTagPrefix: 'type:' },
+        targetValue: 'asset_search_test',
       });
 
-      let updated = getAssetById('asset_prefix');
-      expect(updated?.tags).toContain('type:character');
+      const updated = getAssetById('asset_search_test');
+      expect(updated?.metadata.spriteType).toBe('character');
+      // No tags should be assigned
+      expect(updated?.tags).toEqual([]);
 
-      // Run with applySpriteTag: false
-      await runClassifier(spriteClassifier, {
-        targetType: 'asset',
-        targetValue: 'asset_prefix',
-        settingsOverride: { applySpriteTag: false },
-      });
+      // Label is accessible via sprite: search keyword
+      const spriteQuery = queryAssets({ sprite: 'character' });
+      expect(spriteQuery.items.some((item) => item.id === 'asset_search_test')).toBe(true);
 
-      updated = getAssetById('asset_prefix');
-      expect(updated?.tags.some((t) => t.includes('character'))).toBe(false);
+      const filterResult = compileFilterExpression('sprite:character', false);
+      expect(filterResult.isParsed).toBe(true);
+      expect(filterResult.sql).toContain("LOWER(json_extract(a.metadata, '$.spriteType')) = ?");
     });
   });
 });

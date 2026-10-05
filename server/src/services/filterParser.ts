@@ -55,11 +55,17 @@ export function preprocessSearchQuery(query: string): string {
   // Strip bpm suffix in bpm: e.g. bpm:120bpm -> bpm:120
   q = q.replace(/\b(bpm|tempo):(>=|<=|>|<|=|:)?(\d+)bpm\b/gi, '$1:$2$3');
 
+  // Convert duration ranges: dur:5-30 or dur:5s-30s -> dur:[5 TO 30] or dur:[5s TO 30s]
+  q = q.replace(/\b(dur|duration):([0-9.]+[smh]?)-([0-9.]+[smh]?)\b/gi, '$1:[$2 TO $3]');
+
+  // Convert bpm ranges: bpm:90-120 -> bpm:[90 TO 120]
+  q = q.replace(/\b(bpm|tempo):(\d+)-(\d+)\b/gi, '$1:[$2 TO $3]');
+
   // Convert size:2MB+ to size:>=2MB
   q = q.replace(/\b([a-zA-Z]+):([0-9.]+[a-zA-Z]*)\+/g, '$1:>=$2');
 
-  // Convert size:2MB- to size:<=2MB
-  q = q.replace(/\b([a-zA-Z]+):([0-9.]+[a-zA-Z]*)\-/g, '$1:<=$2');
+  // Convert size:2MB- to size:<=2MB (when not followed by digits)
+  q = q.replace(/\b([a-zA-Z]+):([0-9.]+[a-zA-Z]*)\-(?!\d)/g, '$1:<=$2');
 
   // Convert resolution ranges: res:[64x64 TO 512x512] -> (res:>=64x64 AND res:<=512x512)
   q = q.replace(/\b(res|resolution):\[\s*(\d+x\d+)\s+TO\s+(\d+x\d+)\s*\]/gi, '($1:>=$2 AND $1:<=$3)');
@@ -253,31 +259,8 @@ function compileAstNode(
 
     // 2b. Sprite category: sprite:character, sprite:object, sprite:texture, sprite:background, sprite:unclassified
     if (fieldName === 'sprite' || fieldName === 'spritetype') {
-      const spriteVal = String(expr.value || '').toLowerCase().trim();
-      if (!spriteVal) return null;
-      const spriteTag = `sprite:${spriteVal}`;
-
-      if (isStackedView) {
-        return {
-          sql: `(
-            LOWER(json_extract(a.metadata, '$.spriteType')) = ? OR
-            EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) = ?)) OR
-            (a.stack_id IS NOT NULL AND EXISTS (
-              SELECT 1 FROM assets m
-              WHERE m.stack_id = a.stack_id AND (
-                LOWER(json_extract(m.metadata, '$.spriteType')) = ? OR
-                EXISTS (SELECT 1 FROM tags mt WHERE mt.asset_id = m.id AND (LOWER(mt.tag) = ? OR LOWER(mt.tag) = ?))
-              )
-            ))
-          )`,
-          args: [spriteVal, spriteTag, spriteVal, spriteVal, spriteTag, spriteVal],
-        };
-      }
-
-      return {
-        sql: `(LOWER(json_extract(a.metadata, '$.spriteType')) = ? OR EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) = ?)))`,
-        args: [spriteVal, spriteTag, spriteVal],
-      };
+      const rawVal = expr.value !== undefined ? String(expr.value) : '';
+      return parseSpriteClause(rawVal, isStackedView);
     }
 
     // 3. Size: size:<2MB, size:>500KB, size:>=1MB, size:[100KB TO 2MB]
@@ -1013,34 +996,34 @@ export function parseBpmClause(
   };
 
   // Presets
-  if (str === 'slow' || str === '<90') {
+  if (str === 'slow' || str === 'slow-tempo' || str === '<90' || str === '<80') {
     return buildFinalSql(
-      `CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 0 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) < 90`,
-      `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 0 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) < 90`,
+      `(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 0 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) < 90) OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'slow-tempo'`,
+      `(CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 0 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) < 90) OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'slow-tempo'`,
       [],
       []
     );
   }
-  if (str === 'moderate' || str === 'mid' || str === '90-120') {
+  if (str === 'moderate' || str === 'moderate-tempo' || str === 'mid' || str === '90-120') {
     return buildFinalSql(
-      `CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) >= 90 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) <= 120`,
-      `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) >= 90 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) <= 120`,
+      `(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) >= 90 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) <= 120) OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'moderate-tempo'`,
+      `(CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) >= 90 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) <= 120) OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'moderate-tempo'`,
       [],
       []
     );
   }
-  if (str === 'fast' || str === '120-160') {
+  if (str === 'fast' || str === 'fast-tempo' || str === '120-160') {
     return buildFinalSql(
-      `CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 120 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) <= 160`,
-      `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 120 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) <= 160`,
+      `(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 120 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) <= 160) OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'fast-tempo'`,
+      `(CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 120 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) <= 160) OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'fast-tempo'`,
       [],
       []
     );
   }
-  if (str === 'very-fast' || str === 'veryfast' || str === '>160') {
+  if (str === 'very-fast' || str === 'veryfast' || str === '>160' || str === 'uptempo' || str === '>150') {
     return buildFinalSql(
-      `CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 160`,
-      `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 160`,
+      `CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 160 OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'uptempo'`,
+      `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 160 OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'uptempo'`,
       [],
       []
     );
@@ -1084,7 +1067,15 @@ export function parseBpmClause(
   }
 
   const num = parseFloat(val);
-  if (isNaN(num)) return null;
+  if (isNaN(num)) {
+    // If not a number, allow direct match on tempoDescription
+    return buildFinalSql(
+      `LOWER(json_extract(a.metadata, '$.tempoDescription')) = ?`,
+      `LOWER(json_extract(m.metadata, '$.tempoDescription')) = ?`,
+      [str],
+      [str]
+    );
+  }
 
   if (operator === '=') {
     return buildFinalSql(
@@ -1100,6 +1091,74 @@ export function parseBpmClause(
     `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) ${operator} ?`,
     [num],
     [num]
+  );
+}
+
+/**
+ * Compiles a sprite category condition into parameterized SQLite SQL and arguments.
+ * Allows searching by sprite label: sprite:character, sprite:object, sprite:texture, sprite:background, sprite:unclassified
+ */
+export function parseSpriteClause(
+  rawVal: string,
+  isStackedView: boolean
+): { sql: string; args: any[] } | null {
+  const spriteVal = rawVal.toLowerCase().trim();
+  if (!spriteVal) return null;
+  const spriteTag = `sprite:${spriteVal}`;
+
+  const buildFinalSql = (
+    flatCondition: string,
+    stackedMemberCondition: string,
+    flatArgs: any[],
+    stackedMemberArgs: any[]
+  ) => {
+    if (isStackedView) {
+      return {
+        sql: `(
+          ${flatCondition} OR
+          (a.stack_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM assets m
+            WHERE m.stack_id = a.stack_id AND (
+              ${stackedMemberCondition}
+            )
+          ))
+        )`,
+        args: [...flatArgs, ...stackedMemberArgs],
+      };
+    }
+    return {
+      sql: flatCondition,
+      args: flatArgs,
+    };
+  };
+
+  // Status presets: sprite:none / sprite:unanalyzed
+  if (spriteVal === 'none' || spriteVal === 'unanalyzed') {
+    return buildFinalSql(
+      `(json_extract(a.metadata, '$.spriteType') IS NULL OR LOWER(json_extract(a.metadata, '$.spriteType')) = 'unclassified')`,
+      `(json_extract(m.metadata, '$.spriteType') IS NULL OR LOWER(json_extract(m.metadata, '$.spriteType')) = 'unclassified')`,
+      [],
+      []
+    );
+  }
+
+  // Status presets: sprite:any / sprite:detected / sprite:classified
+  if (spriteVal === 'any' || spriteVal === 'detected' || spriteVal === 'classified') {
+    return buildFinalSql(
+      `(json_extract(a.metadata, '$.spriteType') IS NOT NULL AND LOWER(json_extract(a.metadata, '$.spriteType')) != 'unclassified')`,
+      `(json_extract(m.metadata, '$.spriteType') IS NOT NULL AND LOWER(json_extract(m.metadata, '$.spriteType')) != 'unclassified')`,
+      [],
+      []
+    );
+  }
+
+  // Standard category: character, object, texture, background, unclassified
+  // Preserves backward-compatible check for manual/legacy tags if present, while matching metadata
+  return buildFinalSql(
+    `(LOWER(json_extract(a.metadata, '$.spriteType')) = ? OR EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) = ?)))`,
+    `(LOWER(json_extract(m.metadata, '$.spriteType')) = ? OR EXISTS (SELECT 1 FROM tags mt WHERE mt.asset_id = m.id AND (LOWER(mt.tag) = ? OR LOWER(mt.tag) = ?)))`,
+    [spriteVal, spriteTag, spriteVal],
+    [spriteVal, spriteTag, spriteVal]
   );
 }
 
@@ -1153,6 +1212,18 @@ function compileFallbackQuery(rawQuery: string, isStackedView: boolean): Compile
       if (bpmClause) {
         clauses.push(bpmClause.sql);
         args.push(...bpmClause.args);
+      } else {
+        const freeRes = buildFreeTextClause(token, isStackedView);
+        clauses.push(freeRes.sql);
+        args.push(...freeRes.args);
+      }
+    } else if (token.toLowerCase().startsWith('sprite:') || token.toLowerCase().startsWith('spritetype:')) {
+      const colonIdx = token.indexOf(':');
+      const val = token.slice(colonIdx + 1);
+      const spriteClause = parseSpriteClause(val, isStackedView);
+      if (spriteClause) {
+        clauses.push(spriteClause.sql);
+        args.push(...spriteClause.args);
       } else {
         const freeRes = buildFreeTextClause(token, isStackedView);
         clauses.push(freeRes.sql);

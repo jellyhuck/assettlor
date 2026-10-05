@@ -197,7 +197,21 @@ export function TopBar({
                     <button
                       key={sample}
                       onClick={() => handleAddFilter(sample)}
-                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-indigo-900/50 hover:text-indigo-200 text-indigo-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-pink-900/50 hover:text-pink-200 text-pink-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                    >
+                      {sample}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-300 font-medium mb-1">Sprite Archetypes:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['sprite:character', 'sprite:object', 'sprite:texture', 'sprite:background', 'sprite:unclassified'].map((sample) => (
+                    <button
+                      key={sample}
+                      onClick={() => handleAddFilter(sample)}
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-purple-900/50 hover:text-purple-200 text-purple-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
                     >
                       {sample}
                     </button>

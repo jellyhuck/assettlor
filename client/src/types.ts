@@ -1,4 +1,5 @@
 export * from '../../shared/types.js';
+export * from '../../shared/filterSync.js';
 
 export interface ToastMessage {
   id: string;

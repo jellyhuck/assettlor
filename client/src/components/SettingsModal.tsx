@@ -27,17 +27,12 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     maxBpm: 200,
     minDurationSeconds: 1.0,
     maxAnalysisSeconds: 45.0,
-    applyBpmTag: true,
-    applyTempoTag: true,
-    tempoTagPrefix: '',
   });
   const [bpmClassifierInfo, setBpmClassifierInfo] = useState<ClassifierInfo | null>(null);
 
   const [spriteSettings, setSpriteSettings] = useState<SpriteClassifierSettings>({
     enabled: true,
     minConfidence: 0.5,
-    applySpriteTag: true,
-    spriteTagPrefix: 'sprite:',
     enableVisualAnalysis: true,
     enablePathAnalysis: true,
     enableStackAnalysis: true,
@@ -384,33 +379,9 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       </div>
                     </div>
 
-                    <div className="space-y-2 pt-2 border-t border-[#232338]">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="font-medium text-slate-200">Tag with Exact BPM</span>
-                          <p className="text-[11px] text-slate-400">Adds tags like #bpm:120 to classified assets</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={bpmSettings.applyBpmTag}
-                          onChange={(e) => setBpmSettings({ ...bpmSettings, applyBpmTag: e.target.checked })}
-                          className="w-4 h-4 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="font-medium text-slate-200">Tag with Tempo Category</span>
-                          <p className="text-[11px] text-slate-400">
-                            Adds tempo tags (#slow-tempo, #moderate-tempo, #fast-tempo, #uptempo)
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={bpmSettings.applyTempoTag}
-                          onChange={(e) => setBpmSettings({ ...bpmSettings, applyTempoTag: e.target.checked })}
-                          className="w-4 h-4 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
-                        />
+                    <div className="pt-2 border-t border-[#232338]">
+                      <div className="p-2.5 rounded-lg bg-[#181829] border border-[#25253a] text-slate-400 text-[11px] leading-relaxed">
+                        <span className="font-semibold text-pink-300">Search Keywords:</span> BPM results are accessible using special search queries like <code className="text-pink-400 font-mono">bpm:120</code>, <code className="text-pink-400 font-mono">bpm:&gt;120</code>, or <code className="text-pink-400 font-mono">bpm:fast</code>. No tags are assigned.
                       </div>
                     </div>
                   </div>
@@ -462,49 +433,23 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
 
                   {/* Classifier Settings Form */}
                   <div className="space-y-3 pt-2 text-xs">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-slate-400 mb-1">
-                          Min Confidence: {Math.round(spriteSettings.minConfidence * 100)}%
-                        </label>
-                        <input
-                          type="range"
-                          min={0.3}
-                          max={0.9}
-                          step={0.05}
-                          value={spriteSettings.minConfidence}
-                          onChange={(e) => setSpriteSettings({ ...spriteSettings, minConfidence: Number(e.target.value) })}
-                          className="w-full accent-purple-500 cursor-pointer"
-                        />
-                        <span className="text-[10px] text-slate-500">Lower for more matches, higher for strict precision</span>
-                      </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Sprite Tag Prefix</label>
-                        <input
-                          type="text"
-                          value={spriteSettings.spriteTagPrefix}
-                          onChange={(e) => setSpriteSettings({ ...spriteSettings, spriteTagPrefix: e.target.value })}
-                          placeholder="sprite:"
-                          className="w-full bg-[#181829] border border-[#2c2c45] rounded-lg px-3 py-1.5 font-mono text-slate-200"
-                        />
-                        <span className="text-[10px] text-slate-500">e.g. "sprite:" produces #sprite:character</span>
-                      </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">
+                        Min Confidence: {Math.round(spriteSettings.minConfidence * 100)}%
+                      </label>
+                      <input
+                        type="range"
+                        min={0.3}
+                        max={0.9}
+                        step={0.05}
+                        value={spriteSettings.minConfidence}
+                        onChange={(e) => setSpriteSettings({ ...spriteSettings, minConfidence: Number(e.target.value) })}
+                        className="w-full max-w-sm accent-purple-500 cursor-pointer"
+                      />
+                      <span className="text-[10px] text-slate-500">Lower for more matches, higher for strict precision</span>
                     </div>
 
                     <div className="space-y-2 pt-2 border-t border-[#232338]">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="font-medium text-slate-200">Tag with Sprite Category</span>
-                          <p className="text-[11px] text-slate-400">Adds tags like #sprite:character or #sprite:unclassified</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={spriteSettings.applySpriteTag}
-                          onChange={(e) => setSpriteSettings({ ...spriteSettings, applySpriteTag: e.target.checked })}
-                          className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
-                        />
-                      </div>
-
                       <div className="flex items-center justify-between">
                         <div>
                           <span className="font-medium text-slate-200">Enable Visual Pixel Analysis</span>
@@ -542,6 +487,12 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                           onChange={(e) => setSpriteSettings({ ...spriteSettings, enableStackAnalysis: e.target.checked })}
                           className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
                         />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-[#232338]">
+                      <div className="p-2.5 rounded-lg bg-[#181829] border border-[#25253a] text-slate-400 text-[11px] leading-relaxed">
+                        <span className="font-semibold text-purple-300">Search Keywords:</span> Archetypes are accessible using special search queries like <code className="text-purple-400 font-mono">sprite:character</code>, <code className="text-purple-400 font-mono">sprite:texture</code>, <code className="text-purple-400 font-mono">sprite:object</code>, or <code className="text-purple-400 font-mono">sprite:background</code>. No tags are assigned.
                       </div>
                     </div>
                   </div>

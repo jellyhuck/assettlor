@@ -20,6 +20,7 @@ import {
   compileFilterExpression,
   parseResolutionClause,
   parseBpmClause,
+  parseSpriteClause,
   parseWidthClause,
   parseHeightClause,
   parseDurationClause,
@@ -654,6 +655,14 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     if (bpmClause && bpmClause.sql) {
       conditions.push(bpmClause.sql);
       args.push(...bpmClause.args);
+    }
+  }
+
+  if (params.sprite && params.sprite.trim()) {
+    const spriteClause = parseSpriteClause(params.sprite.trim(), isStackedView);
+    if (spriteClause && spriteClause.sql) {
+      conditions.push(spriteClause.sql);
+      args.push(...spriteClause.args);
     }
   }
 

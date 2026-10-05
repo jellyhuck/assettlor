@@ -141,6 +141,7 @@ export interface AssetQueryParams {
   format?: string;
   resolution?: string;
   bpm?: string;
+  sprite?: string;
   width?: string;
   height?: string;
   duration?: string;
@@ -196,16 +197,16 @@ export interface BpmClassifierSettings {
   maxBpm: number;
   minDurationSeconds: number;
   maxAnalysisSeconds: number;
-  applyBpmTag: boolean;
-  applyTempoTag: boolean;
-  tempoTagPrefix: string;
+  applyBpmTag?: boolean;
+  applyTempoTag?: boolean;
+  tempoTagPrefix?: string;
 }
 
 export interface SpriteClassifierSettings {
   enabled: boolean;
   minConfidence: number; // 0.0 - 1.0, default 0.5
-  applySpriteTag: boolean;
-  spriteTagPrefix: string; // e.g., "sprite:" for tags like "#sprite:character"
+  applySpriteTag?: boolean;
+  spriteTagPrefix?: string;
   enableVisualAnalysis: boolean;
   enablePathAnalysis: boolean;
   enableStackAnalysis: boolean;

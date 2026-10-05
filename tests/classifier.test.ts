@@ -227,14 +227,14 @@ describe('Classifier Subsystem & BPM Classifier', () => {
   });
 
   describe('Multi-Step Classifier Pipeline Execution', () => {
-    it('should detect BPM on rhythmic music track and tag asset', async () => {
+    it('should detect BPM on rhythmic music track without assigning tags', async () => {
       const rhythmicWav = createTestBpmWavBuffer(120, 5, 22050);
       const filePath = path.join(tempLibraryDir, 'dance_loop.wav');
       fs.writeFileSync(filePath, rhythmicWav);
 
       upsertAsset({
         id: 'asset_dance',
-        path: 'dance_loop.wav',
+        path: 'music/dance_loop.wav',
         absolutePath: filePath,
         name: 'dance_loop.wav',
         extension: '.wav',
@@ -260,14 +260,13 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.bpm).toBe(120);
       expect(detail.result?.tempoDescription).toBe('fast-tempo');
-      expect(detail.tagsAdded).toContain('bpm:120');
-      expect(detail.tagsAdded).toContain('fast-tempo');
+      expect(detail.tagsAdded).toEqual([]);
 
-      // Verify database updated
+      // Verify database updated: metadata saved, no tags assigned
       const updated = getAssetById('asset_dance');
       expect(updated?.metadata.bpm).toBe(120);
-      expect(updated?.tags).toContain('bpm:120');
-      expect(updated?.tags).toContain('fast-tempo');
+      expect(updated?.metadata.tempoDescription).toBe('fast-tempo');
+      expect(updated?.tags).toEqual([]);
     });
 
     it('should skip audio under minDurationSeconds threshold', async () => {
@@ -377,7 +376,7 @@ describe('Classifier Subsystem & BPM Classifier', () => {
 
       const updatedAsset = getAssetById(assetId);
       expect(updatedAsset?.metadata.bpm).toBe(120);
-      expect(updatedAsset?.tags).toContain('bpm:120');
+      expect(updatedAsset?.tags).toEqual([]);
     });
 
     it('should track progress reporting callbacks across steps', async () => {

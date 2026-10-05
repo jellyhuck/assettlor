@@ -37,6 +37,7 @@ interface InspectorProps {
   onSelectHeight?: (height: string | null) => void;
   onSelectDuration?: (duration: string | null) => void;
   onSelectBpm?: (bpm: string | null) => void;
+  onSelectSprite?: (sprite: string | null) => void;
   onAssetUpdated?: (updatedAsset: Asset) => void;
 }
 
@@ -53,6 +54,7 @@ export function Inspector({
   onSelectHeight,
   onSelectDuration,
   onSelectBpm,
+  onSelectSprite,
   onAssetUpdated,
 }: InspectorProps) {
   const { showToast } = useToast();
@@ -178,7 +180,9 @@ export function Inspector({
             bpm: detail.result.bpm,
             tempoDescription: detail.result.tempoDescription,
           },
-          tags: Array.from(new Set([...displayedAsset.tags, ...(detail.tagsAdded || [])])),
+          tags: displayedAsset.tags.filter(
+            (t) => !t.startsWith('bpm:') && t !== displayedAsset.metadata.tempoDescription && t !== detail.result.tempoDescription
+          ),
         };
         if (selectedVariant) {
           setSelectedVariant(updatedAsset);
@@ -224,7 +228,7 @@ export function Inspector({
             spriteType: detail.result.spriteType,
             spriteConfidence: detail.result.confidence,
           },
-          tags: Array.from(new Set([...displayedAsset.tags, ...(detail.tagsAdded || [])])),
+          tags: displayedAsset.tags.filter((t) => !t.startsWith('sprite:')),
         };
         if (selectedVariant) {
           setSelectedVariant(updatedAsset);
@@ -743,8 +747,14 @@ export function Inspector({
                   </span>
                   <div className="flex items-center gap-1.5">
                     {displayedAsset.metadata.spriteType ? (
-                      <span
-                        className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] capitalize border ${
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onSelectSprite &&
+                          onSelectSprite(displayedAsset.metadata.spriteType || null)
+                        }
+                        title={`Filter library by sprite:${displayedAsset.metadata.spriteType}`}
+                        className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] capitalize border cursor-pointer hover:opacity-80 transition-opacity ${
                           displayedAsset.metadata.spriteType === 'character'
                             ? 'text-purple-300 bg-purple-950/40 border-purple-500/40'
                             : displayedAsset.metadata.spriteType === 'object'
@@ -760,7 +770,7 @@ export function Inspector({
                         {displayedAsset.metadata.spriteConfidence !== undefined
                           ? ` (${Math.round(displayedAsset.metadata.spriteConfidence * 100)}%)`
                           : ''}
-                      </span>
+                      </button>
                     ) : (
                       <span className="text-slate-500 italic text-[11px]">Not classified</span>
                     )}

@@ -11,6 +11,9 @@ import {
   ViewMode,
   CardZoom,
   AssetListResponse,
+  FilterType,
+  parseFiltersFromQuery,
+  updateSearchFilter,
 } from './types';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar } from './components/Sidebar';
@@ -24,17 +27,20 @@ import { ClassifierModal } from './components/ClassifierModal';
 function MainApp() {
   const { showToast } = useToast();
 
-  // Navigation & Filter State
+  // Navigation & Search State
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
-  const [selectedResolution, setSelectedResolution] = useState<string | null>(null);
-  const [selectedWidth, setSelectedWidth] = useState<string | null>(null);
-  const [selectedHeight, setSelectedHeight] = useState<string | null>(null);
-  const [selectedDuration, setSelectedDuration] = useState<string | null>(null);
-  const [selectedBpm, setSelectedBpm] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+
+  // Active filters derived directly from search query - ensures 100% consistency with search bar!
+  const activeFilters = React.useMemo(() => parseFiltersFromQuery(searchQuery), [searchQuery]);
+  const selectedTag = activeFilters.tag;
+  const selectedFormat = activeFilters.format;
+  const selectedResolution = activeFilters.resolution;
+  const selectedWidth = activeFilters.width;
+  const selectedHeight = activeFilters.height;
+  const selectedDuration = activeFilters.duration;
+  const selectedBpm = activeFilters.bpm;
 
   // View & Sort State
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -105,47 +111,77 @@ function MainApp() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Handler for tag selection (from Sidebar, Inspector, or chips)
-  const handleSelectTag = useCallback((tag: string | null) => {
-    if (!tag) {
-      setSelectedTag(null);
-      if (searchQuery.startsWith('#')) {
-        setSearchQuery('');
-        setDebouncedSearch('');
-      }
-      return;
-    }
+  // Handler to toggle, update, or remove a filter in the search bar
+  const handleFilterChange = useCallback((filterType: FilterType, value: string | null) => {
+    setSearchQuery((prev) => {
+      const next = updateSearchFilter(prev, filterType, value);
+      setDebouncedSearch(next); // Immediate response on filter clicks
+      return next;
+    });
+  }, []);
 
-    const cleanTag = tag.replace(/^#/, '').trim();
-    if (selectedTag && selectedTag.toLowerCase() === cleanTag.toLowerCase()) {
-      // Toggle off if already selected
-      setSelectedTag(null);
-      if (searchQuery.toLowerCase() === `#${cleanTag.toLowerCase()}`) {
-        setSearchQuery('');
-        setDebouncedSearch('');
+  // Handler to toggle a filter: if already active, toggle off (null); otherwise set value
+  const toggleOrSetFilter = useCallback(
+    (filterType: FilterType, value: string | null) => {
+      if (!value) {
+        handleFilterChange(filterType, null);
+        return;
       }
-    } else {
-      // Activate tag: automatically fill search bar and filter results!
-      setSelectedTag(cleanTag);
-      setSelectedCategory('all');
-      setSelectedFormat(null);
-      setSearchQuery(`#${cleanTag}`);
-      setDebouncedSearch(`#${cleanTag}`);
-    }
-  }, [selectedTag, searchQuery]);
+      const current = activeFilters[filterType];
+      if (current && current.toLowerCase() === value.toLowerCase()) {
+        handleFilterChange(filterType, null);
+      } else {
+        handleFilterChange(filterType, value);
+      }
+    },
+    [activeFilters, handleFilterChange]
+  );
+
+  // Handler for tag selection (from Sidebar, Inspector, or chips)
+  const handleSelectTag = useCallback(
+    (tag: string | null) => {
+      if (!tag) {
+        handleFilterChange('tag', null);
+        return;
+      }
+      const cleanTag = tag.replace(/^#/, '').trim();
+      if (selectedTag && selectedTag.toLowerCase() === cleanTag.toLowerCase()) {
+        handleFilterChange('tag', null);
+      } else {
+        handleFilterChange('tag', cleanTag);
+      }
+    },
+    [handleFilterChange, selectedTag]
+  );
+
+  // Handler for category selection
+  const handleSelectCategory = useCallback(
+    (cat: string) => {
+      setSelectedCategory(cat);
+      if (cat === 'audio' || cat === 'audio_stack') {
+        setSearchQuery((prev) => {
+          let next = updateSearchFilter(prev, 'resolution', null);
+          next = updateSearchFilter(next, 'width', null);
+          next = updateSearchFilter(next, 'height', null);
+          setDebouncedSearch(next);
+          return next;
+        });
+      } else if (cat === 'image' || cat === 'animation_stack') {
+        setSearchQuery((prev) => {
+          let next = updateSearchFilter(prev, 'duration', null);
+          next = updateSearchFilter(next, 'bpm', null);
+          setDebouncedSearch(next);
+          return next;
+        });
+      }
+    },
+    []
+  );
 
   // Handler for search bar input changes
   const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query);
-    if (!query.trim()) {
-      setSelectedTag(null);
-    } else if (query.startsWith('#')) {
-      const tagCandidate = query.slice(1).trim();
-      setSelectedTag(tagCandidate || null);
-    } else if (selectedTag) {
-      setSelectedTag(null);
-    }
-  }, [selectedTag]);
+  }, []);
 
   // Load Settings
   useEffect(() => {
@@ -190,15 +226,8 @@ function MainApp() {
       if (selectedCategory === 'animation_stack') params.append('stackType', 'animation');
       if (selectedCategory === 'audio_stack') params.append('stackType', 'audio_variation');
 
-      if (selectedTag) params.append('tag', selectedTag);
-      if (selectedFormat) params.append('format', selectedFormat);
-      if (selectedResolution) params.append('resolution', selectedResolution);
-      if (selectedWidth) params.append('width', selectedWidth);
-      if (selectedHeight) params.append('height', selectedHeight);
-      if (selectedDuration) params.append('duration', selectedDuration);
-      if (selectedBpm) params.append('bpm', selectedBpm);
-      if (debouncedSearch && (!selectedTag || debouncedSearch.toLowerCase() !== `#${selectedTag.toLowerCase()}`)) {
-        params.append('search', debouncedSearch);
+      if (debouncedSearch && debouncedSearch.trim()) {
+        params.append('search', debouncedSearch.trim());
       }
 
       params.append('isStackedView', String(isStackedView));
@@ -228,13 +257,6 @@ function MainApp() {
     }
   }, [
     selectedCategory,
-    selectedTag,
-    selectedFormat,
-    selectedResolution,
-    selectedWidth,
-    selectedHeight,
-    selectedDuration,
-    selectedBpm,
     debouncedSearch,
     isStackedView,
     sortBy,
@@ -316,32 +338,21 @@ function MainApp() {
       {/* Left Sidebar */}
       <Sidebar
         selectedCategory={selectedCategory}
-        onSelectCategory={(cat) => {
-          setSelectedCategory(cat);
-          handleSelectTag(null);
-          if (cat === 'audio' || cat === 'audio_stack') {
-            setSelectedResolution(null);
-            setSelectedWidth(null);
-            setSelectedHeight(null);
-          } else if (cat === 'image' || cat === 'animation_stack') {
-            setSelectedDuration(null);
-            setSelectedBpm(null);
-          }
-        }}
+        onSelectCategory={handleSelectCategory}
         selectedTag={selectedTag}
         onSelectTag={handleSelectTag}
         selectedFormat={selectedFormat}
-        onSelectFormat={(f) => setSelectedFormat(f)}
+        onSelectFormat={(f) => handleFilterChange('format', f)}
         selectedResolution={selectedResolution}
-        onSelectResolution={(r) => setSelectedResolution(r)}
+        onSelectResolution={(r) => handleFilterChange('resolution', r)}
         selectedWidth={selectedWidth}
-        onSelectWidth={(w) => setSelectedWidth(w)}
+        onSelectWidth={(w) => handleFilterChange('width', w)}
         selectedHeight={selectedHeight}
-        onSelectHeight={(h) => setSelectedHeight(h)}
+        onSelectHeight={(h) => handleFilterChange('height', h)}
         selectedDuration={selectedDuration}
-        onSelectDuration={(dur) => setSelectedDuration(dur)}
+        onSelectDuration={(dur) => handleFilterChange('duration', dur)}
         selectedBpm={selectedBpm}
-        onSelectBpm={(bpm) => setSelectedBpm(bpm)}
+        onSelectBpm={(bpm) => handleFilterChange('bpm', bpm)}
         tags={tags}
         formats={formats}
         resolutions={resolutions}
@@ -413,11 +424,12 @@ function MainApp() {
             setSelectedItem(stack);
             setInspectorMode('stack');
           }}
-          onSelectResolution={(r) => setSelectedResolution(r)}
-          onSelectWidth={(w) => setSelectedWidth(w)}
-          onSelectHeight={(h) => setSelectedHeight(h)}
-          onSelectDuration={(dur) => setSelectedDuration(dur)}
-          onSelectBpm={(bpm) => setSelectedBpm(bpm)}
+          onSelectResolution={(r) => toggleOrSetFilter('resolution', r)}
+          onSelectWidth={(w) => toggleOrSetFilter('width', w)}
+          onSelectHeight={(h) => toggleOrSetFilter('height', h)}
+          onSelectDuration={(dur) => toggleOrSetFilter('duration', dur)}
+          onSelectBpm={(bpm) => toggleOrSetFilter('bpm', bpm)}
+          onSelectSprite={(sprite) => toggleOrSetFilter('sprite', sprite)}
           onAssetUpdated={(updatedAsset) => {
             setSelectedItem(updatedAsset);
             loadAssets();
