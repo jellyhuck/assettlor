@@ -69,7 +69,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     stripVersionSuffix: true,
     stripAffixes: false,
     caseConvention: 'as-is',
-    applyTag: true,
+    applyTag: false,
     tagPrefix: 'pack:',
     targetArchives: [],
     targetDirectories: [],

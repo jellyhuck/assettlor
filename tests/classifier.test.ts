@@ -269,6 +269,41 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       expect(updated?.tags).toEqual([]);
     });
 
+    it('should respect applyBpmTag: true and applyTempoTag: true when explicitly requested', async () => {
+      const rhythmicWav = createTestBpmWavBuffer(120, 5, 22050);
+      const filePath = path.join(tempLibraryDir, 'dance_loop_tagged.wav');
+      fs.writeFileSync(filePath, rhythmicWav);
+
+      upsertAsset({
+        id: 'asset_dance_tagged',
+        path: 'music/dance_loop_tagged.wav',
+        absolutePath: filePath,
+        name: 'dance_loop_tagged.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: rhythmicWav.length,
+        mtime: Date.now(),
+        hash: 'h_dance_tagged',
+        isArchiveEntry: false,
+        metadata: { duration: 5.0, sampleRate: 22050 },
+      });
+
+      await runClassifier(bpmClassifier, {
+        targetType: 'asset',
+        targetValue: 'asset_dance_tagged',
+        settingsOverride: {
+          applyBpmTag: true,
+          applyTempoTag: true,
+          tempoTagPrefix: 'tempo:',
+        },
+      });
+
+      const updated = getAssetById('asset_dance_tagged');
+      expect(updated?.metadata.bpm).toBe(120);
+      expect(updated?.tags).toContain('bpm:120');
+      expect(updated?.tags).toContain('tempo:fast-tempo');
+    });
+
     it('should skip audio under minDurationSeconds threshold', async () => {
       const shortWav = createTestWavBuffer(0.3, 8000);
       const filePath = path.join(tempLibraryDir, 'tiny_click.wav');

@@ -152,6 +152,41 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(updated?.tags).toEqual([]);
     });
 
+    it('should respect applySpriteTag: true when explicitly requested', async () => {
+      const knightPath = path.join(sampleAssetsDir, 'characters/knight/Knight_Walk_01.png');
+      const buffer = fs.readFileSync(knightPath);
+      const testPath = path.join(tempLibraryDir, 'Knight_Walk_Tagged.png');
+      fs.writeFileSync(testPath, buffer);
+
+      upsertAsset({
+        id: 'asset_knight_tagged',
+        path: 'characters/knight/Knight_Walk_Tagged.png',
+        absolutePath: testPath,
+        name: 'Knight_Walk_Tagged.png',
+        extension: '.png',
+        category: 'image',
+        size: buffer.length,
+        mtime: Date.now(),
+        hash: 'hash_knight_tagged',
+        isArchiveEntry: false,
+        metadata: { width: 64, height: 64 },
+      });
+
+      const res = await runClassifier(spriteClassifier, {
+        targetType: 'asset',
+        targetValue: 'asset_knight_tagged',
+        settingsOverride: {
+          applySpriteTag: true,
+          spriteTagPrefix: 'sprite:',
+        },
+      });
+
+      expect(res.details[0].tagsAdded).toEqual(['sprite:character']);
+      const updated = getAssetById('asset_knight_tagged');
+      expect(updated?.metadata.spriteType).toBe('character');
+      expect(updated?.tags).toContain('sprite:character');
+    });
+
     it('should classify background image (dungeon_background.jpg)', async () => {
       const bgPath = path.join(sampleAssetsDir, 'environment/dungeon_background.jpg');
       const buffer = fs.readFileSync(bgPath);

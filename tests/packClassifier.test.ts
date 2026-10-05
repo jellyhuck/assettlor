@@ -79,7 +79,7 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         cleanSeparators: true,
         stripVersionSuffix: true,
         stripAffixes: false,
-        applyTag: true,
+        applyTag: false,
         tagPrefix: 'pack:',
       });
     });
@@ -142,7 +142,7 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
   });
 
   describe('Archive-Based Pack Classification', () => {
-    it('should classify assets inside virtual zip archives and apply metadata & tag', async () => {
+    it('should classify assets inside virtual zip archives and apply metadata without adding tags by default', async () => {
       const zipPath = path.join(tempLibraryDir, 'RetroPack.zip');
       createTestZipArchive(zipPath, [
         { name: 'sprites/hero_01.png', content: TINY_PNG_BUFFER },
@@ -193,11 +193,13 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
 
       const asset1 = getAssetById('asset_zip_1');
       expect(asset1?.metadata.pack).toBe('RetroPack');
-      expect(asset1?.tags).toContain('pack:RetroPack');
+      expect(asset1?.tags).toContain('RetroPack');
+      expect(asset1?.tags).not.toContain('pack:RetroPack');
 
       const asset2 = getAssetById('asset_zip_2');
       expect(asset2?.metadata.pack).toBe('RetroPack');
-      expect(asset2?.tags).toContain('pack:RetroPack');
+      expect(asset2?.tags).toContain('RetroPack');
+      expect(asset2?.tags).not.toContain('pack:RetroPack');
     });
 
     it('should clean archive filenames with version suffixes and separators', async () => {
@@ -230,7 +232,7 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
       expect(runRes.classifiedCount).toBe(1);
       const asset = getAssetById('asset_scifi_1');
       expect(asset?.metadata.pack).toBe('SciFi Audio');
-      expect(asset?.tags).toContain('pack:SciFi Audio');
+      expect(asset?.tags).not.toContain('pack:SciFi Audio');
     });
   });
 
@@ -263,7 +265,7 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
       expect(runRes.classifiedCount).toBe(1);
       const asset = getAssetById('asset_disk_1');
       expect(asset?.metadata.pack).toBe('FantasyKingdom');
-      expect(asset?.tags).toContain('pack:FantasyKingdom');
+      expect(asset?.tags).not.toContain('pack:FantasyKingdom');
     });
 
     it('should skip root assets that lack enclosing directories', async () => {
@@ -436,7 +438,7 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
       expect(getAssetById('asset_two')?.metadata.pack).toBeUndefined();
     });
 
-    it('should respect applyTag: false and custom tagPrefix', async () => {
+    it('should not add tags by default, but respect applyTag: true and custom tagPrefix when requested', async () => {
       const zipPath = path.join(tempLibraryDir, 'Bundle.zip');
       createTestZipArchive(zipPath, [{ name: 'item.png', content: TINY_PNG_BUFFER }]);
 
@@ -456,20 +458,31 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         tags: [],
       });
 
-      // 1. Custom prefix
+      // 1. By default, no tags are added
       await runClassifier(packClassifier, {
         targetType: 'asset',
         targetValue: 'asset_custom_tag',
-        settingsOverride: {
-          tagPrefix: 'asset-pack:',
-        },
       });
 
       let asset = getAssetById('asset_custom_tag');
       expect(asset?.metadata.pack).toBe('Bundle');
+      expect(asset?.tags.length).toBe(0);
+
+      // 2. Explicitly enable tags with custom prefix
+      await runClassifier(packClassifier, {
+        targetType: 'asset',
+        targetValue: 'asset_custom_tag',
+        settingsOverride: {
+          applyTag: true,
+          tagPrefix: 'asset-pack:',
+        },
+      });
+
+      asset = getAssetById('asset_custom_tag');
+      expect(asset?.metadata.pack).toBe('Bundle');
       expect(asset?.tags).toContain('asset-pack:Bundle');
 
-      // 2. Disable tags
+      // 3. Disable tags again (applyTag: false)
       await runClassifier(packClassifier, {
         targetType: 'asset',
         targetValue: 'asset_custom_tag',
