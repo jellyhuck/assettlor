@@ -8,6 +8,9 @@ export interface ImageMetadata {
   channels?: number;
   hasAlpha?: boolean;
   density?: number;
+  // Sprite classification fields
+  spriteType?: 'character' | 'object' | 'texture' | 'background' | 'unclassified';
+  spriteConfidence?: number;
 }
 
 export interface AudioMetadata {
@@ -17,6 +20,8 @@ export interface AudioMetadata {
   bitrate?: number;
   codec?: string;
   lossless?: boolean;
+  bpm?: number;
+  tempoDescription?: string;
 }
 
 export type AssetMetadata = ImageMetadata & AudioMetadata & {
@@ -77,6 +82,19 @@ export interface FormatInfo {
   category: AssetCategory;
 }
 
+export interface ResolutionInfo {
+  width: number;
+  height: number;
+  formatted: string;
+  count: number;
+}
+
+export interface BpmInfo {
+  bpm: number;
+  formatted: string;
+  count: number;
+}
+
 export type ScanStatusType = 'idle' | 'scanning' | 'completed' | 'error';
 
 export interface ScanProgressEvent {
@@ -119,10 +137,15 @@ export interface AssetQueryParams {
   category?: string;
   tag?: string;
   format?: string;
+  resolution?: string;
+  bpm?: string;
+  width?: string;
+  height?: string;
+  duration?: string;
   search?: string;
   stackType?: string;
   isStackedView?: boolean;
-  sortBy?: 'name' | 'size' | 'mtime' | 'resolution' | 'duration';
+  sortBy?: 'name' | 'size' | 'mtime' | 'resolution' | 'duration' | 'bpm' | 'width' | 'height';
   sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
@@ -143,3 +166,83 @@ export interface AssetListResponse {
     audioStackCount: number;
   };
 }
+
+// -------------------------------------------------------------
+// Classifier Framework & BPM Classifier Contracts
+// -------------------------------------------------------------
+
+export type ClassifierCategory = 'audio' | 'image' | 'archive' | 'general';
+
+export interface ClassifierStepInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ClassifierInfo {
+  id: string;
+  name: string;
+  description: string;
+  category: ClassifierCategory;
+  steps: ClassifierStepInfo[];
+  settings: Record<string, unknown>;
+}
+
+export interface BpmClassifierSettings {
+  enabled: boolean;
+  minBpm: number;
+  maxBpm: number;
+  minDurationSeconds: number;
+  maxAnalysisSeconds: number;
+  applyBpmTag: boolean;
+  applyTempoTag: boolean;
+  tempoTagPrefix: string;
+}
+
+export interface SpriteClassifierSettings {
+  enabled: boolean;
+  minConfidence: number; // 0.0 - 1.0, default 0.5
+  applySpriteTag: boolean;
+  spriteTagPrefix: string; // e.g., "sprite:" for tags like "#sprite:character"
+  enableVisualAnalysis: boolean;
+  enablePathAnalysis: boolean;
+  enableStackAnalysis: boolean;
+}
+
+export type ClassifierTargetType = 'all' | 'asset' | 'directory' | 'archive';
+
+export interface RunClassifierRequest {
+  targetType: ClassifierTargetType;
+  targetValue?: string | string[];
+  settingsOverride?: Record<string, unknown>;
+}
+
+export interface ClassifierStepProgress {
+  stepId: string;
+  stepIndex: number;
+  totalSteps: number;
+  stepName: string;
+  message?: string;
+}
+
+export interface ClassifierAssetResult {
+  assetId: string;
+  assetPath: string;
+  success: boolean;
+  result?: Record<string, unknown>;
+  tagsAdded?: string[];
+  error?: string;
+}
+
+export interface ClassifierRunResult {
+  classifierId: string;
+  targetType: ClassifierTargetType;
+  targetValue?: string | string[];
+  totalTargeted: number;
+  processedCount: number;
+  classifiedCount: number;
+  failedCount: number;
+  details: ClassifierAssetResult[];
+  elapsedMs: number;
+}
+
