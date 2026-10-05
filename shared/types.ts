@@ -176,6 +176,41 @@ export interface AssetListResponse {
   };
 }
 
+export interface AddAssetTagsRequest {
+  tag?: string;
+  tags?: string[];
+  source?: string;
+}
+
+export interface RemoveAssetTagsRequest {
+  tag?: string;
+  tags?: string[];
+}
+
+export interface SetAssetTagsRequest {
+  tags: string[];
+  source?: string;
+}
+
+export interface BatchAssetTagsRequest {
+  assetIds: string[];
+  tags: string[];
+  action?: 'add' | 'remove';
+  source?: string;
+}
+
+export interface AssetTagsResponse {
+  success: boolean;
+  asset: Asset;
+  tags: string[];
+}
+
+export interface StackTagsResponse {
+  success: boolean;
+  stack: AssetStack;
+  tags: string[];
+}
+
 // -------------------------------------------------------------
 // Classifier Framework & BPM Classifier Contracts
 // -------------------------------------------------------------

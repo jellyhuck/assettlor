@@ -9,11 +9,24 @@ import {
   getAllResolutions,
   getAllBpms,
   getAppSettings,
+  addAssetTags,
+  removeAssetTag,
+  removeAssetTags,
+  setAssetTags,
+  addTagsToAssets,
+  removeTagsFromAssets,
 } from '../db/database.js';
 import { copyAssetToProject } from '../services/copier.js';
 import { getZipEntryBuffer } from '../services/archive.js';
 import { getAudioMimeType } from '../services/audio.js';
-import { CopyAssetRequest, AssetQueryParams } from '../../shared/types.js';
+import {
+  CopyAssetRequest,
+  AssetQueryParams,
+  AddAssetTagsRequest,
+  RemoveAssetTagsRequest,
+  SetAssetTagsRequest,
+  BatchAssetTagsRequest,
+} from '../../shared/types.js';
 
 function getMimeTypeForExtension(ext: string): string {
   switch (ext.toLowerCase()) {
@@ -192,6 +205,145 @@ export async function assetsRoutes(fastify: FastifyInstance) {
       return reply.send(result);
     } catch (err: any) {
       return reply.status(400).send({ error: err.message });
+    }
+  });
+
+  // Assign tag(s) to asset
+  fastify.post('/api/assets/:id/tags', async (req: FastifyRequest<{
+    Params: { id: string };
+    Body: AddAssetTagsRequest;
+  }>, reply) => {
+    const asset = getAssetById(req.params.id);
+    if (!asset) {
+      return reply.status(404).send({ error: 'Asset not found' });
+    }
+
+    const rawTags: string[] = [];
+    if (req.body?.tag) {
+      rawTags.push(req.body.tag);
+    }
+    if (Array.isArray(req.body?.tags)) {
+      rawTags.push(...req.body.tags);
+    }
+
+    if (rawTags.length === 0) {
+      return reply.status(400).send({ error: 'No tags provided' });
+    }
+
+    const updatedAsset = addAssetTags(req.params.id, rawTags, req.body?.source || 'user');
+    if (!updatedAsset) {
+      return reply.status(500).send({ error: 'Failed to update asset tags' });
+    }
+
+    return reply.send({
+      success: true,
+      asset: updatedAsset,
+      tags: updatedAsset.tags,
+    });
+  });
+
+  // Remove specific tag from asset (via URL parameter)
+  fastify.delete('/api/assets/:id/tags/:tag', async (req: FastifyRequest<{
+    Params: { id: string; tag: string };
+  }>, reply) => {
+    const asset = getAssetById(req.params.id);
+    if (!asset) {
+      return reply.status(404).send({ error: 'Asset not found' });
+    }
+
+    const tagToRemove = decodeURIComponent(req.params.tag);
+    removeAssetTag(req.params.id, tagToRemove);
+
+    const updatedAsset = getAssetById(req.params.id);
+    return reply.send({
+      success: true,
+      asset: updatedAsset,
+      tags: updatedAsset ? updatedAsset.tags : [],
+    });
+  });
+
+  // Remove tag(s) from asset (via request body)
+  fastify.delete('/api/assets/:id/tags', async (req: FastifyRequest<{
+    Params: { id: string };
+    Body: RemoveAssetTagsRequest;
+  }>, reply) => {
+    const asset = getAssetById(req.params.id);
+    if (!asset) {
+      return reply.status(404).send({ error: 'Asset not found' });
+    }
+
+    const rawTags: string[] = [];
+    if (req.body?.tag) {
+      rawTags.push(req.body.tag);
+    }
+    if (Array.isArray(req.body?.tags)) {
+      rawTags.push(...req.body.tags);
+    }
+
+    if (rawTags.length === 0) {
+      return reply.status(400).send({ error: 'No tags provided to remove' });
+    }
+
+    removeAssetTags(req.params.id, rawTags);
+
+    const updatedAsset = getAssetById(req.params.id);
+    return reply.send({
+      success: true,
+      asset: updatedAsset,
+      tags: updatedAsset ? updatedAsset.tags : [],
+    });
+  });
+
+  // Set/replace all tags on asset
+  fastify.put('/api/assets/:id/tags', async (req: FastifyRequest<{
+    Params: { id: string };
+    Body: SetAssetTagsRequest;
+  }>, reply) => {
+    const asset = getAssetById(req.params.id);
+    if (!asset) {
+      return reply.status(404).send({ error: 'Asset not found' });
+    }
+
+    if (!Array.isArray(req.body?.tags)) {
+      return reply.status(400).send({ error: 'tags must be an array' });
+    }
+
+    const updatedAsset = setAssetTags(req.params.id, req.body.tags, req.body?.source || 'user');
+    return reply.send({
+      success: true,
+      asset: updatedAsset,
+      tags: updatedAsset ? updatedAsset.tags : [],
+    });
+  });
+
+  // Batch add/remove tags across multiple assets
+  fastify.post('/api/assets/tags', async (req: FastifyRequest<{
+    Body: BatchAssetTagsRequest;
+  }>, reply) => {
+    const { assetIds, tags, action = 'add', source = 'user' } = req.body || {};
+    if (!Array.isArray(assetIds) || assetIds.length === 0) {
+      return reply.status(400).send({ error: 'assetIds must be a non-empty array' });
+    }
+    if (!Array.isArray(tags) || tags.length === 0) {
+      return reply.status(400).send({ error: 'tags must be a non-empty array' });
+    }
+
+    if (action === 'remove') {
+      const updated = removeTagsFromAssets(assetIds, tags);
+      return reply.send({
+        success: true,
+        action: 'remove',
+        affectedCount: updated.length,
+        assets: updated,
+      });
+    } else {
+      const updated = addTagsToAssets(assetIds, tags, source);
+      return reply.send({
+        success: true,
+        action: 'add',
+        affectedCount: updated.length,
+        assets: updated,
+      });
     }
   });
 }

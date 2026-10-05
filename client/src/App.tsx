@@ -442,8 +442,14 @@ function MainApp() {
           onSelectDuration={(dur) => toggleOrSetFilter('duration', dur)}
           onSelectBpm={(bpm) => toggleOrSetFilter('bpm', bpm)}
           onSelectSprite={(sprite) => toggleOrSetFilter('sprite', sprite)}
+          availableTags={tags}
           onAssetUpdated={(updatedAsset) => {
             setSelectedItem(updatedAsset);
+            loadAssets();
+            refreshFilters();
+          }}
+          onStackUpdated={(updatedStack) => {
+            setSelectedItem(updatedStack);
             loadAssets();
             refreshFilters();
           }}

@@ -991,17 +991,196 @@ export function updateAssetMetadata(assetId: string, metadataUpdates: Partial<As
   return getAssetById(assetId);
 }
 
-export function addAssetTags(assetId: string, tags: { tag: string; source: string }[]): void {
+function normalizeTagsInput(
+  tags: (string | { tag: string; source?: string })[],
+  defaultSource = 'user'
+): { tag: string; source: string }[] {
+  const result: { tag: string; source: string }[] = [];
+  for (const item of tags) {
+    if (typeof item === 'string') {
+      const clean = item.replace(/^#/, '').trim();
+      if (clean.length > 0) {
+        result.push({ tag: clean, source: defaultSource });
+      }
+    } else if (item && typeof item.tag === 'string') {
+      const clean = item.tag.replace(/^#/, '').trim();
+      if (clean.length > 0) {
+        result.push({ tag: clean, source: item.source || defaultSource });
+      }
+    }
+  }
+  return result;
+}
+
+export function addAssetTags(
+  assetId: string,
+  tags: (string | { tag: string; source?: string })[],
+  defaultSource = 'user'
+): Asset | null {
   const db = getDatabase();
-  const stmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
+  const normalized = normalizeTagsInput(tags, defaultSource);
+  if (normalized.length === 0) {
+    return getAssetById(assetId);
+  }
+
+  const existingRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(assetId) as { tag: string }[];
+  const existingLowerSet = new Set(existingRows.map((r) => r.tag.toLowerCase()));
+
+  const insertStmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
+  const updateAssetStmt = db.prepare('UPDATE assets SET updated_at = ? WHERE id = ?');
+  const now = Date.now();
+
   const tx = db.transaction(() => {
-    for (const t of tags) {
-      if (t.tag && t.tag.trim().length > 0) {
-        stmt.run(assetId, t.tag.trim(), t.source || 'auto');
+    let inserted = 0;
+    for (const t of normalized) {
+      if (!existingLowerSet.has(t.tag.toLowerCase())) {
+        insertStmt.run(assetId, t.tag, t.source);
+        existingLowerSet.add(t.tag.toLowerCase());
+        inserted++;
+      }
+    }
+    if (inserted > 0) {
+      updateAssetStmt.run(now, assetId);
+    }
+  });
+
+  tx();
+  return getAssetById(assetId);
+}
+
+export function removeAssetTag(assetId: string, tag: string): boolean {
+  const db = getDatabase();
+  const cleanTag = tag.replace(/^#/, '').trim();
+  if (!cleanTag) return false;
+
+  const stmt = db.prepare('DELETE FROM tags WHERE asset_id = ? AND LOWER(tag) = LOWER(?)');
+  const updateAssetStmt = db.prepare('UPDATE assets SET updated_at = ? WHERE id = ?');
+
+  let changes = 0;
+  const tx = db.transaction(() => {
+    const res = stmt.run(assetId, cleanTag);
+    changes = res.changes;
+    if (changes > 0) {
+      updateAssetStmt.run(Date.now(), assetId);
+    }
+  });
+  tx();
+
+  return changes > 0;
+}
+
+export function removeAssetTags(assetId: string, tags: string[]): number {
+  const db = getDatabase();
+  const cleanTags = tags.map((t) => t.replace(/^#/, '').trim()).filter((t) => t.length > 0);
+  if (cleanTags.length === 0) return 0;
+
+  const stmt = db.prepare('DELETE FROM tags WHERE asset_id = ? AND LOWER(tag) = LOWER(?)');
+  const updateAssetStmt = db.prepare('UPDATE assets SET updated_at = ? WHERE id = ?');
+
+  let totalChanges = 0;
+  const tx = db.transaction(() => {
+    for (const tag of cleanTags) {
+      const res = stmt.run(assetId, tag);
+      totalChanges += res.changes;
+    }
+    if (totalChanges > 0) {
+      updateAssetStmt.run(Date.now(), assetId);
+    }
+  });
+  tx();
+
+  return totalChanges;
+}
+
+export function setAssetTags(
+  assetId: string,
+  tags: (string | { tag: string; source?: string })[],
+  defaultSource = 'user'
+): Asset | null {
+  const db = getDatabase();
+  const normalized = normalizeTagsInput(tags, defaultSource);
+  const deleteStmt = db.prepare('DELETE FROM tags WHERE asset_id = ?');
+  const insertStmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
+  const updateAssetStmt = db.prepare('UPDATE assets SET updated_at = ? WHERE id = ?');
+  const now = Date.now();
+
+  const seenLower = new Set<string>();
+  const tx = db.transaction(() => {
+    deleteStmt.run(assetId);
+    for (const t of normalized) {
+      if (!seenLower.has(t.tag.toLowerCase())) {
+        insertStmt.run(assetId, t.tag, t.source);
+        seenLower.add(t.tag.toLowerCase());
+      }
+    }
+    updateAssetStmt.run(now, assetId);
+  });
+  tx();
+
+  return getAssetById(assetId);
+}
+
+export function addTagsToAssets(
+  assetIds: string[],
+  tags: (string | { tag: string; source?: string })[],
+  source = 'user'
+): { assetId: string; tags: string[] }[] {
+  const result: { assetId: string; tags: string[] }[] = [];
+  const db = getDatabase();
+  const tx = db.transaction(() => {
+    for (const id of assetIds) {
+      const asset = addAssetTags(id, tags, source);
+      if (asset) {
+        result.push({ assetId: id, tags: asset.tags });
       }
     }
   });
   tx();
+  return result;
+}
+
+export function removeTagsFromAssets(
+  assetIds: string[],
+  tags: string[]
+): { assetId: string; tags: string[] }[] {
+  const result: { assetId: string; tags: string[] }[] = [];
+  const db = getDatabase();
+  const tx = db.transaction(() => {
+    for (const id of assetIds) {
+      removeAssetTags(id, tags);
+      const asset = getAssetById(id);
+      if (asset) {
+        result.push({ assetId: id, tags: asset.tags });
+      }
+    }
+  });
+  tx();
+  return result;
+}
+
+export function addTagsToStack(
+  stackId: string,
+  tags: (string | { tag: string; source?: string })[],
+  source = 'user'
+): AssetStack | null {
+  const memberAssets = getStackAssets(stackId);
+  if (memberAssets.length === 0) return null;
+
+  const memberIds = memberAssets.map((a) => a.id);
+  addTagsToAssets(memberIds, tags, source);
+  return getStackById(stackId);
+}
+
+export function removeTagsFromStack(
+  stackId: string,
+  tags: string[]
+): AssetStack | null {
+  const memberAssets = getStackAssets(stackId);
+  if (memberAssets.length === 0) return null;
+
+  const memberIds = memberAssets.map((a) => a.id);
+  removeTagsFromAssets(memberIds, tags);
+  return getStackById(stackId);
 }
 
 export function removeAssetTagsBySource(assetId: string, source: string): void {

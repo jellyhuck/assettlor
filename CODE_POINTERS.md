@@ -79,8 +79,15 @@ A navigation and reference guide for understanding subsystem implementations and
 ## 4. API Endpoints Reference
 
 - `GET /api/assets` - Paginated & filtered assets (`category`, `tags`, `format`, `search`, `stacked`, `sort`).
+- `GET /api/assets/:id` - Detailed asset metadata and assigned tags.
 - `GET /api/assets/:id/thumbnail` - WebP thumbnail image.
 - `GET /api/assets/:id/file` - Raw file stream (supports HTTP 206 Partial Content range requests).
+- `POST /api/assets/:id/tags` - Assign tag(s) to asset (`tag`, `tags`, `source`).
+- `DELETE /api/assets/:id/tags/:tag` & `DELETE /api/assets/:id/tags` - Remove tag(s) from asset.
+- `PUT /api/assets/:id/tags` - Replace all tags on asset.
+- `POST /api/assets/tags` - Batch add or remove tags across multiple assets.
+- `POST /api/stacks/:id/tags` & `DELETE /api/stacks/:id/tags/:tag` - Assign or remove tags across all stack members.
+- `GET /api/tags` - Aggregate list of all tags with counts and sources.
 - `POST /api/assets/copy` - Copy asset or stack to target project (`assetId`, `stackId`, `copyAllFrames`).
 - `GET /api/stacks/:id/assets` - Ordered frames or variations for a stack.
 - `GET /api/scan/progress` - SSE live scan progress stream.

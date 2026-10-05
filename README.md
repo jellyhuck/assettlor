@@ -150,6 +150,13 @@ assettlor/
 | `GET` | `/api/stacks/:id` | Get stack details |
 | `GET` | `/api/stacks/:id/assets` | Get ordered frames or variations for a stack |
 | `GET` | `/api/tags` | List all indexed tags with usage counts |
+| `POST` | `/api/assets/:id/tags` | Assign tag(s) to asset (`tag`, `tags`, `source`) |
+| `DELETE` | `/api/assets/:id/tags/:tag` | Remove a specific tag from an asset |
+| `DELETE` | `/api/assets/:id/tags` | Remove multiple tags from an asset via request body |
+| `PUT` | `/api/assets/:id/tags` | Set/replace all tags on an asset |
+| `POST` | `/api/assets/tags` | Batch add or remove tags across multiple assets |
+| `POST` | `/api/stacks/:id/tags` | Assign tag(s) across all member assets in a stack |
+| `DELETE` | `/api/stacks/:id/tags/:tag` | Remove a tag from all member assets in a stack |
 | `GET` | `/api/formats` | List all file formats with counts |
 | `GET` | `/api/scan/progress` | Server-Sent Events (SSE) live indexing progress |
 | `POST` | `/api/scan/start` | Trigger incremental directory scan |

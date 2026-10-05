@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Asset, AssetStack, AppSettings } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Asset, AssetStack, AppSettings, TagInfo } from '../types';
 import {
   X,
   Copy,
@@ -19,6 +19,9 @@ import {
   RefreshCw,
   Sparkles,
   Package,
+  Plus,
+  Check,
+  Loader2,
 } from 'lucide-react';
 import { FlipbookPlayer } from './FlipbookPlayer';
 import { AudioWaveformPlayer } from './AudioWaveformPlayer';
@@ -40,6 +43,8 @@ interface InspectorProps {
   onSelectBpm?: (bpm: string | null) => void;
   onSelectSprite?: (sprite: string | null) => void;
   onAssetUpdated?: (updatedAsset: Asset) => void;
+  onStackUpdated?: (updatedStack: AssetStack & { isStack: true }) => void;
+  availableTags?: TagInfo[];
 }
 
 export function Inspector({
@@ -57,6 +62,8 @@ export function Inspector({
   onSelectBpm,
   onSelectSprite,
   onAssetUpdated,
+  onStackUpdated,
+  availableTags,
 }: InspectorProps) {
   const { showToast } = useToast();
 
@@ -72,6 +79,14 @@ export function Inspector({
   const [analyzingBpm, setAnalyzingBpm] = useState(false);
   const [classifyingSprite, setClassifyingSprite] = useState(false);
   const [classifyingPack, setClassifyingPack] = useState(false);
+  const [isAddingTag, setIsAddingTag] = useState(false);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [isTagSubmitting, setIsTagSubmitting] = useState(false);
+  const [deletingTag, setDeletingTag] = useState<string | null>(null);
+  const [applyTagsToStack, setApplyTagsToStack] = useState(false);
+  const [tagSuggestionsOpen, setTagSuggestionsOpen] = useState(false);
+  const [localAvailableTags, setLocalAvailableTags] = useState<TagInfo[]>([]);
+  const tagInputRef = useRef<HTMLInputElement | null>(null);
 
   const isStack = Boolean(item && 'isStack' in item && item.isStack);
   const stack = isStack ? (item as AssetStack & { isStack: true }) : null;
@@ -121,6 +136,25 @@ export function Inspector({
       setParentStack(null);
     }
   }, [item?.id, isStack]);
+
+  useEffect(() => {
+    if (!availableTags || availableTags.length === 0) {
+      fetch('/api/tags')
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setLocalAvailableTags(data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [availableTags]);
+
+  useEffect(() => {
+    if (isAddingTag && tagInputRef.current) {
+      tagInputRef.current.focus();
+    }
+  }, [isAddingTag]);
 
   if (!item) return null;
 
@@ -290,6 +324,229 @@ export function Inspector({
       showToast('error', 'Pack Classification Error', err?.message || 'Failed to classify pack');
     } finally {
       setClassifyingPack(false);
+    }
+  };
+
+  const tagsList = availableTags && availableTags.length > 0 ? availableTags : localAvailableTags;
+
+  const currentAssetTags = displayedAsset.tags || [];
+  const existingTagsLower = new Set(
+    currentAssetTags.map((t) => t.replace(/^#/, '').toLowerCase())
+  );
+
+  const searchWord = newTagInput.replace(/^#/, '').trim().toLowerCase();
+
+  const filteredSuggestions = tagsList
+    .filter((t) => !existingTagsLower.has(t.name.toLowerCase()))
+    .filter((t) => (searchWord ? t.name.toLowerCase().includes(searchWord) : true))
+    .slice(0, 8);
+
+  const quickSuggestions = tagsList
+    .filter((t) => !existingTagsLower.has(t.name.toLowerCase()))
+    .slice(0, 4);
+
+  const handleAddSpecificTag = async (tagName: string) => {
+    const clean = tagName.replace(/^#/, '').trim();
+    if (!clean || !displayedAsset) return;
+
+    const currentTags = displayedAsset.tags || [];
+    if (currentTags.some((t) => t.replace(/^#/, '').toLowerCase() === clean.toLowerCase())) {
+      showToast('info', 'Tag Exists', `#${clean} is already assigned to this asset`);
+      return;
+    }
+
+    setIsTagSubmitting(true);
+    try {
+      if (applyTagsToStack && isStack && stack) {
+        const res = await fetch(`/api/stacks/${stack.id}/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag: clean }),
+        });
+        if (!res.ok) throw new Error('Failed to add tag to stack');
+        const data = await res.json();
+        showToast('success', 'Tag Added', `Added #${clean} to stack`);
+
+        const updatedTags = Array.from(new Set([...currentTags, clean]));
+        const updatedAsset = { ...displayedAsset, tags: updatedTags };
+        if (selectedVariant) setSelectedVariant(updatedAsset);
+        setStackAssets((prev) =>
+          prev.map((a) => ({
+            ...a,
+            tags: Array.from(new Set([...(a.tags || []), clean])),
+          }))
+        );
+        if (data.stack) {
+          onStackUpdated?.({ ...data.stack, isStack: true });
+        }
+        onAssetUpdated?.(updatedAsset);
+      } else {
+        const res = await fetch(`/api/assets/${displayedAsset.id}/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag: clean }),
+        });
+        if (!res.ok) throw new Error('Failed to add tag to asset');
+        const data = await res.json();
+        showToast('success', 'Tag Added', `Added #${clean}`);
+
+        const updatedAsset: Asset = data.asset || {
+          ...displayedAsset,
+          tags: Array.from(new Set([...currentTags, clean])),
+        };
+        if (selectedVariant) setSelectedVariant(updatedAsset);
+        if (isStack) {
+          setStackAssets((prev) =>
+            prev.map((a) => (a.id === updatedAsset.id ? updatedAsset : a))
+          );
+        }
+        onAssetUpdated?.(updatedAsset);
+      }
+
+      setNewTagInput('');
+      setIsAddingTag(false);
+      setTagSuggestionsOpen(false);
+    } catch (err: any) {
+      showToast('error', 'Tag Error', err?.message || 'Could not add tag');
+    } finally {
+      setIsTagSubmitting(false);
+    }
+  };
+
+  const handleAddTag = async () => {
+    if (!newTagInput.trim() || !displayedAsset) return;
+
+    const tagsToAdd = newTagInput
+      .split(',')
+      .map((t) => t.replace(/^#/, '').trim())
+      .filter((t) => t.length > 0);
+
+    if (tagsToAdd.length === 0) return;
+
+    const currentTags = displayedAsset.tags || [];
+    const currentLower = new Set(currentTags.map((t) => t.replace(/^#/, '').toLowerCase()));
+    const uniqueToAdd = tagsToAdd.filter((t) => !currentLower.has(t.toLowerCase()));
+
+    if (uniqueToAdd.length === 0) {
+      showToast('info', 'Tags Exist', 'All entered tags are already assigned');
+      return;
+    }
+
+    setIsTagSubmitting(true);
+    try {
+      if (applyTagsToStack && isStack && stack) {
+        const res = await fetch(`/api/stacks/${stack.id}/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags: uniqueToAdd }),
+        });
+        if (!res.ok) throw new Error('Failed to add tags to stack');
+        const data = await res.json();
+        showToast('success', 'Tags Added', `Added ${uniqueToAdd.map((t) => `#${t}`).join(', ')} to stack`);
+
+        const updatedTags = Array.from(new Set([...currentTags, ...uniqueToAdd]));
+        const updatedAsset = { ...displayedAsset, tags: updatedTags };
+        if (selectedVariant) setSelectedVariant(updatedAsset);
+        setStackAssets((prev) =>
+          prev.map((a) => ({
+            ...a,
+            tags: Array.from(new Set([...(a.tags || []), ...uniqueToAdd])),
+          }))
+        );
+        if (data.stack) {
+          onStackUpdated?.({ ...data.stack, isStack: true });
+        }
+        onAssetUpdated?.(updatedAsset);
+      } else {
+        const res = await fetch(`/api/assets/${displayedAsset.id}/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags: uniqueToAdd }),
+        });
+        if (!res.ok) throw new Error('Failed to add tags to asset');
+        const data = await res.json();
+        showToast('success', 'Tags Added', `Added ${uniqueToAdd.map((t) => `#${t}`).join(', ')}`);
+
+        const updatedAsset: Asset = data.asset || {
+          ...displayedAsset,
+          tags: Array.from(new Set([...currentTags, ...uniqueToAdd])),
+        };
+        if (selectedVariant) setSelectedVariant(updatedAsset);
+        if (isStack) {
+          setStackAssets((prev) =>
+            prev.map((a) => (a.id === updatedAsset.id ? updatedAsset : a))
+          );
+        }
+        onAssetUpdated?.(updatedAsset);
+      }
+
+      setNewTagInput('');
+      setIsAddingTag(false);
+      setTagSuggestionsOpen(false);
+    } catch (err: any) {
+      showToast('error', 'Tag Error', err?.message || 'Could not add tags');
+    } finally {
+      setIsTagSubmitting(false);
+    }
+  };
+
+  const handleRemoveTag = async (tagToRemove: string) => {
+    if (!displayedAsset) return;
+    const cleanTag = tagToRemove.replace(/^#/, '').trim();
+    setDeletingTag(tagToRemove);
+
+    try {
+      if (applyTagsToStack && isStack && stack) {
+        const res = await fetch(`/api/stacks/${stack.id}/tags/${encodeURIComponent(cleanTag)}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) throw new Error('Failed to remove tag from stack');
+        const data = await res.json();
+        showToast('success', 'Tag Removed', `Removed #${cleanTag} from stack`);
+
+        const updatedTags = (displayedAsset.tags || []).filter(
+          (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
+        );
+        const updatedAsset = { ...displayedAsset, tags: updatedTags };
+        if (selectedVariant) setSelectedVariant(updatedAsset);
+        setStackAssets((prev) =>
+          prev.map((a) => ({
+            ...a,
+            tags: (a.tags || []).filter(
+              (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
+            ),
+          }))
+        );
+        if (data.stack) {
+          onStackUpdated?.({ ...data.stack, isStack: true });
+        }
+        onAssetUpdated?.(updatedAsset);
+      } else {
+        const res = await fetch(`/api/assets/${displayedAsset.id}/tags/${encodeURIComponent(cleanTag)}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) throw new Error('Failed to remove tag from asset');
+        const data = await res.json();
+        showToast('success', 'Tag Removed', `Removed #${cleanTag}`);
+
+        const updatedAsset: Asset = data.asset || {
+          ...displayedAsset,
+          tags: (displayedAsset.tags || []).filter(
+            (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
+          ),
+        };
+        if (selectedVariant) setSelectedVariant(updatedAsset);
+        if (isStack) {
+          setStackAssets((prev) =>
+            prev.map((a) => (a.id === updatedAsset.id ? updatedAsset : a))
+          );
+        }
+        onAssetUpdated?.(updatedAsset);
+      }
+    } catch (err: any) {
+      showToast('error', 'Tag Removal Error', err?.message || 'Could not remove tag');
+    } finally {
+      setDeletingTag(null);
     }
   };
 
@@ -974,34 +1231,198 @@ export function Inspector({
           </div>
 
           {/* Tags Section */}
-          {displayedAsset.tags && displayedAsset.tags.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-[#25253c]">
+          <div className="space-y-2.5 pt-2.5 border-t border-[#25253c]">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 <Tag className="w-3.5 h-3.5 text-indigo-400" />
-                Tags ({displayedAsset.tags.length})
+                <span>Tags ({displayedAsset.tags?.length || 0})</span>
               </div>
+
+              <div className="flex items-center gap-2">
+                {isStack && (
+                  <label
+                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer select-none"
+                    title="Apply tag changes to all assets in this stack"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={applyTagsToStack}
+                      onChange={(e) => setApplyTagsToStack(e.target.checked)}
+                      className="w-3 h-3 rounded bg-[#161625] border-[#2e2e48] text-indigo-600 focus:ring-0 cursor-pointer"
+                    />
+                    <span className="text-[10px] font-mono tracking-tight text-indigo-300">Stack</span>
+                  </label>
+                )}
+
+                {!isAddingTag && (
+                  <button
+                    onClick={() => {
+                      setIsAddingTag(true);
+                      setTagSuggestionsOpen(false);
+                    }}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-indigo-300 hover:text-white bg-[#1e1e32] hover:bg-indigo-600 border border-indigo-500/30 transition-colors cursor-pointer"
+                    title="Add a tag to this asset"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Tag</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Tag pills list */}
+            {displayedAsset.tags && displayedAsset.tags.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {displayedAsset.tags.map((tag) => {
                   const cleanTag = tag.replace(/^#/, '');
                   const isSelected = selectedTag === cleanTag || selectedTag === `#${cleanTag}`;
+                  const isDeleting = deletingTag === tag;
                   return (
-                    <button
+                    <div
                       key={tag}
-                      onClick={() => onTagClick && onTagClick(tag)}
-                      title={`Filter by tag #${cleanTag}`}
-                      className={`px-2 py-0.5 text-xs rounded-md border transition-colors cursor-pointer ${
+                      className={`inline-flex items-center rounded-md border text-xs transition-colors ${
                         isSelected
                           ? 'bg-indigo-600 text-white border-indigo-400 font-semibold shadow-xs ring-1 ring-indigo-400/50'
-                          : 'bg-[#202035] hover:bg-indigo-900/50 border-[#2d2d46] hover:border-indigo-500/50 text-slate-300 hover:text-white'
+                          : 'bg-[#202035] hover:bg-[#282842] border-[#2d2d46] hover:border-indigo-500/50 text-slate-300'
                       }`}
                     >
-                      #{cleanTag}
-                    </button>
+                      <button
+                        onClick={() => onTagClick && onTagClick(tag)}
+                        title={`Filter by tag #${cleanTag}`}
+                        className="px-2 py-0.5 cursor-pointer hover:text-white transition-colors"
+                      >
+                        #{cleanTag}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveTag(tag);
+                        }}
+                        disabled={isDeleting}
+                        title={`Remove tag #${cleanTag}`}
+                        className={`pr-1.5 pl-0.5 py-0.5 text-slate-400 hover:text-rose-300 hover:bg-rose-500/20 rounded-r-md transition-colors cursor-pointer disabled:opacity-50 ${
+                          isSelected ? 'text-indigo-200 hover:text-white' : ''
+                        }`}
+                      >
+                        {isDeleting ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-rose-400" />
+                        ) : (
+                          <X className="w-3 h-3" />
+                        )}
+                      </button>
+                    </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            ) : (
+              !isAddingTag && (
+                <div className="text-xs text-slate-500 italic py-0.5">
+                  No tags assigned yet.
+                </div>
+              )
+            )}
+
+            {/* Add Tag Input Form */}
+            {isAddingTag && (
+              <div className="mt-1.5 p-2 bg-[#141424] border border-[#2b2b44] rounded-lg space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="relative flex-1 flex items-center">
+                    <span className="absolute left-2.5 text-xs text-indigo-400 font-mono font-bold select-none">#</span>
+                    <input
+                      type="text"
+                      ref={tagInputRef}
+                      value={newTagInput}
+                      onChange={(e) => {
+                        setNewTagInput(e.target.value);
+                        setTagSuggestionsOpen(true);
+                      }}
+                      onFocus={() => setTagSuggestionsOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddTag();
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setIsAddingTag(false);
+                          setNewTagInput('');
+                          setTagSuggestionsOpen(false);
+                        }
+                      }}
+                      placeholder="tag-name (Enter to add)..."
+                      className="w-full pl-6 pr-2 py-1 text-xs bg-[#10101b] border border-[#2b2b42] rounded-md text-slate-100 placeholder-slate-500 focus:outline-hidden focus:border-indigo-500"
+                      disabled={isTagSubmitting}
+                      autoFocus
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleAddTag}
+                    disabled={isTagSubmitting || !newTagInput.trim()}
+                    className="px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors cursor-pointer flex items-center gap-1 shrink-0 shadow-xs"
+                    title="Add tag"
+                  >
+                    {isTagSubmitting ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Check className="w-3 h-3" />
+                    )}
+                    <span>Add</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsAddingTag(false);
+                      setNewTagInput('');
+                      setTagSuggestionsOpen(false);
+                    }}
+                    disabled={isTagSubmitting}
+                    className="p-1 text-slate-400 hover:text-white rounded-md hover:bg-[#252538] transition-colors cursor-pointer"
+                    title="Cancel"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Autocomplete Dropdown */}
+                {tagSuggestionsOpen && filteredSuggestions.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto bg-[#10101b] border border-[#27273d] rounded-md p-1 space-y-0.5 shadow-lg">
+                    <div className="text-[10px] font-mono text-slate-500 px-2 py-0.5 uppercase tracking-wider">
+                      Matching library tags
+                    </div>
+                    {filteredSuggestions.map((sug) => (
+                      <button
+                        key={sug.name}
+                        type="button"
+                        onClick={() => handleAddSpecificTag(sug.name)}
+                        className="w-full flex items-center justify-between px-2 py-1 rounded text-xs text-left text-slate-300 hover:text-white hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                      >
+                        <span className="font-medium truncate">#{sug.name}</span>
+                        <span className="text-[10px] font-mono text-slate-500 shrink-0">({sug.count})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Quick Suggestion Chips */}
+            {quickSuggestions.length > 0 && (
+              <div className="pt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                <span className="text-[10px] text-slate-500 uppercase font-mono tracking-tight">Quick:</span>
+                {quickSuggestions.map((sug) => (
+                  <button
+                    key={sug.name}
+                    onClick={() => handleAddSpecificTag(sug.name)}
+                    className="px-1.5 py-0.5 rounded bg-[#18182b] hover:bg-indigo-900/50 border border-[#2a2a44] hover:border-indigo-500/50 text-[11px] text-indigo-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+                    title={`Click to add #${sug.name}`}
+                  >
+                    <Plus className="w-2.5 h-2.5 text-indigo-400" />
+                    <span>#{sug.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Filesystem Path */}
           <div className="space-y-1.5 pt-2 border-t border-[#25253c]">

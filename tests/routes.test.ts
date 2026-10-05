@@ -825,6 +825,236 @@ describe('HTTP API Routes', () => {
     });
   });
 
+  describe('Tag Endpoints (/api/assets/:id/tags, /api/assets/tags, /api/stacks/:id/tags)', () => {
+    beforeEach(() => {
+      upsertAsset({
+        id: 'route_tag_asset_1',
+        path: 'sprites/knight.png',
+        absolutePath: path.join(tempLibraryDir, 'sprites/knight.png'),
+        name: 'knight.png',
+        extension: '.png',
+        category: 'image',
+        size: 1024,
+        mtime: 100,
+        hash: 'h_rt_1',
+        isArchiveEntry: false,
+        tags: [{ tag: 'pixel-art', source: 'auto' }],
+      });
+
+      upsertAsset({
+        id: 'route_tag_asset_2',
+        path: 'sprites/orc.png',
+        absolutePath: path.join(tempLibraryDir, 'sprites/orc.png'),
+        name: 'orc.png',
+        extension: '.png',
+        category: 'image',
+        size: 1024,
+        mtime: 100,
+        hash: 'h_rt_2',
+        isArchiveEntry: false,
+        tags: [{ tag: 'pixel-art', source: 'auto' }],
+      });
+
+      createStack({
+        id: 'route_tag_stack_1',
+        name: 'Knight Walk',
+        type: 'animation',
+        itemCount: 2,
+        representativeAssetId: 'route_tag_asset_1',
+        assetIdsWithIndex: [
+          { assetId: 'route_tag_asset_1', index: 0 },
+          { assetId: 'route_tag_asset_2', index: 1 },
+        ],
+      });
+    });
+
+    it('POST /api/assets/:id/tags should assign tags to asset', async () => {
+      // Single tag
+      const res1 = await app.inject({
+        method: 'POST',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: { tag: 'character' },
+      });
+      expect(res1.statusCode).toBe(200);
+      const json1 = res1.json();
+      expect(json1.success).toBe(true);
+      expect(json1.tags).toContain('character');
+      expect(json1.tags).toContain('pixel-art');
+
+      // Multiple tags with leading hash
+      const res2 = await app.inject({
+        method: 'POST',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: { tags: ['#hero', 'melee'] },
+      });
+      expect(res2.statusCode).toBe(200);
+      const json2 = res2.json();
+      expect(json2.tags).toContain('hero');
+      expect(json2.tags).toContain('melee');
+      expect(json2.tags).not.toContain('#hero');
+    });
+
+    it('POST /api/assets/:id/tags should return 400 for empty tags and 404 for missing asset', async () => {
+      const badRes = await app.inject({
+        method: 'POST',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: {},
+      });
+      expect(badRes.statusCode).toBe(400);
+
+      const notFoundRes = await app.inject({
+        method: 'POST',
+        url: '/api/assets/non_existent_id/tags',
+        payload: { tag: 'foo' },
+      });
+      expect(notFoundRes.statusCode).toBe(404);
+    });
+
+    it('DELETE /api/assets/:id/tags/:tag should remove a specific tag via URL param', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: { tags: ['weapon', 'sword'] },
+      });
+
+      const delRes = await app.inject({
+        method: 'DELETE',
+        url: '/api/assets/route_tag_asset_1/tags/weapon',
+      });
+      expect(delRes.statusCode).toBe(200);
+      const json = delRes.json();
+      expect(json.success).toBe(true);
+      expect(json.tags).not.toContain('weapon');
+      expect(json.tags).toContain('sword');
+
+      // 404 for non-existent asset
+      const notFoundRes = await app.inject({
+        method: 'DELETE',
+        url: '/api/assets/non_existent_id/tags/sword',
+      });
+      expect(notFoundRes.statusCode).toBe(404);
+    });
+
+    it('DELETE /api/assets/:id/tags should remove tags via request body', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: { tags: ['tag1', 'tag2', 'tag3'] },
+      });
+
+      const delRes = await app.inject({
+        method: 'DELETE',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: { tags: ['#tag1', 'tag2'] },
+      });
+      expect(delRes.statusCode).toBe(200);
+      const json = delRes.json();
+      expect(json.tags).not.toContain('tag1');
+      expect(json.tags).not.toContain('tag2');
+      expect(json.tags).toContain('tag3');
+
+      // 400 if no tags provided in body
+      const badRes = await app.inject({
+        method: 'DELETE',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: {},
+      });
+      expect(badRes.statusCode).toBe(400);
+    });
+
+    it('PUT /api/assets/:id/tags should replace all tags on asset', async () => {
+      const putRes = await app.inject({
+        method: 'PUT',
+        url: '/api/assets/route_tag_asset_1/tags',
+        payload: { tags: ['brand_new_1', '#brand_new_2'] },
+      });
+      expect(putRes.statusCode).toBe(200);
+      const json = putRes.json();
+      expect(json.tags).toEqual(['brand_new_1', 'brand_new_2']);
+    });
+
+    it('POST /api/assets/tags should batch add and remove tags across multiple assets', async () => {
+      // Batch add
+      const addRes = await app.inject({
+        method: 'POST',
+        url: '/api/assets/tags',
+        payload: {
+          assetIds: ['route_tag_asset_1', 'route_tag_asset_2'],
+          tags: ['fantasy', 'rpg'],
+          action: 'add',
+        },
+      });
+      expect(addRes.statusCode).toBe(200);
+      const addJson = addRes.json();
+      expect(addJson.affectedCount).toBe(2);
+
+      // Verify both have the tags
+      const a1Res = await app.inject({ method: 'GET', url: '/api/assets/route_tag_asset_1' });
+      const a2Res = await app.inject({ method: 'GET', url: '/api/assets/route_tag_asset_2' });
+      expect(a1Res.json().tags).toContain('fantasy');
+      expect(a2Res.json().tags).toContain('fantasy');
+
+      // Batch remove
+      const remRes = await app.inject({
+        method: 'POST',
+        url: '/api/assets/tags',
+        payload: {
+          assetIds: ['route_tag_asset_1', 'route_tag_asset_2'],
+          tags: ['fantasy'],
+          action: 'remove',
+        },
+      });
+      expect(remRes.statusCode).toBe(200);
+      expect(remRes.json().affectedCount).toBe(2);
+
+      const a1After = await app.inject({ method: 'GET', url: '/api/assets/route_tag_asset_1' });
+      const a2After = await app.inject({ method: 'GET', url: '/api/assets/route_tag_asset_2' });
+      expect(a1After.json().tags).not.toContain('fantasy');
+      expect(a2After.json().tags).not.toContain('fantasy');
+      expect(a1After.json().tags).toContain('rpg');
+    });
+
+    it('POST & DELETE /api/stacks/:id/tags should assign and remove tags to/from all stack member assets', async () => {
+      // Add tag to stack
+      const addRes = await app.inject({
+        method: 'POST',
+        url: '/api/stacks/route_tag_stack_1/tags',
+        payload: { tag: 'running_cycle' },
+      });
+      expect(addRes.statusCode).toBe(200);
+      expect(addRes.json().stack.tags).toContain('running_cycle');
+
+      // Both members should have tag
+      const a1 = await app.inject({ method: 'GET', url: '/api/assets/route_tag_asset_1' });
+      const a2 = await app.inject({ method: 'GET', url: '/api/assets/route_tag_asset_2' });
+      expect(a1.json().tags).toContain('running_cycle');
+      expect(a2.json().tags).toContain('running_cycle');
+
+      // Remove tag from stack via URL param
+      const delParamRes = await app.inject({
+        method: 'DELETE',
+        url: '/api/stacks/route_tag_stack_1/tags/running_cycle',
+      });
+      expect(delParamRes.statusCode).toBe(200);
+      expect(delParamRes.json().tags).not.toContain('running_cycle');
+
+      // Remove via body
+      await app.inject({
+        method: 'POST',
+        url: '/api/stacks/route_tag_stack_1/tags',
+        payload: { tags: ['tag_x', 'tag_y'] },
+      });
+      const delBodyRes = await app.inject({
+        method: 'DELETE',
+        url: '/api/stacks/route_tag_stack_1/tags',
+        payload: { tags: ['tag_x'] },
+      });
+      expect(delBodyRes.statusCode).toBe(200);
+      expect(delBodyRes.json().tags).not.toContain('tag_x');
+      expect(delBodyRes.json().tags).toContain('tag_y');
+    });
+  });
+
   describe('Not Found handler for API', () => {
     it('should return JSON error 404 for unknown /api routes', async () => {
       const res = await app.inject({

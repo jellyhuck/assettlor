@@ -21,6 +21,14 @@ import {
   clearStacks,
   removeDeletedAssets,
   queryAssets,
+  addAssetTags,
+  removeAssetTag,
+  removeAssetTags,
+  setAssetTags,
+  addTagsToAssets,
+  removeTagsFromAssets,
+  addTagsToStack,
+  removeTagsFromStack,
 } from '../server/src/db/database.js';
 import { createTempDir, cleanupTempDir } from './helpers.js';
 
@@ -1051,6 +1059,206 @@ describe('Database Service', () => {
 
       const hDesc = queryAssets({ category: 'image', sortBy: 'height', sortOrder: 'desc', isStackedView: false });
       expect(hDesc.items[0].id).toBe('img_tall_h');
+    });
+  });
+
+  describe('Asset & Stack Tag Assignment and Removal', () => {
+    beforeEach(() => {
+      upsertAsset({
+        id: 'asset_tag_1',
+        path: 'sprites/hero.png',
+        absolutePath: path.join(tempDir, 'sprites/hero.png'),
+        name: 'hero.png',
+        extension: '.png',
+        category: 'image',
+        size: 1024,
+        mtime: 100,
+        hash: 'h_tag_1',
+        isArchiveEntry: false,
+        tags: [{ tag: 'pixel-art', source: 'auto' }],
+      });
+
+      upsertAsset({
+        id: 'asset_tag_2',
+        path: 'sprites/enemy.png',
+        absolutePath: path.join(tempDir, 'sprites/enemy.png'),
+        name: 'enemy.png',
+        extension: '.png',
+        category: 'image',
+        size: 2048,
+        mtime: 100,
+        hash: 'h_tag_2',
+        isArchiveEntry: false,
+        tags: [{ tag: 'monster', source: 'auto' }],
+      });
+    });
+
+    it('should assign single and multiple tags to an asset with user source', () => {
+      // Add single tag as string
+      const updated1 = addAssetTags('asset_tag_1', ['character']);
+      expect(updated1).not.toBeNull();
+      expect(updated1!.tags).toContain('character');
+      expect(updated1!.tags).toContain('pixel-art');
+
+      // Add tag with leading hash and object format
+      const updated2 = addAssetTags('asset_tag_1', [{ tag: '#animated', source: 'user' }]);
+      expect(updated2!.tags).toContain('animated');
+      expect(updated2!.tags).not.toContain('#animated');
+
+      // Check DB directly for source
+      const db = getDatabase();
+      const row = db.prepare('SELECT source FROM tags WHERE asset_id = ? AND tag = ?').get('asset_tag_1', 'character') as any;
+      expect(row.source).toBe('user');
+    });
+
+    it('should ignore empty tags and duplicate tags (case-insensitive)', () => {
+      addAssetTags('asset_tag_1', ['  ', '#', 'character', 'Character', 'CHARACTER']);
+      const asset = getAssetById('asset_tag_1');
+      expect(asset!.tags.filter((t) => t.toLowerCase() === 'character').length).toBe(1);
+      expect(asset!.tags).not.toContain('');
+    });
+
+    it('should remove a single tag from an asset (case-insensitive and leading hash support)', () => {
+      addAssetTags('asset_tag_1', ['character', 'warrior']);
+      let asset = getAssetById('asset_tag_1');
+      expect(asset!.tags).toContain('character');
+
+      // Remove with different case and leading hash
+      const removed = removeAssetTag('asset_tag_1', '#CHARACTER');
+      expect(removed).toBe(true);
+
+      asset = getAssetById('asset_tag_1');
+      expect(asset!.tags).not.toContain('character');
+      expect(asset!.tags).toContain('warrior');
+
+      // Removing non-existent tag returns false
+      const removedAgain = removeAssetTag('asset_tag_1', 'nonexistent');
+      expect(removedAgain).toBe(false);
+    });
+
+    it('should remove multiple tags from an asset at once', () => {
+      addAssetTags('asset_tag_1', ['tag_a', 'tag_b', 'tag_c']);
+      let asset = getAssetById('asset_tag_1');
+      expect(asset!.tags).toContain('tag_a');
+      expect(asset!.tags).toContain('tag_b');
+      expect(asset!.tags).toContain('tag_c');
+
+      const count = removeAssetTags('asset_tag_1', ['#tag_a', 'tag_b']);
+      expect(count).toBe(2);
+
+      asset = getAssetById('asset_tag_1');
+      expect(asset!.tags).not.toContain('tag_a');
+      expect(asset!.tags).not.toContain('tag_b');
+      expect(asset!.tags).toContain('tag_c');
+    });
+
+    it('should replace all tags on an asset using setAssetTags', () => {
+      addAssetTags('asset_tag_1', ['old1', 'old2']);
+      const asset = setAssetTags('asset_tag_1', ['new_alpha', '#new_beta']);
+      expect(asset).not.toBeNull();
+      expect(asset!.tags).toEqual(['new_alpha', 'new_beta']);
+    });
+
+    it('should batch add and remove tags across multiple assets', () => {
+      const added = addTagsToAssets(['asset_tag_1', 'asset_tag_2'], ['common_tag', 'game']);
+      expect(added.length).toBe(2);
+
+      const a1 = getAssetById('asset_tag_1');
+      const a2 = getAssetById('asset_tag_2');
+      expect(a1!.tags).toContain('common_tag');
+      expect(a2!.tags).toContain('common_tag');
+
+      const removed = removeTagsFromAssets(['asset_tag_1', 'asset_tag_2'], ['common_tag']);
+      expect(removed.length).toBe(2);
+
+      const a1After = getAssetById('asset_tag_1');
+      const a2After = getAssetById('asset_tag_2');
+      expect(a1After!.tags).not.toContain('common_tag');
+      expect(a2After!.tags).not.toContain('common_tag');
+    });
+
+    it('should assign and remove tags to/from all member assets in a stack', () => {
+      upsertAsset({
+        id: 'frame_1',
+        path: 'sprites/walk_01.png',
+        absolutePath: path.join(tempDir, 'sprites/walk_01.png'),
+        name: 'walk_01.png',
+        extension: '.png',
+        category: 'image',
+        size: 500,
+        mtime: 100,
+        hash: 'h_f1',
+        isArchiveEntry: false,
+      });
+
+      upsertAsset({
+        id: 'frame_2',
+        path: 'sprites/walk_02.png',
+        absolutePath: path.join(tempDir, 'sprites/walk_02.png'),
+        name: 'walk_02.png',
+        extension: '.png',
+        category: 'image',
+        size: 500,
+        mtime: 100,
+        hash: 'h_f2',
+        isArchiveEntry: false,
+      });
+
+      createStack({
+        id: 'stack_walk',
+        name: 'walk',
+        type: 'animation',
+        itemCount: 2,
+        representativeAssetId: 'frame_1',
+        assetIdsWithIndex: [
+          { assetId: 'frame_1', index: 0 },
+          { assetId: 'frame_2', index: 1 },
+        ],
+      });
+
+      // Add tag to stack
+      const updatedStack = addTagsToStack('stack_walk', ['walking_anim']);
+      expect(updatedStack).not.toBeNull();
+      expect(updatedStack!.tags).toContain('walking_anim');
+
+      // Both frame assets should have the tag
+      const f1 = getAssetById('frame_1');
+      const f2 = getAssetById('frame_2');
+      expect(f1!.tags).toContain('walking_anim');
+      expect(f2!.tags).toContain('walking_anim');
+
+      // Remove tag from stack
+      const stackAfterRemoval = removeTagsFromStack('stack_walk', ['walking_anim']);
+      expect(stackAfterRemoval!.tags).not.toContain('walking_anim');
+
+      const f1After = getAssetById('frame_1');
+      const f2After = getAssetById('frame_2');
+      expect(f1After!.tags).not.toContain('walking_anim');
+      expect(f2After!.tags).not.toContain('walking_anim');
+    });
+
+    it('should update getAllTags counts when tags are assigned and removed', () => {
+      const initialTags = getAllTags();
+      const initialCustom = initialTags.find((t) => t.name === 'custom_flag');
+      expect(initialCustom).toBeUndefined();
+
+      addAssetTags('asset_tag_1', ['custom_flag']);
+      addAssetTags('asset_tag_2', ['custom_flag']);
+
+      const tagsAfterAdd = getAllTags();
+      const customTag = tagsAfterAdd.find((t) => t.name === 'custom_flag');
+      expect(customTag).toBeDefined();
+      expect(customTag!.count).toBe(2);
+
+      removeAssetTag('asset_tag_1', 'custom_flag');
+      const tagsAfterRemoveOne = getAllTags();
+      const customTagRemaining = tagsAfterRemoveOne.find((t) => t.name === 'custom_flag');
+      expect(customTagRemaining!.count).toBe(1);
+
+      removeAssetTag('asset_tag_2', 'custom_flag');
+      const tagsAfterRemoveAll = getAllTags();
+      const customTagGone = tagsAfterRemoveAll.find((t) => t.name === 'custom_flag');
+      expect(customTagGone).toBeUndefined();
     });
   });
 });
