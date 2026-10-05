@@ -24,9 +24,11 @@
     "adm-zip": "^0.6.1",
     "better-sqlite3": "^13.0.3",
     "bmp-js": "^0.1.0",
+    "bytes": "^3.1.2",
     "concurrently": "^10.0.5",
     "dotenv": "^18.0.5",
     "fastify": "^5.12.5",
+    "liqe": "^3.8.7",
     "music-metadata": "^12.0.0",
     "sharp": "^0.35.5",
     "tga-js": "^1.1.1",
@@ -34,6 +36,7 @@
     "typescript": "^5.8.0"
   },
   "devDependencies": {
+    "@types/bytes": "^3.1.6",
     "@vitest/coverage-v8": "^5.0.3",
     "vitest": "^5.0.3"
   }

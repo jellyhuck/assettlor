@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ViewMode, CardZoom } from '../types';
 import {
   Search,
@@ -9,6 +9,7 @@ import {
   ArrowUpDown,
   ZoomIn,
   Loader2,
+  HelpCircle,
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -42,10 +43,34 @@ export function TopBar({
   totalItems,
   loading = false,
 }: TopBarProps) {
+  const [showHelp, setShowHelp] = useState(false);
+  const helpRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (helpRef.current && !helpRef.current.contains(event.target as Node)) {
+        setShowHelp(false);
+      }
+    }
+    if (showHelp) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showHelp]);
+
+  const handleAddFilter = (snippet: string) => {
+    const trimmed = searchQuery.trim();
+    const next = trimmed ? `${trimmed} ${snippet}` : snippet;
+    onSearchChange(next);
+    setShowHelp(false);
+  };
+
   return (
     <header className="h-14 shrink-0 bg-[#151524] border-b border-[#242438] px-4 flex items-center justify-between gap-4 text-slate-300">
       {/* Search Bar */}
-      <div className="relative flex-1 max-w-md">
+      <div ref={helpRef} className="relative flex-1 max-w-md">
         {loading ? (
           <Loader2 className="w-4 h-4 text-indigo-400 animate-spin absolute left-3 top-2.5" />
         ) : (
@@ -57,7 +82,9 @@ export function TopBar({
           onChange={(e) => onSearchChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
-              if (searchQuery) {
+              if (showHelp) {
+                setShowHelp(false);
+              } else if (searchQuery) {
                 e.stopPropagation();
                 onSearchChange('');
               } else {
@@ -65,17 +92,103 @@ export function TopBar({
               }
             }
           }}
-          placeholder="Search assets, tags, or paths (e.g. knight, sfx, ui)..."
-          className="w-full pl-9 pr-8 py-1.5 text-xs bg-[#12121d] border border-[#27273d] rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/40 transition-colors"
+          placeholder="Search assets (e.g. tag:coin, size:<2MB, ext:png, is:archive)..."
+          className="w-full pl-9 pr-16 py-1.5 text-xs bg-[#12121d] border border-[#27273d] rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/40 transition-colors"
         />
-        {searchQuery && (
+
+        {/* Action icons inside Search Bar */}
+        <div className="absolute right-2 top-2 flex items-center gap-1.5">
+          {searchQuery && (
+            <button
+              onClick={() => onSearchChange('')}
+              title="Clear search (Esc)"
+              className="text-slate-500 hover:text-slate-300 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
-            onClick={() => onSearchChange('')}
-            title="Clear search (Esc)"
-            className="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300 cursor-pointer"
+            onClick={() => setShowHelp((prev) => !prev)}
+            title="Search filter syntax guide"
+            className={`p-0.5 rounded cursor-pointer transition-colors ${
+              showHelp ? 'text-indigo-400 bg-indigo-950/60' : 'text-slate-500 hover:text-slate-300'
+            }`}
           >
-            <X className="w-3.5 h-3.5" />
+            <HelpCircle className="w-3.5 h-3.5" />
           </button>
+        </div>
+
+        {/* Floating Syntax Help Popover */}
+        {showHelp && (
+          <div className="absolute left-0 top-full mt-2 w-80 bg-[#161626] border border-[#2c2c44] rounded-xl shadow-2xl p-3.5 z-50 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-[#242438] mb-2.5">
+              <span className="font-semibold text-slate-200">Search Filter Syntax</span>
+              <button
+                onClick={() => setShowHelp(false)}
+                className="text-slate-500 hover:text-slate-300 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="space-y-2.5 text-[11px] text-slate-400">
+              <div>
+                <div className="text-slate-300 font-medium mb-1">File Size:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['size:<2MB', 'size:>500KB', 'size:[100KB TO 2MB]'].map((sample) => (
+                    <button
+                      key={sample}
+                      onClick={() => handleAddFilter(sample)}
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-indigo-900/50 hover:text-indigo-200 text-indigo-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                    >
+                      {sample}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-300 font-medium mb-1">Tags & Formats:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['tag:coin', 'ext:png', 'cat:image', 'type:audio'].map((sample) => (
+                    <button
+                      key={sample}
+                      onClick={() => handleAddFilter(sample)}
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-indigo-900/50 hover:text-indigo-200 text-indigo-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                    >
+                      {sample}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-300 font-medium mb-1">Boolean & Negation:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['tag:coin OR tag:gem', 'NOT ext:wav', '-tag:ui'].map((sample) => (
+                    <button
+                      key={sample}
+                      onClick={() => handleAddFilter(sample)}
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-indigo-900/50 hover:text-indigo-200 text-indigo-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                    >
+                      {sample}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-300 font-medium mb-1">Flags & Metadata:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['is:archive', 'is:disk', 'width:>128', 'dur:>5s'].map((sample) => (
+                    <button
+                      key={sample}
+                      onClick={() => handleAddFilter(sample)}
+                      className="px-1.5 py-0.5 rounded bg-[#1e1e34] hover:bg-indigo-900/50 hover:text-indigo-200 text-indigo-300 font-mono text-[10px] border border-[#2b2b48] cursor-pointer"
+                    >
+                      {sample}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 

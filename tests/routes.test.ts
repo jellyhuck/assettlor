@@ -123,6 +123,16 @@ describe('HTTP API Routes', () => {
       const searchBody = searchRes.json();
       expect(searchBody.items).toHaveLength(1);
       expect(searchBody.items[0].id).toBe('laser_id');
+
+      // Test filter expression in search parameter
+      const exprRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets?search=' + encodeURIComponent('size:<2000 ext:png'),
+      });
+      expect(exprRes.statusCode).toBe(200);
+      const exprBody = exprRes.json();
+      expect(exprBody.items).toHaveLength(1);
+      expect(exprBody.items[0].id).toBe('hero_id');
     });
 
     it('GET /api/assets/:id should return asset by id or 404', async () => {

@@ -566,6 +566,49 @@ describe('Database Service', () => {
       expect(tagSearch.items[0].id).toBe('snd_laser');
     });
 
+    it('should filter queryAssets with expressions: size, tags, ext, boolean logic', () => {
+      // Size filter: size:<300 matches img_k1 (100) and img_k2 (200), excludes snd_laser (500)
+      const sizeLess = queryAssets({ search: 'size:<300', isStackedView: false });
+      expect(sizeLess.items).toHaveLength(2);
+      expect(sizeLess.items.map((i: any) => i.id)).toEqual(['img_k1', 'img_k2']);
+
+      // Size filter: size:>400 matches snd_laser (500)
+      const sizeGreater = queryAssets({ search: 'size:>400', isStackedView: false });
+      expect(sizeGreater.items).toHaveLength(1);
+      expect(sizeGreater.items[0].id).toBe('snd_laser');
+
+      // Size with plus suffix: size:200+
+      const sizePlus = queryAssets({ search: 'size:200+', isStackedView: false });
+      expect(sizePlus.items).toHaveLength(2);
+      expect(sizePlus.items.map((i: any) => i.id)).toEqual(['img_k2', 'snd_laser']);
+
+      // Extension filter: ext:wav
+      const extWav = queryAssets({ search: 'ext:wav', isStackedView: false });
+      expect(extWav.items).toHaveLength(1);
+      expect(extWav.items[0].id).toBe('snd_laser');
+
+      // Category filter: cat:audio
+      const catAudio = queryAssets({ search: 'cat:audio', isStackedView: false });
+      expect(catAudio.items).toHaveLength(1);
+      expect(catAudio.items[0].id).toBe('snd_laser');
+
+      // Boolean OR filter: tag:laser OR tag:pixel-art
+      const tagOr = queryAssets({ search: 'tag:laser OR tag:pixel-art', isStackedView: false });
+      expect(tagOr.items).toHaveLength(2);
+      expect(tagOr.items.map((i: any) => i.id)).toContain('img_k1');
+      expect(tagOr.items.map((i: any) => i.id)).toContain('snd_laser');
+
+      // Negative tag filter: -tag:knight (only laser_gun is not tagged knight)
+      const notKnight = queryAssets({ search: '-tag:knight', isStackedView: false });
+      expect(notKnight.items).toHaveLength(1);
+      expect(notKnight.items[0].id).toBe('snd_laser');
+
+      // Grouped query: (tag:knight OR tag:laser) AND size:<200
+      const grouped = queryAssets({ search: '(tag:knight OR tag:laser) AND size:<200', isStackedView: false });
+      expect(grouped.items).toHaveLength(1);
+      expect(grouped.items[0].id).toBe('img_k1');
+    });
+
     it('should filter by stackType', () => {
       const anims = queryAssets({ stackType: 'animation', isStackedView: true });
       expect(anims.items).toHaveLength(1);

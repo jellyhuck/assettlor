@@ -13,6 +13,7 @@ import {
   AssetListResponse,
 } from '../../shared/types.js';
 import { config } from '../config.js';
+import { compileFilterExpression } from '../services/filterParser.js';
 
 let dbInstance: Database.Database | null = null;
 let currentLibraryPath: string = '';
@@ -583,86 +584,10 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
   }
 
   if (params.search && params.search.trim()) {
-    const rawTokens = params.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    for (const token of rawTokens) {
-      if (token.startsWith('#')) {
-        const cleanTag = token.slice(1).trim();
-        const tLikeCleanParam = `%${cleanTag}%`;
-        if (isStackedView) {
-          conditions.push(`(
-            EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) LIKE ?)) OR
-            (a.stack_id IS NOT NULL AND EXISTS (
-              SELECT 1 FROM assets m
-              JOIN tags mt ON mt.asset_id = m.id
-              WHERE m.stack_id = a.stack_id AND (LOWER(mt.tag) = ? OR LOWER(mt.tag) LIKE ?)
-            ))
-          )`);
-          args.push(cleanTag, tLikeCleanParam, cleanTag, tLikeCleanParam);
-        } else {
-          conditions.push(`EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) LIKE ?))`);
-          args.push(cleanTag, tLikeCleanParam);
-        }
-      } else {
-        const cleanToken = token;
-        const tParam = `%${token}%`;
-        if (isStackedView) {
-          conditions.push(`(
-            LOWER(a.name) LIKE ? OR
-            REPLACE(LOWER(a.name), '_', ' ') LIKE ? OR
-            REPLACE(LOWER(a.name), '-', ' ') LIKE ? OR
-            LOWER(a.path) LIKE ? OR
-            (s.id IS NOT NULL AND (
-              LOWER(s.name) LIKE ? OR
-              REPLACE(LOWER(s.name), '_', ' ') LIKE ?
-            )) OR
-            EXISTS (
-              SELECT 1 FROM tags t
-              WHERE t.asset_id = a.id
-                AND (LOWER(t.tag) LIKE ? OR LOWER(t.tag) = ?)
-            ) OR
-            (a.stack_id IS NOT NULL AND EXISTS (
-              SELECT 1 FROM assets m
-              WHERE m.stack_id = a.stack_id
-                AND (
-                  LOWER(m.name) LIKE ? OR
-                  REPLACE(LOWER(m.name), '_', ' ') LIKE ? OR
-                  REPLACE(LOWER(m.name), '-', ' ') LIKE ? OR
-                  LOWER(m.path) LIKE ? OR
-                  EXISTS (
-                    SELECT 1 FROM tags mt
-                    WHERE mt.asset_id = m.id
-                      AND (LOWER(mt.tag) LIKE ? OR LOWER(mt.tag) = ?)
-                  )
-                )
-            ))
-          )`);
-          args.push(
-            tParam, tParam, tParam, tParam,
-            tParam, tParam,
-            tParam, cleanToken,
-            tParam, tParam, tParam, tParam,
-            tParam, cleanToken
-          );
-        } else {
-          conditions.push(`(
-            LOWER(a.name) LIKE ? OR
-            REPLACE(LOWER(a.name), '_', ' ') LIKE ? OR
-            REPLACE(LOWER(a.name), '-', ' ') LIKE ? OR
-            LOWER(a.path) LIKE ? OR
-            (s.id IS NOT NULL AND LOWER(s.name) LIKE ?) OR
-            EXISTS (
-              SELECT 1 FROM tags t
-              WHERE t.asset_id = a.id
-                AND (LOWER(t.tag) LIKE ? OR LOWER(t.tag) = ?)
-            )
-          )`);
-          args.push(
-            tParam, tParam, tParam, tParam,
-            tParam,
-            tParam, cleanToken
-          );
-        }
-      }
+    const filterRes = compileFilterExpression(params.search, isStackedView);
+    if (filterRes.sql) {
+      conditions.push(filterRes.sql);
+      args.push(...filterRes.args);
     }
   }
 
