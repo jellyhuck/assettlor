@@ -11,7 +11,7 @@ import { CopyAssetRequest, CopyAssetResult } from '../../shared/types.js';
 
 export async function copyAssetToProject(req: CopyAssetRequest): Promise<CopyAssetResult> {
   const settings = getAppSettings();
-  const targetDir = req.targetPath || settings.activeProjectPath;
+  const targetDir = req.targetPath || (settings.projectPaths && settings.projectPaths[0]) || settings.activeProjectPath;
 
   if (!targetDir) {
     throw new Error('Active game project path is not configured. Please set it in Settings.');

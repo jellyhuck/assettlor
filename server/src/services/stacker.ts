@@ -1,5 +1,5 @@
 import path from 'path';
-import { getDatabase, clearStacks, createStack } from '../db/database.js';
+import { getDatabase, isDatabaseInitialized, clearStacks, createStack } from '../db/database.js';
 
 interface AssetCandidate {
   id: string;
@@ -23,6 +23,9 @@ function humanizeName(raw: string): string {
 }
 
 export function runStackingEngine(): { animationStacksCreated: number; audioStacksCreated: number } {
+  if (!isDatabaseInitialized()) {
+    return { animationStacksCreated: 0, audioStacksCreated: 0 };
+  }
   const db = getDatabase();
 
   // Reset current stack associations

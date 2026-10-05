@@ -61,4 +61,22 @@ describe('Shared Data Types and Contracts', () => {
 
     expect(events.map((e) => e.status)).toEqual(['idle', 'scanning', 'completed', 'error']);
   });
+
+  it('should validate AppSettings with multiple libraryPaths and projectPaths', () => {
+    const settings: AppSettings = {
+      libraryPath: '/lib1',
+      libraryPaths: ['/lib1', '/lib2'],
+      activeProjectPath: '/proj1',
+      projectPaths: ['/proj1', '/proj2', '/proj3'],
+      thumbnailQuality: 80,
+      autoStackAnimations: true,
+      autoStackAudio: true,
+      defaultFps: 12,
+    };
+
+    expect(settings.libraryPaths).toHaveLength(2);
+    expect(settings.projectPaths).toHaveLength(3);
+    expect(settings.activeProjectPath).toBe(settings.projectPaths[0]);
+    expect(settings.libraryPath).toBe(settings.libraryPaths[0]);
+  });
 });

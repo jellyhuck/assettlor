@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { AppSettings, BpmClassifierSettings, SpriteClassifierSettings, ClassifierInfo } from '../types';
-import { Settings, Folder, Check, X, Sparkles, Music, Image as ImageIcon, Sliders } from 'lucide-react';
+import {
+  Settings,
+  Folder,
+  Check,
+  X,
+  Sparkles,
+  Music,
+  Image as ImageIcon,
+  Sliders,
+  ArrowUp,
+  ArrowDown,
+  Plus,
+  Trash2,
+  Star,
+} from 'lucide-react';
 import { useToast } from './Toast';
 import { FolderBrowserModal } from './FolderBrowserModal';
 
@@ -15,12 +29,17 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
   const [activeTab, setActiveTab] = useState<'general' | 'classifiers'>('general');
   const [settings, setSettings] = useState<AppSettings>({
     libraryPath: '',
+    libraryPaths: [],
     activeProjectPath: '',
+    projectPaths: [],
     thumbnailQuality: 80,
     autoStackAnimations: true,
     autoStackAudio: true,
     defaultFps: 12,
   });
+  const [newProjectPath, setNewProjectPath] = useState('');
+  const [newLibraryPath, setNewLibraryPath] = useState('');
+
   const [bpmSettings, setBpmSettings] = useState<BpmClassifierSettings>({
     enabled: true,
     minBpm: 60,
@@ -40,14 +59,102 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
   const [spriteClassifierInfo, setSpriteClassifierInfo] = useState<ClassifierInfo | null>(null);
 
   const [saving, setSaving] = useState(false);
-  const [browserMode, setBrowserMode] = useState<'library' | 'project' | null>(null);
+  const [browserMode, setBrowserMode] = useState<'add_library' | 'add_project' | null>(null);
+
+  const moveProject = (index: number, direction: 'up' | 'down') => {
+    setSettings((prev) => {
+      const list = [...(prev.projectPaths || [])];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= list.length) return prev;
+      const [item] = list.splice(index, 1);
+      list.splice(targetIndex, 0, item);
+      return { ...prev, projectPaths: list, activeProjectPath: list[0] || '' };
+    });
+  };
+
+  const makeActiveProject = (index: number) => {
+    setSettings((prev) => {
+      const list = [...(prev.projectPaths || [])];
+      if (index <= 0 || index >= list.length) return prev;
+      const [item] = list.splice(index, 1);
+      list.unshift(item);
+      return { ...prev, projectPaths: list, activeProjectPath: list[0] || '' };
+    });
+  };
+
+  const removeProject = (index: number) => {
+    setSettings((prev) => {
+      const list = [...(prev.projectPaths || [])];
+      list.splice(index, 1);
+      return { ...prev, projectPaths: list, activeProjectPath: list[0] || '' };
+    });
+  };
+
+  const addProject = (pathToAdd: string) => {
+    const trimmed = pathToAdd.trim();
+    if (!trimmed) return;
+    setSettings((prev) => {
+      const list = [...(prev.projectPaths || [])];
+      if (!list.includes(trimmed)) {
+        list.push(trimmed);
+      }
+      return { ...prev, projectPaths: list, activeProjectPath: list[0] || '' };
+    });
+    setNewProjectPath('');
+  };
+
+  const moveLibrary = (index: number, direction: 'up' | 'down') => {
+    setSettings((prev) => {
+      const list = [...(prev.libraryPaths || [])];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= list.length) return prev;
+      const [item] = list.splice(index, 1);
+      list.splice(targetIndex, 0, item);
+      return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
+    });
+  };
+
+  const makePrimaryLibrary = (index: number) => {
+    setSettings((prev) => {
+      const list = [...(prev.libraryPaths || [])];
+      if (index <= 0 || index >= list.length) return prev;
+      const [item] = list.splice(index, 1);
+      list.unshift(item);
+      return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
+    });
+  };
+
+  const removeLibrary = (index: number) => {
+    setSettings((prev) => {
+      const list = [...(prev.libraryPaths || [])];
+      list.splice(index, 1);
+      return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
+    });
+  };
+
+  const addLibrary = (pathToAdd: string) => {
+    const trimmed = pathToAdd.trim();
+    if (!trimmed) return;
+    setSettings((prev) => {
+      const list = [...(prev.libraryPaths || [])];
+      if (!list.includes(trimmed)) {
+        list.push(trimmed);
+      }
+      return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
+    });
+    setNewLibraryPath('');
+  };
 
   useEffect(() => {
     if (isOpen) {
       fetch('/api/settings')
         .then((res) => res.json())
         .then((data) => {
-          setSettings(data);
+          setSettings({
+            ...data,
+            libraryPaths: data.libraryPaths || (data.libraryPath ? [data.libraryPath] : []),
+            projectPaths: data.projectPaths || (data.activeProjectPath ? [data.activeProjectPath] : []),
+          });
         })
         .catch(() => {});
 
@@ -84,11 +191,26 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
   const handleSave = async () => {
     setSaving(true);
     try {
+      const currentProjects = settings.projectPaths && settings.projectPaths.length > 0
+        ? settings.projectPaths
+        : (settings.activeProjectPath ? [settings.activeProjectPath] : []);
+      const currentLibraries = settings.libraryPaths && settings.libraryPaths.length > 0
+        ? settings.libraryPaths
+        : (settings.libraryPath ? [settings.libraryPath] : []);
+
+      const payload = {
+        ...settings,
+        projectPaths: currentProjects,
+        activeProjectPath: currentProjects[0] || '',
+        libraryPaths: currentLibraries,
+        libraryPath: currentLibraries[0] || '',
+      };
+
       // 1. Save general settings
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error('Failed to update app settings');
       const updated = await res.json();
@@ -169,56 +291,276 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
           <div className="p-6 space-y-5 overflow-y-auto max-h-[65vh]">
             {activeTab === 'general' ? (
               <>
-                {/* Active Game Project Path */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                    Active Game Project Destination Path
-                  </label>
-                  <p className="text-xs text-slate-400">
-                    Where assets are copied when you click "Copy to Game Project".
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
+                {/* Game Project Destinations */}
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                      Game Project Destinations
+                    </label>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Target directories where assets can be copied. The first directory in the list is the Active Project.
+                    </p>
+                  </div>
+
+                  {/* Projects List */}
+                  <div className="space-y-1.5 mt-2">
+                    {settings.projectPaths.map((proj, idx) => {
+                      const isFirst = idx === 0;
+                      const isLast = idx === settings.projectPaths.length - 1;
+                      const folderName = proj.split('/').filter(Boolean).pop() || proj;
+
+                      return (
+                        <div
+                          key={`${proj}-${idx}`}
+                          className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-colors ${
+                            isFirst
+                              ? 'bg-[#181a30] border-indigo-500/50 text-slate-100'
+                              : 'bg-[#12121d] border-[#25253c] text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                            <span
+                              className={`w-5 h-5 flex items-center justify-center rounded text-[10px] font-mono shrink-0 ${
+                                isFirst
+                                  ? 'bg-indigo-600 text-white font-bold'
+                                  : 'bg-[#202034] text-slate-400'
+                              }`}
+                            >
+                              {idx + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-slate-200 truncate">{folderName}</span>
+                                {isFirst && (
+                                  <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
+                                    <Star className="w-2.5 h-2.5 fill-emerald-400 text-emerald-400" />
+                                    Active Project
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-mono text-[11px] text-slate-400 truncate block mt-0.5" title={proj}>
+                                {proj}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!isFirst && (
+                              <button
+                                type="button"
+                                onClick={() => makeActiveProject(idx)}
+                                title="Set as Active Project (move to top)"
+                                className="px-2 py-1 text-[11px] font-medium text-emerald-300 hover:text-emerald-200 bg-emerald-950/40 hover:bg-emerald-900/60 rounded border border-emerald-800/50 transition-colors flex items-center gap-1 cursor-pointer"
+                              >
+                                <Star className="w-3 h-3 text-emerald-400" />
+                                <span>Make Active</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => moveProject(idx, 'up')}
+                              disabled={isFirst}
+                              title="Move Up"
+                              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#25253c] disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveProject(idx, 'down')}
+                              disabled={isLast}
+                              title="Move Down"
+                              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#25253c] disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeProject(idx)}
+                              title="Remove"
+                              className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {settings.projectPaths.length === 0 && (
+                      <div className="p-3 text-center text-xs text-slate-500 bg-[#12121d] rounded-lg border border-[#25253c] border-dashed">
+                        No game project directories configured yet. Add one below.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add Project Bar */}
+                  <div className="flex items-center gap-2 pt-1">
                     <input
                       type="text"
-                      value={settings.activeProjectPath}
-                      onChange={(e) => setSettings({ ...settings, activeProjectPath: e.target.value })}
-                      placeholder="/Users/name/projects/my-game/assets"
-                      className="flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3.5 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
+                      value={newProjectPath}
+                      onChange={(e) => setNewProjectPath(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addProject(newProjectPath);
+                        }
+                      }}
+                      placeholder="Add game project path..."
+                      className="flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
                     />
                     <button
                       type="button"
-                      onClick={() => setBrowserMode('project')}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-[#232338] hover:bg-[#2e2e4a] text-slate-200 text-xs font-medium rounded-lg border border-[#343452] transition-colors cursor-pointer"
+                      onClick={() => setBrowserMode('add_project')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-[#232338] hover:bg-[#2e2e4a] text-slate-200 text-xs font-medium rounded-lg border border-[#343452] transition-colors cursor-pointer shrink-0"
                     >
                       <Folder className="w-3.5 h-3.5 text-indigo-400" />
                       Browse
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => addProject(newProjectPath)}
+                      disabled={!newProjectPath.trim()}
+                      className="flex items-center gap-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add
+                    </button>
                   </div>
                 </div>
 
-                {/* Asset Library Path */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                    Asset Library Source Directory
-                  </label>
-                  <p className="text-xs text-slate-400">
-                    Root directory scanned and indexed by Assettlor.
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
+                {/* Asset Library Source Directories */}
+                <div className="space-y-2 pt-2 border-t border-[#25253c]">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                      Asset Library Source Directories
+                    </label>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Source directories scanned and indexed by Assettlor. The primary directory stores the SQLite index and cache.
+                    </p>
+                  </div>
+
+                  {/* Libraries List */}
+                  <div className="space-y-1.5 mt-2">
+                    {settings.libraryPaths.map((lib, idx) => {
+                      const isFirst = idx === 0;
+                      const isLast = idx === settings.libraryPaths.length - 1;
+                      const folderName = lib.split('/').filter(Boolean).pop() || lib;
+
+                      return (
+                        <div
+                          key={`${lib}-${idx}`}
+                          className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-colors ${
+                            isFirst
+                              ? 'bg-[#181a30] border-indigo-500/50 text-slate-100'
+                              : 'bg-[#12121d] border-[#25253c] text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                            <span
+                              className={`w-5 h-5 flex items-center justify-center rounded text-[10px] font-mono shrink-0 ${
+                                isFirst
+                                  ? 'bg-indigo-600 text-white font-bold'
+                                  : 'bg-[#202034] text-slate-400'
+                              }`}
+                            >
+                              {idx + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-slate-200 truncate">{folderName}</span>
+                                {isFirst && (
+                                  <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
+                                    Primary Library
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-mono text-[11px] text-slate-400 truncate block mt-0.5" title={lib}>
+                                {lib}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!isFirst && (
+                              <button
+                                type="button"
+                                onClick={() => makePrimaryLibrary(idx)}
+                                title="Make this library primary"
+                                className="px-2 py-1 text-[11px] font-medium text-indigo-300 hover:text-indigo-200 bg-indigo-950/40 hover:bg-indigo-900/60 rounded border border-indigo-800/50 transition-colors cursor-pointer"
+                              >
+                                Set Primary
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => moveLibrary(idx, 'up')}
+                              disabled={isFirst}
+                              title="Move Up"
+                              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#25253c] disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveLibrary(idx, 'down')}
+                              disabled={isLast}
+                              title="Move Down"
+                              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#25253c] disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeLibrary(idx)}
+                              title="Remove"
+                              className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {settings.libraryPaths.length === 0 && (
+                      <div className="p-3 text-center text-xs text-slate-500 bg-[#12121d] rounded-lg border border-[#25253c] border-dashed">
+                        No asset library directories configured yet. Add one below.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add Library Bar */}
+                  <div className="flex items-center gap-2 pt-1">
                     <input
                       type="text"
-                      value={settings.libraryPath}
-                      onChange={(e) => setSettings({ ...settings, libraryPath: e.target.value })}
-                      placeholder="/Users/name/game-assets"
-                      className="flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3.5 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
+                      value={newLibraryPath}
+                      onChange={(e) => setNewLibraryPath(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addLibrary(newLibraryPath);
+                        }
+                      }}
+                      placeholder="Add asset library path..."
+                      className="flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
                     />
                     <button
                       type="button"
-                      onClick={() => setBrowserMode('library')}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-[#232338] hover:bg-[#2e2e4a] text-slate-200 text-xs font-medium rounded-lg border border-[#343452] transition-colors cursor-pointer"
+                      onClick={() => setBrowserMode('add_library')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-[#232338] hover:bg-[#2e2e4a] text-slate-200 text-xs font-medium rounded-lg border border-[#343452] transition-colors cursor-pointer shrink-0"
                     >
                       <Folder className="w-3.5 h-3.5 text-indigo-400" />
                       Browse
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addLibrary(newLibraryPath)}
+                      disabled={!newLibraryPath.trim()}
+                      className="flex items-center gap-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add
                     </button>
                   </div>
                 </div>
@@ -526,14 +868,15 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
         <FolderBrowserModal
           isOpen={Boolean(browserMode)}
           onClose={() => setBrowserMode(null)}
-          title={browserMode === 'library' ? 'Select Asset Library Directory' : 'Select Active Game Project Directory'}
-          initialPath={browserMode === 'library' ? settings.libraryPath : settings.activeProjectPath}
+          title={browserMode === 'add_library' ? 'Select Asset Library Directory' : 'Select Game Project Directory'}
+          initialPath={browserMode === 'add_library' ? (settings.libraryPaths[0] || settings.libraryPath) : (settings.projectPaths[0] || settings.activeProjectPath)}
           onSelect={(selectedPath) => {
-            if (browserMode === 'library') {
-              setSettings((prev) => ({ ...prev, libraryPath: selectedPath }));
+            if (browserMode === 'add_library') {
+              addLibrary(selectedPath);
             } else {
-              setSettings((prev) => ({ ...prev, activeProjectPath: selectedPath }));
+              addProject(selectedPath);
             }
+            setBrowserMode(null);
           }}
         />
       )}

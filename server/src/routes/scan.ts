@@ -33,25 +33,44 @@ export async function scanRoutes(fastify: FastifyInstance) {
   });
 
   // Trigger scan
-  fastify.post('/api/scan/start', async (req: FastifyRequest<{ Body: { libraryPath?: string } }>, reply) => {
+  fastify.post('/api/scan/start', async (req: FastifyRequest<{ Body: { libraryPath?: string; libraryPaths?: string[] } }>, reply) => {
     const settings = getAppSettings();
-    const targetPath = req.body?.libraryPath !== undefined ? req.body.libraryPath : settings.libraryPath;
+    let targetPaths: string[] = [];
 
-    if (!targetPath) {
+    if (req.body?.libraryPaths !== undefined) {
+      targetPaths = Array.isArray(req.body.libraryPaths)
+        ? req.body.libraryPaths.map((p) => String(p).trim()).filter(Boolean)
+        : [];
+      if (targetPaths.length > 0) {
+        updateAppSettings({ libraryPaths: targetPaths });
+      }
+    } else if (req.body?.libraryPath !== undefined) {
+      const single = String(req.body.libraryPath).trim();
+      if (single) {
+        targetPaths = [single];
+        updateAppSettings({ libraryPath: single });
+      } else {
+        targetPaths = [];
+      }
+    } else if (settings.libraryPaths && settings.libraryPaths.length > 0) {
+      targetPaths = settings.libraryPaths;
+    } else if (settings.libraryPath) {
+      targetPaths = [settings.libraryPath];
+    }
+
+    if (targetPaths.length === 0) {
       return reply.status(400).send({ error: 'Library path is required' });
     }
 
-    // Save updated library path in settings
-    updateAppSettings({ libraryPath: targetPath });
-
     // Run scan asynchronously
-    scanLibrary(targetPath).catch((err) => {
+    scanLibrary(targetPaths).catch((err) => {
       console.error('Background scan error:', err);
     });
 
     return reply.send({
       message: 'Scan started',
-      libraryPath: targetPath,
+      libraryPath: targetPaths[0],
+      libraryPaths: targetPaths,
     });
   });
 

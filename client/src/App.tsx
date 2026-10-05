@@ -64,7 +64,9 @@ function MainApp() {
   const [isClassifierModalOpen, setIsClassifierModalOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
     libraryPath: '',
+    libraryPaths: [],
     activeProjectPath: '',
+    projectPaths: [],
     thumbnailQuality: 80,
     autoStackAnimations: true,
     autoStackAudio: true,
@@ -300,10 +302,20 @@ function MainApp() {
       const res = await fetch('/api/scan/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ libraryPath: settings.libraryPath }),
+        body: JSON.stringify({
+          libraryPath: settings.libraryPath,
+          libraryPaths: settings.libraryPaths,
+        }),
       });
       if (!res.ok) throw new Error('Could not start scan');
-      showToast('info', 'Scan Initiated', `Scanning directory: ${settings.libraryPath}`);
+      const count = settings.libraryPaths?.length || 1;
+      showToast(
+        'info',
+        'Scan Initiated',
+        count > 1
+          ? `Scanning ${count} asset source libraries...`
+          : `Scanning directory: ${settings.libraryPath}`
+      );
     } catch (err: any) {
       showToast('error', 'Scan Failed', err.message);
     }
@@ -471,6 +483,7 @@ function MainApp() {
           asset={copyModalItem.asset}
           stack={copyModalItem.stack}
           targetDir={settings.activeProjectPath}
+          projectPaths={settings.projectPaths}
         />
       )}
     </div>

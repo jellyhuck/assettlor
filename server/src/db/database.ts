@@ -40,6 +40,10 @@ export function getCurrentLibraryPath(): string {
   return currentLibraryPath;
 }
 
+export function isDatabaseInitialized(): boolean {
+  return dbInstance !== null;
+}
+
 export function closeDatabase(): void {
   if (dbInstance) {
     try {
@@ -101,6 +105,7 @@ export function initDatabase(libraryPath: string): Database.Database {
       is_archive_entry INTEGER NOT NULL DEFAULT 0,
       archive_path TEXT,
       archive_entry_path TEXT,
+      source_directory TEXT,
       thumbnail_path TEXT,
       metadata TEXT,
       stack_id TEXT,
@@ -141,6 +146,12 @@ export function initDatabase(libraryPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_stacks_type ON stacks(type);
   `);
 
+  try {
+    db.exec('ALTER TABLE assets ADD COLUMN source_directory TEXT');
+  } catch {
+    // column already exists
+  }
+
   dbInstance = db;
   return db;
 }
@@ -158,6 +169,7 @@ export interface AssetRow {
   is_archive_entry: number;
   archive_path: string | null;
   archive_entry_path: string | null;
+  source_directory: string | null;
   thumbnail_path: string | null;
   metadata: string | null;
   stack_id: string | null;
@@ -199,6 +211,7 @@ function rowToAsset(row: AssetRow, tags: string[] = []): Asset {
     isArchiveEntry: Boolean(row.is_archive_entry),
     archivePath: row.archive_path,
     archiveEntryPath: row.archive_entry_path,
+    sourceDirectory: row.source_directory || undefined,
     thumbnailUrl: row.thumbnail_path ? `/api/assets/${row.id}/thumbnail` : '',
     fileUrl: `/api/assets/${row.id}/file`,
     metadata: meta,
@@ -218,9 +231,65 @@ export function getAppSettings(): AppSettings {
     map.set(r.key, r.value);
   }
 
+  let projectPaths: string[] = [];
+  if (map.has('projectPaths')) {
+    try {
+      const parsed = JSON.parse(map.get('projectPaths')!);
+      if (Array.isArray(parsed)) {
+        projectPaths = parsed.map((p) => String(p).trim()).filter(Boolean);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  let activeProjectPath: string;
+  if (map.has('activeProjectPath')) {
+    activeProjectPath = map.get('activeProjectPath')!;
+    if (activeProjectPath && projectPaths.length === 0) {
+      projectPaths = [activeProjectPath];
+    } else if (!activeProjectPath && !map.has('projectPaths')) {
+      projectPaths = [];
+    }
+  } else if (projectPaths.length > 0) {
+    activeProjectPath = projectPaths[0];
+  } else {
+    activeProjectPath = config.defaultActiveProjectPath;
+    projectPaths = [config.defaultActiveProjectPath];
+  }
+
+  let libraryPaths: string[] = [];
+  if (map.has('libraryPaths')) {
+    try {
+      const parsed = JSON.parse(map.get('libraryPaths')!);
+      if (Array.isArray(parsed)) {
+        libraryPaths = parsed.map((p) => String(p).trim()).filter(Boolean);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  let libraryPath: string;
+  if (map.has('libraryPath')) {
+    libraryPath = map.get('libraryPath')!;
+    if (libraryPath && libraryPaths.length === 0) {
+      libraryPaths = [libraryPath];
+    } else if (!libraryPath && !map.has('libraryPaths')) {
+      libraryPaths = [];
+    }
+  } else if (libraryPaths.length > 0) {
+    libraryPath = libraryPaths[0];
+  } else {
+    libraryPath = currentLibraryPath || config.defaultLibraryPath;
+    libraryPaths = [libraryPath];
+  }
+
   return {
-    libraryPath: map.get('libraryPath') || currentLibraryPath || config.defaultLibraryPath,
-    activeProjectPath: map.has('activeProjectPath') ? map.get('activeProjectPath')! : config.defaultActiveProjectPath,
+    libraryPath,
+    libraryPaths,
+    activeProjectPath,
+    projectPaths,
     thumbnailQuality: Number(map.get('thumbnailQuality') || 80),
     autoStackAnimations: map.get('autoStackAnimations') !== 'false',
     autoStackAudio: map.get('autoStackAudio') !== 'false',
@@ -236,8 +305,58 @@ export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
   `);
 
   const runTx = db.transaction(() => {
-    if (settings.libraryPath !== undefined) upsertStmt.run('libraryPath', settings.libraryPath);
-    if (settings.activeProjectPath !== undefined) upsertStmt.run('activeProjectPath', settings.activeProjectPath);
+    if (settings.libraryPaths !== undefined) {
+      const paths = Array.isArray(settings.libraryPaths)
+        ? settings.libraryPaths.map((p) => String(p).trim()).filter(Boolean)
+        : [];
+      upsertStmt.run('libraryPaths', JSON.stringify(paths));
+      if (paths.length > 0) {
+        upsertStmt.run('libraryPath', paths[0]);
+      } else {
+        upsertStmt.run('libraryPath', '');
+      }
+    } else if (settings.libraryPath !== undefined) {
+      upsertStmt.run('libraryPath', settings.libraryPath);
+      const current = getAppSettings();
+      let paths = [...current.libraryPaths];
+      if (settings.libraryPath) {
+        if (!paths.includes(settings.libraryPath)) {
+          paths = [settings.libraryPath, ...paths];
+        } else {
+          paths = [settings.libraryPath, ...paths.filter((p) => p !== settings.libraryPath)];
+        }
+      } else {
+        paths = [];
+      }
+      upsertStmt.run('libraryPaths', JSON.stringify(paths));
+    }
+
+    if (settings.projectPaths !== undefined) {
+      const pPaths = Array.isArray(settings.projectPaths)
+        ? settings.projectPaths.map((p) => String(p).trim()).filter(Boolean)
+        : [];
+      upsertStmt.run('projectPaths', JSON.stringify(pPaths));
+      if (pPaths.length > 0) {
+        upsertStmt.run('activeProjectPath', pPaths[0]);
+      } else {
+        upsertStmt.run('activeProjectPath', '');
+      }
+    } else if (settings.activeProjectPath !== undefined) {
+      upsertStmt.run('activeProjectPath', settings.activeProjectPath);
+      const current = getAppSettings();
+      let pPaths = [...current.projectPaths];
+      if (settings.activeProjectPath) {
+        if (!pPaths.includes(settings.activeProjectPath)) {
+          pPaths = [settings.activeProjectPath, ...pPaths];
+        } else {
+          pPaths = [settings.activeProjectPath, ...pPaths.filter((p) => p !== settings.activeProjectPath)];
+        }
+      } else {
+        pPaths = [];
+      }
+      upsertStmt.run('projectPaths', JSON.stringify(pPaths));
+    }
+
     if (settings.thumbnailQuality !== undefined) upsertStmt.run('thumbnailQuality', String(settings.thumbnailQuality));
     if (settings.autoStackAnimations !== undefined) upsertStmt.run('autoStackAnimations', String(settings.autoStackAnimations));
     if (settings.autoStackAudio !== undefined) upsertStmt.run('autoStackAudio', String(settings.autoStackAudio));
@@ -281,6 +400,7 @@ export function upsertAsset(asset: {
   isArchiveEntry: boolean;
   archivePath?: string | null;
   archiveEntryPath?: string | null;
+  sourceDirectory?: string | null;
   thumbnailPath?: string | null;
   metadata?: AssetMetadata;
   tags?: { tag: string; source: string }[];
@@ -292,11 +412,11 @@ export function upsertAsset(asset: {
   const upsertStmt = db.prepare(`
     INSERT INTO assets (
       id, path, absolute_path, name, extension, category, size, mtime, hash,
-      is_archive_entry, archive_path, archive_entry_path, thumbnail_path,
+      is_archive_entry, archive_path, archive_entry_path, source_directory, thumbnail_path,
       metadata, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
       ?, ?, ?
     )
     ON CONFLICT(path) DO UPDATE SET
@@ -311,6 +431,7 @@ export function upsertAsset(asset: {
       is_archive_entry = excluded.is_archive_entry,
       archive_path = excluded.archive_path,
       archive_entry_path = excluded.archive_entry_path,
+      source_directory = excluded.source_directory,
       thumbnail_path = excluded.thumbnail_path,
       metadata = excluded.metadata,
       updated_at = excluded.updated_at
@@ -335,6 +456,7 @@ export function upsertAsset(asset: {
       asset.isArchiveEntry ? 1 : 0,
       asset.archivePath || null,
       asset.archiveEntryPath || null,
+      asset.sourceDirectory || null,
       asset.thumbnailPath || null,
       metadataJson,
       now,
@@ -532,6 +654,7 @@ export function getStackAssets(stackId: string): Asset[] {
 }
 
 export function removeDeletedAssets(existingPaths: Set<string>): number {
+  if (!dbInstance) return 0;
   const db = getDatabase();
   const allRows = db.prepare('SELECT id, path, thumbnail_path FROM assets').all() as { id: string; path: string; thumbnail_path: string | null }[];
   let removedCount = 0;

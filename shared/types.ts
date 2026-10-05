@@ -43,6 +43,7 @@ export interface Asset {
   isArchiveEntry: boolean;
   archivePath?: string | null;
   archiveEntryPath?: string | null;
+  sourceDirectory?: string | null;
   thumbnailUrl: string;
   fileUrl: string;
   metadata: AssetMetadata;
@@ -102,6 +103,7 @@ export type ScanStatusType = 'idle' | 'scanning' | 'completed' | 'error';
 export interface ScanProgressEvent {
   status: ScanStatusType;
   libraryPath: string;
+  libraryPaths?: string[];
   scannedCount: number;
   indexedCount: number;
   currentFile?: string;
@@ -113,7 +115,9 @@ export interface ScanProgressEvent {
 
 export interface AppSettings {
   libraryPath: string;
+  libraryPaths: string[];
   activeProjectPath: string;
+  projectPaths: string[];
   thumbnailQuality: number;
   autoStackAnimations: boolean;
   autoStackAudio: boolean;

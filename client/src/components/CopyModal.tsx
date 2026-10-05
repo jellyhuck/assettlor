@@ -8,7 +8,8 @@ interface CopyModalProps {
   onClose: () => void;
   asset?: Asset | null;
   stack?: AssetStack | null;
-  targetDir: string;
+  targetDir?: string;
+  projectPaths?: string[];
 }
 
 export function CopyModal({
@@ -17,10 +18,19 @@ export function CopyModal({
   asset,
   stack,
   targetDir,
+  projectPaths = [],
 }: CopyModalProps) {
   const { showToast } = useToast();
   const [copyAll, setCopyAll] = useState(true);
   const [copying, setCopying] = useState(false);
+
+  const projects = projectPaths.length > 0
+    ? projectPaths
+    : (targetDir ? [targetDir] : []);
+
+  const [selectedDir, setSelectedDir] = useState<string>(() => {
+    return targetDir || (projects.length > 0 ? projects[0] : '');
+  });
 
   if (!isOpen) return null;
 
@@ -28,8 +38,8 @@ export function CopyModal({
     setCopying(true);
     try {
       const payload = stack && copyAll
-        ? { stackId: stack.id, copyStackAll: true }
-        : { assetId: asset?.id || stack?.representativeAssetId };
+        ? { stackId: stack.id, copyStackAll: true, targetPath: selectedDir }
+        : { assetId: asset?.id || stack?.representativeAssetId, targetPath: selectedDir };
 
       const res = await fetch('/api/assets/copy', {
         method: 'POST',
@@ -78,10 +88,33 @@ export function CopyModal({
           </div>
 
           <div>
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Destination</div>
-            <div className="flex items-center gap-1.5 text-xs font-mono text-cyan-300 mt-1 bg-[#11111d] p-2 rounded border border-[#28283e] break-all">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Destination Project</div>
+              {projects.length > 1 && (
+                <span className="text-[10px] text-indigo-400 font-medium">{projects.length} available</span>
+              )}
+            </div>
+
+            {projects.length > 1 ? (
+              <select
+                value={selectedDir}
+                onChange={(e) => setSelectedDir(e.target.value)}
+                className="w-full bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+              >
+                {projects.map((proj, idx) => {
+                  const folderName = proj.split('/').filter(Boolean).pop() || proj;
+                  return (
+                    <option key={proj} value={proj}>
+                      {idx === 0 ? `★ ${folderName} (Active)` : folderName} — {proj}
+                    </option>
+                  );
+                })}
+              </select>
+            ) : null}
+
+            <div className="flex items-center gap-1.5 text-xs font-mono text-cyan-300 mt-1.5 bg-[#11111d] p-2 rounded border border-[#28283e] break-all">
               <Folder className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              <span>{targetDir || 'Active Project not set'}</span>
+              <span>{selectedDir || 'Active Project not set'}</span>
             </div>
           </div>
 
@@ -130,7 +163,7 @@ export function CopyModal({
           </button>
           <button
             onClick={handleCopy}
-            disabled={copying || !targetDir}
+            disabled={copying || !selectedDir}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
           >
             <Check className="w-3.5 h-3.5" />

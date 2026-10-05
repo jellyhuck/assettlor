@@ -140,11 +140,15 @@ export function Sidebar({
 
         <div
           onClick={onOpenSettings}
-          title={`Library: ${settings.libraryPath}`}
+          title={`Libraries:\n${settings.libraryPaths?.join('\n') || settings.libraryPath || 'None'}`}
           className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#12121d] border border-[#26263a] text-xs font-mono text-slate-300 hover:border-indigo-500/50 cursor-pointer truncate"
         >
           <Folder className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          <span className="truncate">{settings.libraryPath || 'No folder selected'}</span>
+          <span className="truncate">
+            {settings.libraryPaths && settings.libraryPaths.length > 1
+              ? `${settings.libraryPaths.length} Source Libraries`
+              : (settings.libraryPath || 'No folder selected')}
+          </span>
         </div>
 
         {onOpenClassifiers && (
@@ -639,9 +643,16 @@ export function Sidebar({
         >
           <Folder className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
           <div className="min-w-0 text-left">
-            <span className="text-[10px] text-slate-500 block leading-none">Active Game Project</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-500 block leading-none">Active Game Project</span>
+              {settings.projectPaths && settings.projectPaths.length > 1 && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/40 font-mono">
+                  +{settings.projectPaths.length - 1} more
+                </span>
+              )}
+            </div>
             <span className="truncate block font-mono text-[11px] text-slate-300 mt-0.5">
-              {settings.activeProjectPath ? settings.activeProjectPath.split('/').pop() : 'Configure...'}
+              {settings.activeProjectPath ? settings.activeProjectPath.split('/').filter(Boolean).pop() : 'Configure...'}
             </span>
           </div>
         </button>

@@ -936,6 +936,7 @@ export function Inspector({
           asset={displayedAsset}
           stack={isStack ? stack : undefined}
           targetDir={settings.activeProjectPath}
+          projectPaths={settings.projectPaths}
         />
       )}
     </>

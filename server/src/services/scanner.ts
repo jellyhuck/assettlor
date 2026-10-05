@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import {
   initDatabase,
   getDatabase,
+  getAppSettings,
   upsertAsset,
   removeDeletedAssets,
   getAssetByPath,
@@ -22,6 +23,7 @@ const sseListeners = new Set<SseListener>();
 let currentScanStatus: ScanProgressEvent = {
   status: 'idle',
   libraryPath: '',
+  libraryPaths: [],
   scannedCount: 0,
   indexedCount: 0,
 };
@@ -63,38 +65,99 @@ function getFileHashFast(size: number, mtime: number): string {
   return crypto.createHash('md5').update(`${size}:${mtime}`).digest('hex');
 }
 
-export async function scanLibrary(targetDirectory: string): Promise<ScanProgressEvent> {
+export async function scanLibrary(targetDirectoriesInput?: string | string[]): Promise<ScanProgressEvent> {
   if (currentScanStatus.status === 'scanning') {
     return currentScanStatus;
   }
 
   cancelRequested = false;
   const startTime = Date.now();
-  const libraryPath = path.resolve(targetDirectory);
 
-  if (!fs.existsSync(libraryPath)) {
-    throw new Error(`Directory does not exist: ${libraryPath}`);
+  let targetDirs: string[] = [];
+  if (typeof targetDirectoriesInput === 'string') {
+    const trimmed = targetDirectoriesInput.trim();
+    if (trimmed) targetDirs = [trimmed];
+  } else if (Array.isArray(targetDirectoriesInput)) {
+    targetDirs = targetDirectoriesInput.map((p) => String(p).trim()).filter(Boolean);
+  } else {
+    const settings = getAppSettings();
+    targetDirs = settings.libraryPaths && settings.libraryPaths.length > 0
+      ? settings.libraryPaths
+      : (settings.libraryPath ? [settings.libraryPath] : []);
   }
 
-  // Initialize DB and thumbnail cache inside library directory
-  initDatabase(libraryPath);
-  const thumbnailsDir = path.join(libraryPath, config.cacheDirName, 'thumbnails');
+  if (targetDirs.length === 0) {
+    throw new Error('No target directory specified to scan');
+  }
+
+  const resolvedDirs = targetDirs.map((d) => path.resolve(d));
+
+  // If a single directory was provided, throw if it doesn't exist
+  if (targetDirs.length === 1 && !fs.existsSync(resolvedDirs[0])) {
+    throw new Error(`Directory does not exist: ${resolvedDirs[0]}`);
+  }
+
+  const existingDirs = resolvedDirs.filter((d) => {
+    const exists = fs.existsSync(d);
+    if (!exists) {
+      console.warn(`Directory does not exist, skipping: ${d}`);
+    }
+    return exists;
+  });
+
+  if (existingDirs.length === 0) {
+    throw new Error(`Directory does not exist: ${resolvedDirs[0]}`);
+  }
+
+  // Initialize DB and thumbnail cache inside primary library directory
+  const primaryLibraryPath = existingDirs[0];
+  initDatabase(primaryLibraryPath);
+  const thumbnailsDir = path.join(primaryLibraryPath, config.cacheDirName, 'thumbnails');
+  if (!fs.existsSync(thumbnailsDir)) {
+    fs.mkdirSync(thumbnailsDir, { recursive: true });
+  }
 
   broadcastProgress({
     status: 'scanning',
-    libraryPath,
+    libraryPath: primaryLibraryPath,
+    libraryPaths: existingDirs,
     scannedCount: 0,
     indexedCount: 0,
-    message: 'Starting scan...',
+    message: existingDirs.length > 1
+      ? `Starting scan of ${existingDirs.length} libraries...`
+      : 'Starting scan...',
     startTime,
     elapsedMs: 0,
   });
+
+  // Calculate unique prefixes for multiple directories
+  const dirPrefixes = new Map<string, string>();
+  if (existingDirs.length > 1) {
+    const baseCounts = new Map<string, number>();
+    for (const d of existingDirs) {
+      const base = path.basename(d);
+      baseCounts.set(base, (baseCounts.get(base) || 0) + 1);
+    }
+    const baseUsed = new Map<string, number>();
+    for (const d of existingDirs) {
+      const base = path.basename(d);
+      if ((baseCounts.get(base) || 0) > 1) {
+        const idx = (baseUsed.get(base) || 0) + 1;
+        baseUsed.set(base, idx);
+        dirPrefixes.set(d, `${base} (${idx})`);
+      } else {
+        dirPrefixes.set(d, base);
+      }
+    }
+  } else {
+    dirPrefixes.set(existingDirs[0], '');
+  }
 
   const activePaths = new Set<string>();
   let scannedCount = 0;
   let indexedCount = 0;
 
-  async function walkDir(currentDir: string): Promise<void> {
+  async function walkDir(currentDir: string, rootDir: string, prefix: string): Promise<void> {
     if (cancelRequested) return;
 
     let entries: fs.Dirent[];
@@ -114,10 +177,13 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
       }
 
       const fullPath = path.join(currentDir, entry.name);
-      const relativePath = path.relative(libraryPath, fullPath);
+      const innerRelative = path.relative(rootDir, fullPath);
+      const relativePath = prefix
+        ? path.posix.join(prefix, innerRelative.split(path.sep).join('/'))
+        : innerRelative.split(path.sep).join('/');
 
       if (entry.isDirectory()) {
-        await walkDir(fullPath);
+        await walkDir(fullPath, rootDir, prefix);
       } else if (entry.isFile()) {
         scannedCount++;
         const ext = path.extname(entry.name).toLowerCase();
@@ -181,6 +247,7 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
                 isArchiveEntry: true,
                 archivePath: fullPath,
                 archiveEntryPath: item.entryName,
+                sourceDirectory: rootDir,
                 thumbnailPath: thumbDiskPath,
                 metadata: item.metadata,
                 tags: item.tags,
@@ -207,7 +274,7 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
 
           // Generate tags from directory hierarchy
           const tags: { tag: string; source: string }[] = [];
-          const dirSegments = path.dirname(relativePath).split(path.sep).filter(Boolean);
+          const dirSegments = path.dirname(relativePath).split('/').filter(Boolean);
           for (const seg of dirSegments) {
             if (seg !== '.' && seg.length > 0) {
               tags.push({ tag: seg, source: 'folder' });
@@ -247,6 +314,7 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
                 mtime: stats.mtimeMs,
                 hash: quickHash,
                 isArchiveEntry: false,
+                sourceDirectory: rootDir,
                 thumbnailPath: thumbDiskPath,
                 metadata: res.metadata,
                 tags,
@@ -266,6 +334,7 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
                 mtime: stats.mtimeMs,
                 hash: quickHash,
                 isArchiveEntry: false,
+                sourceDirectory: rootDir,
                 thumbnailPath: thumbDiskPath,
                 metadata: res.metadata,
                 tags,
@@ -282,11 +351,24 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
   }
 
   try {
-    await walkDir(libraryPath);
+    for (let i = 0; i < existingDirs.length; i++) {
+      if (cancelRequested) break;
+      const dir = existingDirs[i];
+      const prefix = dirPrefixes.get(dir) || '';
+      if (existingDirs.length > 1) {
+        broadcastProgress({
+          message: `Scanning library ${i + 1} of ${existingDirs.length}: ${path.basename(dir)}...`,
+          elapsedMs: Date.now() - startTime,
+        });
+      }
+      await walkDir(dir, dir, prefix);
+    }
 
     if (cancelRequested) {
       broadcastProgress({
         status: 'idle',
+        libraryPath: primaryLibraryPath,
+        libraryPaths: existingDirs,
         message: 'Scan cancelled.',
       });
       return currentScanStatus;
@@ -338,6 +420,8 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
     const elapsedMs = Date.now() - startTime;
     broadcastProgress({
       status: 'completed',
+      libraryPath: primaryLibraryPath,
+      libraryPaths: existingDirs,
       scannedCount,
       indexedCount,
       message: `Completed in ${(elapsedMs / 1000).toFixed(1)}s: ${indexedCount} assets indexed (${stackStats.animationStacksCreated} animation stacks, ${stackStats.audioStacksCreated} audio variations${totalClassified > 0 ? `, ${totalClassified} classified` : ''}).`,
@@ -347,6 +431,8 @@ export async function scanLibrary(targetDirectory: string): Promise<ScanProgress
     console.error('Scan failed:', err);
     broadcastProgress({
       status: 'error',
+      libraryPath: primaryLibraryPath,
+      libraryPaths: existingDirs,
       error: err?.message || 'Scan failed',
       message: `Scan failed: ${err?.message || 'Unknown error'}`,
     });
