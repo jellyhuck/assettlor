@@ -80,7 +80,7 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     }
 
     reply.header('Content-Type', 'image/webp');
-    reply.header('Cache-Control', 'public, max-age=86400');
+    reply.header('Cache-Control', 'public, max-age=60, must-revalidate');
     return reply.send(fs.createReadStream(row.thumbnail_path));
   });
 

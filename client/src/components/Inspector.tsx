@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { FlipbookPlayer } from './FlipbookPlayer';
 import { AudioWaveformPlayer } from './AudioWaveformPlayer';
+import { SoundIcon, MusicPlateIcon } from './AudioIcons';
 import { useToast } from './Toast';
 import { CopyModal } from './CopyModal';
 
@@ -560,8 +561,10 @@ export function Inspector({
               <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
             ) : isDisplayedImage ? (
               <ImageIcon className="w-4 h-4 text-cyan-400 shrink-0" />
+            ) : displayedAsset.metadata.duration !== undefined && displayedAsset.metadata.duration <= 5 ? (
+              <SoundIcon className="w-4 h-4 text-cyan-400 shrink-0" />
             ) : (
-              <Volume2 className="w-4 h-4 text-rose-400 shrink-0" />
+              <MusicPlateIcon className="w-4 h-4 shrink-0" />
             )}
             <span className="text-xs font-semibold text-slate-100 truncate">
               {isStack && stackViewMode === 'stack' ? stack?.name : displayedAsset.name}

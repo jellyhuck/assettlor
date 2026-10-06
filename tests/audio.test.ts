@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import {
   isSupportedAudioExtension,
   getAudioMimeType,
+  getBpmColor,
   generateAudioThumbnail,
   processAudioBuffer,
   processAudioFile,
@@ -55,8 +56,50 @@ describe('Audio Service', () => {
     });
   });
 
+  describe('getBpmColor', () => {
+    it('should return default teal when BPM is null, undefined, or NaN', () => {
+      expect(getBpmColor(undefined).primary).toBe('rgb(121, 204, 191)');
+      expect(getBpmColor(null).primary).toBe('rgb(121, 204, 191)');
+      expect(getBpmColor(NaN).primary).toBe('rgb(121, 204, 191)');
+      expect(getBpmColor(undefined).secondary).toBe('#F4CE73');
+    });
+
+    it('should return teal color for low BPM (<= 60)', () => {
+      const low60 = getBpmColor(60);
+      expect(low60.primary).toBe('rgb(121, 204, 191)');
+      const low40 = getBpmColor(40);
+      expect(low40.primary).toBe('rgb(121, 204, 191)');
+    });
+
+    it('should return red color for high BPM (>= 180)', () => {
+      const high180 = getBpmColor(180);
+      expect(high180.primary).toBe('rgb(239, 68, 68)');
+      const high220 = getBpmColor(220);
+      expect(high220.primary).toBe('rgb(239, 68, 68)');
+    });
+
+    it('should return vibrant purple in the middle for 120 BPM', () => {
+      const mid120 = getBpmColor(120);
+      // t = (120 - 60) / (180 - 60) = 0.5 -> Purple (168, 85, 247)
+      expect(mid120.primary).toBe('rgb(168, 85, 247)');
+      expect(mid120.secondary).toBe('#F4CE73');
+    });
+
+    it('should smoothly transition from teal through purple to red across tempo ranges', () => {
+      const c75 = getBpmColor(75);
+      const c100 = getBpmColor(100);
+      const c125 = getBpmColor(125);
+      const c150 = getBpmColor(150);
+
+      const getR = (c: { primary: string }) => parseInt(c.primary.match(/\d+/)![0], 10);
+      expect(getR(c75)).toBeLessThan(getR(c100));
+      expect(getR(c100)).toBeLessThan(getR(c125));
+      expect(getR(c125)).toBeLessThan(getR(c150));
+    });
+  });
+
   describe('generateAudioThumbnail', () => {
-    it('should generate a valid WebP thumbnail from audio name', async () => {
+    it('should generate sound note icon thumbnail for short sounds (<= 5s)', async () => {
       const thumb = await generateAudioThumbnail('laser_shot_01.wav', 1.25, 2);
       expect(thumb).toBeInstanceOf(Buffer);
 
@@ -66,10 +109,37 @@ describe('Audio Service', () => {
       expect(meta.height).toBe(240);
     });
 
-    it('should generate identical thumbnails for the same name and metadata', async () => {
-      const thumb1 = await generateAudioThumbnail('test_audio', 2.5);
-      const thumb2 = await generateAudioThumbnail('test_audio', 2.5);
+    it('should generate sound note icon thumbnail for 5.0s boundary sound', async () => {
+      const thumb = await generateAudioThumbnail('click_5s.wav', 5.0, 1);
+      expect(thumb).toBeInstanceOf(Buffer);
+      const meta = await sharp(thumb).metadata();
+      expect(meta.format).toBe('webp');
+    });
+
+    it('should generate music plate icon thumbnail for music (> 5s)', async () => {
+      const thumbMusic = await generateAudioThumbnail('theme_song.mp3', 45, 2, 120);
+      expect(thumbMusic).toBeInstanceOf(Buffer);
+
+      const meta = await sharp(thumbMusic).metadata();
+      expect(meta.format).toBe('webp');
+      expect(meta.width).toBe(400);
+      expect(meta.height).toBe(240);
+    });
+
+    it('should produce distinct thumbnails for different BPM values', async () => {
+      const lowBpmThumb = await generateAudioThumbnail('dance_track.mp3', 60, 2, 70);
+      const highBpmThumb = await generateAudioThumbnail('dance_track.mp3', 60, 2, 175);
+      expect(lowBpmThumb.equals(highBpmThumb)).toBe(false);
+    });
+
+    it('should generate identical thumbnails for identical inputs', async () => {
+      const thumb1 = await generateAudioThumbnail('test_audio.wav', 2.5);
+      const thumb2 = await generateAudioThumbnail('test_audio.wav', 2.5);
       expect(thumb1.equals(thumb2)).toBe(true);
+
+      const musicThumb1 = await generateAudioThumbnail('song.mp3', 60, 2, 130);
+      const musicThumb2 = await generateAudioThumbnail('song.mp3', 60, 2, 130);
+      expect(musicThumb1.equals(musicThumb2)).toBe(true);
     });
 
     it('should handle zero or undefined duration without crashing', async () => {

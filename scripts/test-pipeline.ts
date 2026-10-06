@@ -64,23 +64,23 @@ async function runTestPipeline() {
 
   // 4. Test Querying (Stacked vs Flat)
   console.log('\n--- 4. Testing Query Engine (Stacked vs Flat View) ---');
-  const stackedRes = queryAssets({ isStackedView: true });
-  console.log(`Stacked view returned items: ${stackedRes.items.length}`);
+  const stackedRes = queryAssets({ isStackedView: true, limit: 200 });
+  console.log(`Stacked view returned items: ${stackedRes.items.length} (total: ${stackedRes.total})`);
 
-  const flatRes = queryAssets({ isStackedView: false });
-  console.log(`Flat view returned items: ${flatRes.items.length}`);
+  const flatRes = queryAssets({ isStackedView: false, limit: 200 });
+  console.log(`Flat view returned items: ${flatRes.items.length} (total: ${flatRes.total})`);
 
-  if (stackedRes.items.length >= flatRes.items.length) {
+  if (stackedRes.total >= flatRes.total) {
     throw new Error('Assertion failed: Stacked view should group items and have fewer cards than flat view!');
   }
-  console.log(`✓ Stacked view correctly consolidated ${flatRes.items.length} files into ${stackedRes.items.length} cards`);
+  console.log(`✓ Stacked view correctly consolidated ${flatRes.total} files into ${stackedRes.total} cards`);
 
   // 4b. Test Search Engine
   console.log('\n--- 4b. Testing Search Engine & Stack Deduplication ---');
   const searchTests = [
     { query: 'knight', expectedStacked: 1, expectedFlat: 4 },
     { query: 'Knight Walk', expectedStacked: 1, expectedFlat: 4 },
-    { query: '04', expectedStacked: 2, expectedFlat: 2 },
+    { query: 'Coin_Spin_04', expectedStacked: 1, expectedFlat: 1 },
     { query: 'ui click', expectedStacked: 1, expectedFlat: 2 },
     { query: 'sfx', expectedStacked: 3, expectedFlat: 8 },
   ];

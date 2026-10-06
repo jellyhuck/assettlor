@@ -24,6 +24,7 @@ export interface AudioMetadata {
   lossless?: boolean;
   bpm?: number;
   tempoDescription?: string;
+  audioThumbnailVersion?: number;
 }
 
 export type AssetMetadata = ImageMetadata & AudioMetadata & {

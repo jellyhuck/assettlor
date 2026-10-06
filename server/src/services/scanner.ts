@@ -226,7 +226,12 @@ export async function scanLibrary(targetDirectoriesInput?: string | string[]): P
               const thumbFilename = `${item.id}.webp`;
               const thumbDiskPath = path.join(thumbnailsDir, thumbFilename);
 
-              if (existing && existing.hash === item.hash && fs.existsSync(thumbDiskPath)) {
+              if (
+                existing &&
+                existing.hash === item.hash &&
+                fs.existsSync(thumbDiskPath) &&
+                (item.category !== 'audio' || existing.metadata?.audioThumbnailVersion === 4)
+              ) {
                 // Asset unchanged!
                 continue;
               }
@@ -267,7 +272,12 @@ export async function scanLibrary(targetDirectoriesInput?: string | string[]): P
           const thumbDiskPath = path.join(thumbnailsDir, thumbFilename);
 
           const existing = getAssetByPath(relativePath);
-          if (existing && existing.hash === quickHash && fs.existsSync(thumbDiskPath)) {
+          if (
+            existing &&
+            existing.hash === quickHash &&
+            fs.existsSync(thumbDiskPath) &&
+            (!isAud || existing.metadata?.audioThumbnailVersion === 4)
+          ) {
             // Asset unchanged
             continue;
           }

@@ -213,7 +213,7 @@ function rowToAsset(row: AssetRow, tags: string[] = []): Asset {
     archivePath: row.archive_path,
     archiveEntryPath: row.archive_entry_path,
     sourceDirectory: row.source_directory || undefined,
-    thumbnailUrl: row.thumbnail_path ? `/api/assets/${row.id}/thumbnail` : '',
+    thumbnailUrl: row.thumbnail_path ? `/api/assets/${row.id}/thumbnail?t=${row.updated_at}` : '',
     fileUrl: `/api/assets/${row.id}/file`,
     metadata: meta,
     stackId: row.stack_id,

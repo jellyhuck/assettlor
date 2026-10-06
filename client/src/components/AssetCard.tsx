@@ -13,6 +13,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { useToast } from './Toast';
+import { AudioAssetIcon } from './AudioIcons';
 
 interface AssetCardProps {
   item: Asset | (AssetStack & { isStack: true });
@@ -167,12 +168,27 @@ export function AssetCard({
 
           {/* Small thumbnail */}
           <div className="w-10 h-10 rounded bg-[#12121d] border border-[#2b2b40] overflow-hidden shrink-0 flex items-center justify-center checkerboard-bg">
-            <img
-              src={currentDisplayAsset.thumbnailUrl || currentDisplayAsset.fileUrl}
-              alt={title}
-              className="w-full h-full object-contain pixelated"
-              loading="lazy"
-            />
+            {currentDisplayAsset.thumbnailUrl ? (
+              <img
+                src={currentDisplayAsset.thumbnailUrl}
+                alt={title}
+                className="w-full h-full object-contain pixelated"
+                loading="lazy"
+              />
+            ) : isAudio ? (
+              <AudioAssetIcon
+                duration={currentDisplayAsset.metadata.duration}
+                bpm={currentDisplayAsset.metadata.bpm}
+                className="w-6 h-6"
+              />
+            ) : (
+              <img
+                src={currentDisplayAsset.fileUrl}
+                alt={title}
+                className="w-full h-full object-contain pixelated"
+                loading="lazy"
+              />
+            )}
           </div>
 
           {/* Title & Info */}
@@ -294,12 +310,34 @@ export function AssetCard({
           isImage ? 'checkerboard-bg' : 'bg-[#12121e]'
         }`}
       >
-        <img
-          src={currentDisplayAsset.thumbnailUrl || currentDisplayAsset.fileUrl}
-          alt={title}
-          className="max-w-full max-h-full object-contain pixelated p-2 transition-transform duration-200 group-hover:scale-105"
-          loading="lazy"
-        />
+        {currentDisplayAsset.thumbnailUrl ? (
+          <img
+            src={currentDisplayAsset.thumbnailUrl}
+            alt={title}
+            className="max-w-full max-h-full object-contain pixelated p-2 transition-transform duration-200 group-hover:scale-105"
+            loading="lazy"
+          />
+        ) : isAudio ? (
+          <div className="flex flex-col items-center justify-center gap-1.5 p-3">
+            <AudioAssetIcon
+              duration={currentDisplayAsset.metadata.duration}
+              bpm={currentDisplayAsset.metadata.bpm}
+              className="w-12 h-12"
+            />
+            <span className="text-[10px] font-mono text-slate-400">
+              {currentDisplayAsset.metadata.duration !== undefined && currentDisplayAsset.metadata.duration <= 5
+                ? 'Sound FX'
+                : 'Music Track'}
+            </span>
+          </div>
+        ) : (
+          <img
+            src={currentDisplayAsset.fileUrl}
+            alt={title}
+            className="max-w-full max-h-full object-contain pixelated p-2 transition-transform duration-200 group-hover:scale-105"
+            loading="lazy"
+          />
+        )}
 
         {/* Stack Badge & View Action */}
         {isStack && (

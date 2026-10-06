@@ -3,6 +3,8 @@ import WaveSurfer from 'wavesurfer.js';
 import { Play, Pause, Square, Repeat, Volume2, VolumeX, Loader2 } from 'lucide-react';
 import { Asset } from '../types';
 
+import { getBpmColor } from './AudioIcons';
+
 interface AudioWaveformPlayerProps {
   asset: Asset;
   variants?: Asset[];
@@ -39,10 +41,14 @@ export function AudioWaveformPlayer({
       waveSurferRef.current = null;
     }
 
+    const isSound = asset.metadata.duration !== undefined && asset.metadata.duration <= 5;
+    const waveColor = isSound ? '#06b6d4' : getBpmColor(asset.metadata.bpm);
+    const progressColor = isSound ? '#38bdf8' : (asset.metadata.bpm ? '#f87171' : '#38bdf8');
+
     const ws = WaveSurfer.create({
       container: containerRef.current,
-      waveColor: '#4f46e5',
-      progressColor: '#38bdf8',
+      waveColor,
+      progressColor,
       cursorColor: '#f43f5e',
       cursorWidth: 2,
       height: 96,

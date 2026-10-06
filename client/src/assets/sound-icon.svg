@@ -1,0 +1,33 @@
+<svg viewBox="0 0 512 512" width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Sound Waves Left -->
+  <path d="M 68 150 C 24 215 24 295 68 360" fill="none" stroke="#1e2f3f" stroke-width="16" stroke-linecap="round" />
+  <path d="M 118 180 C 80 222 80 288 118 330" fill="none" stroke="#1e2f3f" stroke-width="16" stroke-linecap="round" />
+
+  <!-- Sound Waves Right -->
+  <path d="M 394 180 C 432 222 432 288 394 330" fill="none" stroke="#1e2f3f" stroke-width="16" stroke-linecap="round" />
+  <path d="M 444 150 C 488 215 488 295 444 360" fill="none" stroke="#1e2f3f" stroke-width="16" stroke-linecap="round" />
+
+  <!-- Top Loop (Teal) -->
+  <path d="M 230 105 C 230 75 282 75 282 105" fill="none" stroke="#19cfba" stroke-width="20" stroke-linecap="round" />
+  <path d="M 230 105 C 230 75 282 75 282 105" fill="none" stroke="#1e2f3f" stroke-width="7" stroke-linecap="round" />
+
+  <!-- Clapper (Blue) -->
+  <circle cx="256" cy="385" r="34" fill="#60b7fe" stroke="#1e2f3f" stroke-width="16" />
+
+  <!-- Bell Body (Muted Warm Gold) -->
+  <path d="M 256 115 
+           C 205 115 180 180 176 270 
+           C 174 315 142 340 132 355 
+           C 126 364 133 375 145 375 
+           L 367 375 
+           C 379 375 386 364 380 355 
+           C 370 340 338 315 336 270 
+           C 332 180 307 115 256 115 Z" 
+        fill="#e5b84c" stroke="#1e2f3f" stroke-width="16" stroke-linejoin="round" stroke-linecap="round" />
+
+  <!-- Top Accent (Teal Cap) -->
+  <path d="M 234 125 C 234 116 278 116 278 125 Z" fill="#19cfba" stroke="#1e2f3f" stroke-width="10" stroke-linejoin="round" />
+
+  <!-- Inner Rim Contour -->
+  <line x1="165" y1="345" x2="347" y2="345" stroke="#bfa238" stroke-width="10" stroke-linecap="round" opacity="0.6" />
+</svg>
