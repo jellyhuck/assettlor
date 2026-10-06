@@ -3,8 +3,6 @@ import WaveSurfer from 'wavesurfer.js';
 import { Play, Pause, Square, Repeat, Volume2, VolumeX, Loader2 } from 'lucide-react';
 import { Asset } from '../types';
 
-import { getBpmColor } from './AudioIcons';
-
 interface AudioWaveformPlayerProps {
   asset: Asset;
   variants?: Asset[];
@@ -18,6 +16,7 @@ export function AudioWaveformPlayer({
 }: AudioWaveformPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const waveSurferRef = useRef<WaveSurfer | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
@@ -26,90 +25,161 @@ export function AudioWaveformPlayer({
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [waveformReady, setWaveformReady] = useState(false);
 
-  // Initialize WaveSurfer
+  // Initialize playback and WaveSurfer
   useEffect(() => {
-    if (!containerRef.current) return;
-
     setLoading(true);
+    setWaveformReady(false);
     setIsPlaying(false);
     setCurrentTime(0);
+    setDuration(asset.metadata.duration || 0);
 
-    // Destroy existing instance
+    // Destroy existing WaveSurfer instance
     if (waveSurferRef.current) {
       waveSurferRef.current.destroy();
       waveSurferRef.current = null;
     }
 
-    const isSound = asset.metadata.duration !== undefined && asset.metadata.duration <= 5;
-    const waveColor = isSound ? '#06b6d4' : getBpmColor(asset.metadata.bpm);
-    const progressColor = isSound ? '#38bdf8' : (asset.metadata.bpm ? '#f87171' : '#38bdf8');
+    const fullUrl = new URL(asset.fileUrl, window.location.origin).href;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.src = fullUrl;
+      audio.volume = isMuted ? 0 : volume;
+      audio.muted = isMuted;
+      audio.loop = isLooping;
+    }
 
-    const ws = WaveSurfer.create({
-      container: containerRef.current,
-      waveColor,
-      progressColor,
-      cursorColor: '#f43f5e',
-      cursorWidth: 2,
-      height: 96,
-      barWidth: 3,
-      barGap: 3,
-      barRadius: 2,
-      url: asset.fileUrl,
-    });
+    if (!containerRef.current) return;
 
-    ws.on('ready', () => {
+    try {
+      const ws = WaveSurfer.create({
+        container: containerRef.current,
+        media: audio || undefined,
+        waveColor: '#4f46e5',
+        progressColor: '#38bdf8',
+        cursorColor: '#f43f5e',
+        cursorWidth: 2,
+        height: 96,
+        barWidth: 3,
+        barGap: 3,
+        barRadius: 2,
+        url: fullUrl,
+      });
+
+      ws.on('ready', () => {
+        setLoading(false);
+        setWaveformReady(true);
+        const d = ws.getDuration();
+        if (d && !isNaN(d) && d > 0) {
+          setDuration(d);
+        }
+        if (audio && audio.currentTime > 0) {
+          try {
+            ws.setTime(audio.currentTime);
+          } catch {}
+        }
+      });
+
+      ws.on('seeking', (time) => {
+        setCurrentTime(time);
+        if (audio && Math.abs(audio.currentTime - time) > 0.2) {
+          audio.currentTime = time;
+        }
+      });
+
+      ws.on('error', (err) => {
+        console.warn('WaveSurfer waveform decoding failed:', err);
+        setLoading(false);
+      });
+
+      waveSurferRef.current = ws;
+    } catch (err) {
+      console.warn('Failed to initialize WaveSurfer:', err);
       setLoading(false);
-      setDuration(ws.getDuration());
-      ws.setVolume(isMuted ? 0 : volume);
-    });
-
-    ws.on('audioprocess', (time) => {
-      setCurrentTime(time);
-    });
-
-    ws.on('seeking', (time) => {
-      setCurrentTime(time);
-    });
-
-    ws.on('finish', () => {
-      if (isLooping) {
-        ws.play();
-      } else {
-        setIsPlaying(false);
-        setCurrentTime(0);
-      }
-    });
-
-    ws.on('play', () => setIsPlaying(true));
-    ws.on('pause', () => setIsPlaying(false));
-
-    waveSurferRef.current = ws;
+    }
 
     return () => {
-      ws.destroy();
+      if (waveSurferRef.current) {
+        waveSurferRef.current.destroy();
+        waveSurferRef.current = null;
+      }
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
     };
-  }, [asset.id, asset.fileUrl]);
+  }, [asset.id, asset.fileUrl, asset.metadata.duration]);
 
   // Volume & Mute sync
   useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume;
+      audioRef.current.muted = isMuted;
+    }
     if (waveSurferRef.current) {
       waveSurferRef.current.setVolume(isMuted ? 0 : volume);
     }
   }, [volume, isMuted]);
 
   const togglePlay = () => {
-    if (waveSurferRef.current) {
-      waveSurferRef.current.playPause();
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play().catch((err) => {
+        console.warn('Playback error:', err);
+      });
     }
   };
 
   const handleStop = () => {
-    if (waveSurferRef.current) {
-      waveSurferRef.current.stop();
-      setIsPlaying(false);
-      setCurrentTime(0);
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
     }
+    if (waveSurferRef.current && waveformReady) {
+      try {
+        waveSurferRef.current.setTime(0);
+      } catch {}
+    }
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
+  const toggleLoop = () => {
+    const nextLoop = !isLooping;
+    setIsLooping(nextLoop);
+    if (audioRef.current) {
+      audioRef.current.loop = nextLoop;
+    }
+  };
+
+  const handleScrub = (newTime: number) => {
+    const boundedTime = Math.max(0, Math.min(newTime, duration || newTime));
+    setCurrentTime(boundedTime);
+    if (audioRef.current) {
+      audioRef.current.currentTime = boundedTime;
+    }
+    if (waveSurferRef.current && waveformReady) {
+      try {
+        waveSurferRef.current.setTime(boundedTime);
+      } catch {}
+    }
+  };
+
+  const handleVolumeChange = (newVolume: number) => {
+    setIsMuted(false);
+    setVolume(newVolume);
+  };
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
   };
 
   const formatTime = (seconds: number) => {
@@ -121,6 +191,40 @@ export function AudioWaveformPlayer({
 
   return (
     <div className="flex flex-col gap-3 w-full">
+      {/* Hidden audio element for instant streaming playback */}
+      <audio
+        ref={audioRef}
+        preload="auto"
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onTimeUpdate={() => {
+          if (audioRef.current) {
+            setCurrentTime(audioRef.current.currentTime);
+          }
+        }}
+        onDurationChange={() => {
+          if (audioRef.current?.duration && !isNaN(audioRef.current.duration)) {
+            setDuration(audioRef.current.duration);
+          }
+        }}
+        onLoadedMetadata={() => {
+          if (audioRef.current?.duration && !isNaN(audioRef.current.duration)) {
+            setDuration(audioRef.current.duration);
+          }
+        }}
+        onEnded={() => {
+          if (isLooping) {
+            if (audioRef.current) {
+              audioRef.current.currentTime = 0;
+              audioRef.current.play().catch(() => {});
+            }
+          } else {
+            setIsPlaying(false);
+            setCurrentTime(0);
+          }
+        }}
+      />
+
       {/* Variations Switcher (if variants present) */}
       {variants.length > 1 && (
         <div className="space-y-1.5">
@@ -148,7 +252,7 @@ export function AudioWaveformPlayer({
         </div>
       )}
 
-      {/* Waveform Container */}
+      {/* Waveform Container (Animation Rectangle preserved from previous commit) */}
       <div className="relative bg-[#11111d] border border-[#2b2b44] rounded-lg p-3 min-h-[110px] flex flex-col justify-center">
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#11111d]/80 rounded-lg gap-2 text-xs text-indigo-400 z-10">
@@ -159,14 +263,32 @@ export function AudioWaveformPlayer({
         <div ref={containerRef} className="w-full cursor-pointer" />
       </div>
 
+      {/* Scrubber under the animation rectangle */}
+      <div className="w-full flex flex-col gap-1 px-1">
+        <input
+          type="range"
+          min="0"
+          max={duration > 0 ? duration : 100}
+          step="0.05"
+          value={currentTime}
+          onChange={(e) => handleScrub(Number(e.target.value))}
+          className="w-full accent-indigo-500 h-1.5 bg-[#25253e] hover:bg-[#313150] rounded-lg appearance-none cursor-pointer transition-colors"
+          title="Scrub audio position"
+          aria-label="Audio position scrubber"
+        />
+        <div className="flex justify-between text-[10px] font-mono text-slate-400 select-none">
+          <span className="text-cyan-400 font-semibold">{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+
       {/* Time & Playback Controls */}
       <div className="flex items-center justify-between bg-[#161625] border border-[#252538] rounded-lg px-3 py-2">
         <div className="flex items-center gap-1.5">
           <button
             onClick={togglePlay}
-            disabled={loading}
             title={isPlaying ? 'Pause' : 'Play'}
-            className="p-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
+            className="p-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer"
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
           </button>
@@ -178,7 +300,7 @@ export function AudioWaveformPlayer({
             <Square className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => setIsLooping(!isLooping)}
+            onClick={toggleLoop}
             title="Toggle Loop"
             className={`p-1.5 rounded transition-colors cursor-pointer ${
               isLooping ? 'text-indigo-400 bg-indigo-950/40' : 'text-slate-500 hover:text-slate-300'
@@ -190,7 +312,7 @@ export function AudioWaveformPlayer({
 
         {/* Time display */}
         <div className="text-xs font-mono text-slate-300">
-          <span className="text-cyan-400">{formatTime(currentTime)}</span>
+          <span className="text-cyan-400 font-semibold">{formatTime(currentTime)}</span>
           <span className="text-slate-500"> / </span>
           <span>{formatTime(duration)}</span>
         </div>
@@ -198,7 +320,7 @@ export function AudioWaveformPlayer({
         {/* Volume */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsMuted(!isMuted)}
+            onClick={toggleMute}
             className="text-slate-400 hover:text-slate-200 cursor-pointer"
           >
             {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -209,10 +331,7 @@ export function AudioWaveformPlayer({
             max="1"
             step="0.05"
             value={isMuted ? 0 : volume}
-            onChange={(e) => {
-              setIsMuted(false);
-              setVolume(Number(e.target.value));
-            }}
+            onChange={(e) => handleVolumeChange(Number(e.target.value))}
             className="w-16 accent-indigo-500 h-1 bg-[#25253e] rounded appearance-none cursor-pointer"
           />
         </div>
