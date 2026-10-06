@@ -139,4 +139,23 @@ describe('Scanner Service', () => {
     // Should be cancelled / idle
     expect(['idle', 'completed']).toContain(res.status);
   });
+
+  it('should completely rescan a library by removing existing cached entries and reindexing', async () => {
+    const file1 = path.join(libraryDir, 'test.png');
+    fs.writeFileSync(file1, TINY_PNG_BUFFER);
+
+    await scanLibrary(libraryDir);
+    const db = getDatabase();
+    const assetBefore = db.prepare("SELECT id, thumbnail_path, created_at FROM assets WHERE name = 'test.png'").get() as any;
+    expect(assetBefore).toBeDefined();
+    expect(fs.existsSync(assetBefore.thumbnail_path)).toBe(true);
+
+    // Perform full rescan
+    const rescanStatus = await scanLibrary(libraryDir, { fullRescan: true });
+    expect(rescanStatus.status).toBe('completed');
+
+    const assetAfter = db.prepare("SELECT id, thumbnail_path, created_at FROM assets WHERE name = 'test.png'").get() as any;
+    expect(assetAfter).toBeDefined();
+    expect(fs.existsSync(assetAfter.thumbnail_path)).toBe(true);
+  });
 });

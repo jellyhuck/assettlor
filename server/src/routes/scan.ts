@@ -33,7 +33,7 @@ export async function scanRoutes(fastify: FastifyInstance) {
   });
 
   // Trigger scan
-  fastify.post('/api/scan/start', async (req: FastifyRequest<{ Body: { libraryPath?: string; libraryPaths?: string[] } }>, reply) => {
+  fastify.post('/api/scan/start', async (req: FastifyRequest<{ Body: { libraryPath?: string; libraryPaths?: string[]; fullRescan?: boolean } }>, reply) => {
     const settings = getAppSettings();
     let targetPaths: string[] = [];
 
@@ -62,15 +62,61 @@ export async function scanRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'Library path is required' });
     }
 
+    const fullRescan = Boolean(req.body?.fullRescan);
+
     // Run scan asynchronously
-    scanLibrary(targetPaths).catch((err) => {
+    scanLibrary(targetPaths, {
+      fullRescan,
+      rescanDirectories: fullRescan ? targetPaths : undefined,
+    }).catch((err) => {
       console.error('Background scan error:', err);
     });
 
     return reply.send({
-      message: 'Scan started',
+      message: fullRescan ? 'Full rescan started' : 'Scan started',
       libraryPath: targetPaths[0],
       libraryPaths: targetPaths,
+      fullRescan,
+    });
+  });
+
+  // Trigger complete rescan (remove and full reindex)
+  fastify.post('/api/scan/rescan', async (req: FastifyRequest<{ Body: { libraryPath?: string; libraryPaths?: string[] } }>, reply) => {
+    const settings = getAppSettings();
+    let targetPaths: string[] = [];
+
+    if (req.body?.libraryPaths !== undefined) {
+      targetPaths = Array.isArray(req.body.libraryPaths)
+        ? req.body.libraryPaths.map((p) => String(p).trim()).filter(Boolean)
+        : [];
+    } else if (req.body?.libraryPath !== undefined) {
+      const single = String(req.body.libraryPath).trim();
+      if (single) {
+        targetPaths = [single];
+      }
+    } else if (settings.libraryPaths && settings.libraryPaths.length > 0) {
+      targetPaths = settings.libraryPaths;
+    } else if (settings.libraryPath) {
+      targetPaths = [settings.libraryPath];
+    }
+
+    if (targetPaths.length === 0) {
+      return reply.status(400).send({ error: 'Library path is required' });
+    }
+
+    // Run full rescan asynchronously
+    scanLibrary(targetPaths, {
+      fullRescan: true,
+      rescanDirectories: targetPaths,
+    }).catch((err) => {
+      console.error('Background rescan error:', err);
+    });
+
+    return reply.send({
+      message: 'Full rescan started',
+      libraryPath: targetPaths[0],
+      libraryPaths: targetPaths,
+      fullRescan: true,
     });
   });
 

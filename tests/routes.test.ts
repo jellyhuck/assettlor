@@ -672,6 +672,17 @@ describe('HTTP API Routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().message).toBe('Cancel requested');
     });
+
+    it('POST /api/scan/rescan should start full rescan', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/scan/rescan',
+        payload: { libraryPath: tempLibraryDir },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().message).toBe('Full rescan started');
+      expect(res.json().fullRescan).toBe(true);
+    });
   });
 
   describe('Static Client Serving & SPA Routing', () => {

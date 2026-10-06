@@ -685,6 +685,85 @@ export function removeDeletedAssets(existingPaths: Set<string>): number {
   return removedCount;
 }
 
+export function removeDeletedAssetsForSourceDirectory(
+  sourceDir: string,
+  existingPathsInSource: Set<string>
+): number {
+  if (!dbInstance) return 0;
+  const db = getDatabase();
+  const normalized = path.resolve(sourceDir);
+  const rows = db.prepare(`
+    SELECT id, path, thumbnail_path FROM assets
+    WHERE source_directory = ? OR source_directory = ?
+  `).all(sourceDir, normalized) as { id: string; path: string; thumbnail_path: string | null }[];
+
+  let removedCount = 0;
+  const deleteStmt = db.prepare('DELETE FROM assets WHERE id = ?');
+  const deleteTagsStmt = db.prepare('DELETE FROM tags WHERE asset_id = ?');
+
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      if (!existingPathsInSource.has(r.path)) {
+        deleteTagsStmt.run(r.id);
+        deleteStmt.run(r.id);
+        removedCount++;
+        if (r.thumbnail_path && fs.existsSync(r.thumbnail_path)) {
+          try {
+            fs.unlinkSync(r.thumbnail_path);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  });
+  tx();
+  return removedCount;
+}
+
+export function removeAssetsForSourceDirectory(sourceDir: string): { removedCount: number; thumbnailPaths: string[] } {
+  if (!dbInstance) return { removedCount: 0, thumbnailPaths: [] };
+  const db = getDatabase();
+  const normalized = path.resolve(sourceDir);
+  const rows = db.prepare(`
+    SELECT id, thumbnail_path FROM assets
+    WHERE source_directory = ? OR source_directory = ?
+  `).all(sourceDir, normalized) as { id: string; thumbnail_path: string | null }[];
+
+  const deleteStmt = db.prepare('DELETE FROM assets WHERE id = ?');
+  const deleteTagsStmt = db.prepare('DELETE FROM tags WHERE asset_id = ?');
+  const deleteEmptyStacks = db.prepare(`
+    DELETE FROM stacks WHERE id NOT IN (
+      SELECT DISTINCT stack_id FROM assets WHERE stack_id IS NOT NULL
+    )
+  `);
+
+  const thumbPaths: string[] = [];
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      deleteTagsStmt.run(r.id);
+      deleteStmt.run(r.id);
+      if (r.thumbnail_path) {
+        thumbPaths.push(r.thumbnail_path);
+      }
+    }
+    deleteEmptyStacks.run();
+  });
+  tx();
+
+  for (const p of thumbPaths) {
+    if (fs.existsSync(p)) {
+      try {
+        fs.unlinkSync(p);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return { removedCount: rows.length, thumbnailPaths: thumbPaths };
+}
+
 export function queryAssets(params: AssetQueryParams): AssetListResponse {
   const db = getDatabase();
   const isStackedView = params.isStackedView !== false && String(params.isStackedView) !== 'false';

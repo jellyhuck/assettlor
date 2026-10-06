@@ -15,6 +15,7 @@ import {
   Plus,
   Trash2,
   Star,
+  RefreshCw,
 } from 'lucide-react';
 import { useToast } from './Toast';
 import { FolderBrowserModal } from './FolderBrowserModal';
@@ -161,6 +162,26 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
       return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
     });
     setNewLibraryPath('');
+  };
+
+  const [rescanningLibrary, setRescanningLibrary] = useState<string | null>(null);
+
+  const handleFullRescan = async (libPath: string) => {
+    setRescanningLibrary(libPath);
+    try {
+      const res = await fetch('/api/scan/rescan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ libraryPath: libPath }),
+      });
+      if (!res.ok) throw new Error('Failed to start full rescan');
+      const folderName = libPath.split('/').filter(Boolean).pop() || libPath;
+      showToast('info', 'Full Rescan Started', `Removing cached data and re-indexing ${folderName} from scratch...`);
+    } catch (err: any) {
+      showToast('error', 'Rescan Error', err?.message || 'Failed to start full rescan');
+    } finally {
+      setRescanningLibrary(null);
+    }
   };
 
   useEffect(() => {
@@ -521,6 +542,16 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleFullRescan(lib)}
+                              disabled={rescanningLibrary === lib}
+                              title="Completely rescan (remove and full reindex) this library"
+                              className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-cyan-300 hover:text-cyan-200 bg-cyan-950/40 hover:bg-cyan-900/60 rounded border border-cyan-800/50 transition-colors cursor-pointer disabled:opacity-40"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${rescanningLibrary === lib ? 'animate-spin' : ''}`} />
+                              <span>Rescan</span>
+                            </button>
                             {!isFirst && (
                               <button
                                 type="button"

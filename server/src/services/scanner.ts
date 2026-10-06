@@ -7,6 +7,8 @@ import {
   getAppSettings,
   upsertAsset,
   removeDeletedAssets,
+  removeAssetsForSourceDirectory,
+  removeDeletedAssetsForSourceDirectory,
   getAssetByPath,
 } from '../db/database.js';
 import { isSupportedImageExtension, processImageFile } from './image.js';
@@ -65,7 +67,15 @@ function getFileHashFast(size: number, mtime: number): string {
   return crypto.createHash('md5').update(`${size}:${mtime}`).digest('hex');
 }
 
-export async function scanLibrary(targetDirectoriesInput?: string | string[]): Promise<ScanProgressEvent> {
+export interface ScanOptions {
+  fullRescan?: boolean;
+  rescanDirectories?: string[];
+}
+
+export async function scanLibrary(
+  targetDirectoriesInput?: string | string[],
+  options?: ScanOptions
+): Promise<ScanProgressEvent> {
   if (currentScanStatus.status === 'scanning') {
     return currentScanStatus;
   }
@@ -80,10 +90,14 @@ export async function scanLibrary(targetDirectoriesInput?: string | string[]): P
   } else if (Array.isArray(targetDirectoriesInput)) {
     targetDirs = targetDirectoriesInput.map((p) => String(p).trim()).filter(Boolean);
   } else {
-    const settings = getAppSettings();
-    targetDirs = settings.libraryPaths && settings.libraryPaths.length > 0
-      ? settings.libraryPaths
-      : (settings.libraryPath ? [settings.libraryPath] : []);
+    try {
+      const settings = getAppSettings();
+      targetDirs = settings.libraryPaths && settings.libraryPaths.length > 0
+        ? settings.libraryPaths
+        : (settings.libraryPath ? [settings.libraryPath] : []);
+    } catch {
+      targetDirs = [];
+    }
   }
 
   if (targetDirs.length === 0) {
@@ -117,6 +131,22 @@ export async function scanLibrary(targetDirectoriesInput?: string | string[]): P
     fs.mkdirSync(thumbnailsDir, { recursive: true });
   }
 
+  const settings = getAppSettings();
+  const allConfigured = settings.libraryPaths && settings.libraryPaths.length > 0
+    ? settings.libraryPaths
+    : (settings.libraryPath ? [settings.libraryPath] : []);
+  const resolvedConfigured = allConfigured.map((d) => path.resolve(d)).filter((d) => fs.existsSync(d));
+
+  // If full rescan was requested, remove cached assets for designated source directories
+  if (options?.fullRescan) {
+    const dirsToClear = options.rescanDirectories && options.rescanDirectories.length > 0
+      ? options.rescanDirectories.map((d) => path.resolve(d))
+      : existingDirs;
+    for (const d of dirsToClear) {
+      removeAssetsForSourceDirectory(d);
+    }
+  }
+
   broadcastProgress({
     status: 'scanning',
     libraryPath: primaryLibraryPath,
@@ -130,16 +160,17 @@ export async function scanLibrary(targetDirectoriesInput?: string | string[]): P
     elapsedMs: 0,
   });
 
-  // Calculate unique prefixes for multiple directories
+  // Calculate unique prefixes for multiple directories based on full configured list
+  const prefixSourceDirs = resolvedConfigured.length > 1 ? resolvedConfigured : existingDirs;
   const dirPrefixes = new Map<string, string>();
-  if (existingDirs.length > 1) {
+  if (prefixSourceDirs.length > 1) {
     const baseCounts = new Map<string, number>();
-    for (const d of existingDirs) {
+    for (const d of prefixSourceDirs) {
       const base = path.basename(d);
       baseCounts.set(base, (baseCounts.get(base) || 0) + 1);
     }
     const baseUsed = new Map<string, number>();
-    for (const d of existingDirs) {
+    for (const d of prefixSourceDirs) {
       const base = path.basename(d);
       if ((baseCounts.get(base) || 0) > 1) {
         const idx = (baseUsed.get(base) || 0) + 1;
@@ -389,7 +420,14 @@ export async function scanLibrary(targetDirectoriesInput?: string | string[]): P
     });
 
     // Remove deleted files
-    removeDeletedAssets(activePaths);
+    const isPartialScan = existingDirs.length < resolvedConfigured.length && resolvedConfigured.length > 1;
+    if (isPartialScan) {
+      for (const dir of existingDirs) {
+        removeDeletedAssetsForSourceDirectory(dir, activePaths);
+      }
+    } else {
+      removeDeletedAssets(activePaths);
+    }
 
     broadcastProgress({
       message: 'Grouping animation stacks and audio variations...',
