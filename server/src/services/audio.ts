@@ -86,7 +86,7 @@ export async function generateAudioThumbnail(
   name: string,
   duration?: number,
   channels?: number,
-  bpm?: number | null
+  _bpm?: number | null
 ): Promise<Buffer> {
   const width = 400;
   const height = 240;
@@ -94,12 +94,11 @@ export async function generateAudioThumbnail(
   const durationStr = duration
     ? `${Math.floor(duration / 60)}:${Math.floor(duration % 60).toString().padStart(2, '0')}`
     : '';
-  const bpmColors = getBpmColor(bpm);
 
   let contentSvg = '';
 
   if (isSound) {
-    // Sound icon (<=5s): Bell icon with sound waves (Option 2 - muted warm gold)
+    // Sound icon (<=5s): Dedicated Bell icon with sound waves (muted warm gold)
     const iconScale = 0.33;
     const iconW = 512 * iconScale;
     const iconH = 512 * iconScale;
@@ -148,7 +147,7 @@ export async function generateAudioThumbnail(
       <text x="24" y="${height - 20}" font-family="monospace" font-size="11" font-weight="700" fill="#38bdf8">SFX / SOUND</text>
     `;
   } else {
-    // Music (>5s): Music plate icon with swapped teal/yellow colors and BPM color transition
+    // Music (>5s): Dedicated Music plate icon with standard teal and yellow colors
     const iconScale = 0.17;
     const iconW = 1024 * iconScale;
     const iconH = 1024 * iconScale;
@@ -164,8 +163,8 @@ export async function generateAudioThumbnail(
         <!-- Outer dark vinyl rim -->
         <path d="M511.010927 95.397443c-229.290927 0-415.123042 185.832115-415.123043 415.123043 0 229.224375 185.832115 415.123042 415.123042 415.123042 229.287856 0 415.123042-185.898667 415.123042-415.123042 0-229.289904-185.835186-415.123042-415.123042-415.123043z" fill="#27323A" />
         
-        <!-- Swapped: Disc background was yellow, now teal with BPM transition -->
-        <path d="M511.010927 875.829459c-201.401315 0-365.308973-163.91073-365.308974-365.308973 0-201.464796 163.907658-365.308973 365.308974-365.308974 201.464796 0 365.308973 163.844177 365.308973 365.308974 0 201.398243-163.844177 365.308973-365.308973 365.308973z" fill="${bpmColors.primary}" />
+        <!-- Disc background: standard teal #79ccbf -->
+        <path d="M511.010927 875.829459c-201.401315 0-365.308973-163.91073-365.308974-365.308973 0-201.464796 163.907658-365.308973 365.308974-365.308974 201.464796 0 365.308973 163.844177 365.308973 365.308974 0 201.398243-163.844177 365.308973-365.308973 365.308973z" fill="#79ccbf" />
         
         <!-- Groove lines & clef shapes -->
         <path d="M807.82402 423.278289c19.06884 41.578959 20.885213 88.215912 4.92796 131.285648-3.114659 8.561729-12.71256 12.971603-21.340842 9.793463-8.628282-3.17814-12.971603-12.71256-9.860016-21.274289 12.845665-34.704593 11.480826-72.387669-3.955269-105.922985-15.436095-33.535316-42.940727-59.056682-77.704705-71.933063-8.564801-3.17814-12.909146-12.71256-9.796535-21.27429 3.244693-8.628282 12.71256-12.974675 21.340842-9.796534 43.004208 15.828243 77.186619 47.547187 96.388565 89.12205z" fill="#27323A" />
@@ -177,14 +176,15 @@ export async function generateAudioThumbnail(
         <!-- White spindle center -->
         <path d="M510.877822 551.773849c-22.765066 0-41.316845-18.488297-41.316845-41.253363 0-23.805334 19.586926-38.008671 35.803222-40.668725 2.660054-0.195562 5.061065-0.066553 7.588014-0.195562 21.728894 1.169277 39.177948 18.87635 39.177948 40.864287 0.001024 22.76609-18.483178 41.253364-41.252339 41.252339z" fill="#FFFFFF" />
         
-        <!-- Swapped: Clef accent shapes was teal, now yellow -->
-        <path d="M586.965812 284.471179c1.231734 28.799846-23.805334 61.817076-63.633449 68.4324l-11.088678-121.618123c45.922281 3.922505 73.489369 23.187931 74.722127 53.185723zM402.753484 591.144288c-26.268802-37.749628-31.134305-87.952773-12.391061-127.90785 17.707073-37.686147 53.836914-62.982258 103.070441-72.779817l4.280864 46.962548c-31.655463 6.16379-61.361448 33.986849-61.361447 73.101317 0 41.057802 33.468763 74.463084 74.526565 74.463084h0.262114l5.642632 61.554962c-64.215016 0.518086-98.916537-33.664326-114.030108-55.394244zM549.796727 642.713296l-6.030685-65.708864c24.518982-12.194474 41.575888-37.295023 41.575888-66.482922 0-11.025197-2.526949-21.403299-6.807814-30.811781 26.461292 11.483898 42.615131 31.785496 44.883037 60.06316 3.30715 42.096021-25.100549 89.25106-73.620426 102.940407z" fill="${bpmColors.secondary}" />
+        <!-- Clef accent shapes: yellow #F4CE73 -->
+        <path d="M586.965812 284.471179c1.231734 28.799846-23.805334 61.817076-63.633449 68.4324l-11.088678-121.618123c45.922281 3.922505 73.489369 23.187931 74.722127 53.185723zM402.753484 591.144288c-26.268802-37.749628-31.134305-87.952773-12.391061-127.90785 17.707073-37.686147 53.836914-62.982258 103.070441-72.779817l4.280864 46.962548c-31.655463 6.16379-61.361448 33.986849-61.361447 73.101317 0 41.057802 33.468763 74.463084 74.526565 74.463084h0.262114l5.642632 61.554962c-64.215016 0.518086-98.916537-33.664326-114.030108-55.394244zM549.796727 642.713296l-6.030685-65.708864c24.518982-12.194474 41.575888-37.295023 41.575888-66.482922 0-11.025197-2.526949-21.403299-6.807814-30.811781 26.461292 11.483898 42.615131 31.785496 44.883037 60.06316 3.30715 42.096021-25.100549 89.25106-73.620426 102.940407z" fill="#F4CE73" />
       </g>
-      <text x="24" y="${height - 20}" font-family="monospace" font-size="11" font-weight="700" fill="${bpmColors.primary}">${bpm ? `${bpm} BPM` : 'MUSIC'}</text>
+      <text x="24" y="${height - 20}" font-family="monospace" font-size="11" font-weight="700" fill="#79ccbf">MUSIC</text>
     `;
   }
 
-  const glowColor = isSound ? '#38bdf8' : bpmColors.primary;
+  const glowColor = isSound ? '#38bdf8' : '#79ccbf';
+  const badgeColor = isSound ? '#818cf8' : '#79ccbf';
 
   const svg = `
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
@@ -202,7 +202,7 @@ export async function generateAudioThumbnail(
       ${contentSvg}
       <!-- Audio Icon Badge -->
       <circle cx="36" cy="36" r="16" fill="#25253e" stroke="#3b3b5c" stroke-width="1.5" />
-      <polygon points="32,28 32,44 44,36" fill="${isSound ? '#818cf8' : bpmColors.primary}" />
+      <polygon points="32,28 32,44 44,36" fill="${badgeColor}" />
       <!-- Duration text if known -->
       ${durationStr ? `<text x="${width - 24}" y="42" font-family="sans-serif" font-size="12" font-weight="600" fill="#94a3b8" text-anchor="end">${durationStr}</text>` : ''}
     </svg>

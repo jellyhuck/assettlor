@@ -126,10 +126,12 @@ describe('Audio Service', () => {
       expect(meta.height).toBe(240);
     });
 
-    it('should produce distinct thumbnails for different BPM values', async () => {
+    it('should generate dedicated thumbnails unaffected by BPM values', async () => {
       const lowBpmThumb = await generateAudioThumbnail('dance_track.mp3', 60, 2, 70);
       const highBpmThumb = await generateAudioThumbnail('dance_track.mp3', 60, 2, 175);
-      expect(lowBpmThumb.equals(highBpmThumb)).toBe(false);
+      const noBpmThumb = await generateAudioThumbnail('dance_track.mp3', 60, 2);
+      expect(lowBpmThumb.equals(highBpmThumb)).toBe(true);
+      expect(lowBpmThumb.equals(noBpmThumb)).toBe(true);
     });
 
     it('should generate identical thumbnails for identical inputs', async () => {

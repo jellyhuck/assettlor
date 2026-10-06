@@ -9,14 +9,11 @@ import {
   Classifier,
   ClassifierStep,
 } from './types.js';
-import fs from 'fs';
 import {
   updateAssetMetadata,
   removeAssetTagsBySource,
   addAssetTags,
-  getDatabase,
 } from '../../db/database.js';
-import { generateAudioThumbnail } from '../audio.js';
 
 export const DEFAULT_BPM_SETTINGS: BpmClassifierSettings = {
   enabled: true,
@@ -206,24 +203,6 @@ const persistStep: ClassifierStep<BpmClassifierSettings, BpmIntermediateState> =
       intermediate.tagsAdded = tagsToAdd.map((t) => t.tag);
     } else {
       intermediate.tagsAdded = [];
-    }
-    // Regenerate thumbnail with updated BPM-based waveform coloring if present
-    try {
-      const db = getDatabase();
-      const row = db.prepare('SELECT thumbnail_path FROM assets WHERE id = ?').get(asset.id) as
-        | { thumbnail_path: string | null }
-        | undefined;
-      if (row && row.thumbnail_path && fs.existsSync(row.thumbnail_path)) {
-        const newThumb = await generateAudioThumbnail(
-          asset.name,
-          asset.metadata.duration,
-          asset.metadata.numberOfChannels,
-          intermediate.bpm
-        );
-        await fs.promises.writeFile(row.thumbnail_path, newThumb);
-      }
-    } catch (thumbErr) {
-      console.warn(`Failed to update thumbnail with BPM for asset ${asset.id}:`, thumbErr);
     }
   },
 };

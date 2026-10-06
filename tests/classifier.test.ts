@@ -269,6 +269,41 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       expect(updated?.tags).toEqual([]);
     });
 
+    it('should not modify or overwrite thumbnails when detecting BPM', async () => {
+      const rhythmicWav = createTestBpmWavBuffer(120, 5, 22050);
+      const filePath = path.join(tempLibraryDir, 'thumb_test.wav');
+      fs.writeFileSync(filePath, rhythmicWav);
+
+      const thumbPath = path.join(tempLibraryDir, '.assettlor', 'thumbnails', 'thumb_test.webp');
+      fs.mkdirSync(path.dirname(thumbPath), { recursive: true });
+      const initialThumbData = Buffer.from('TEST_DEDICATED_THUMBNAIL_BYTES');
+      fs.writeFileSync(thumbPath, initialThumbData);
+
+      upsertAsset({
+        id: 'asset_thumb_test',
+        path: 'music/thumb_test.wav',
+        absolutePath: filePath,
+        name: 'thumb_test.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: rhythmicWav.length,
+        mtime: Date.now(),
+        hash: 'h_thumb_test',
+        isArchiveEntry: false,
+        thumbnailPath: thumbPath,
+        metadata: { duration: 5.0, sampleRate: 22050 },
+      });
+
+      await runClassifier(bpmClassifier, {
+        targetType: 'asset',
+        targetValue: 'asset_thumb_test',
+      });
+
+      // Verify thumbnail was not modified or overwritten
+      const thumbAfter = fs.readFileSync(thumbPath);
+      expect(thumbAfter.equals(initialThumbData)).toBe(true);
+    });
+
     it('should respect applyBpmTag: true and applyTempoTag: true when explicitly requested', async () => {
       const rhythmicWav = createTestBpmWavBuffer(120, 5, 22050);
       const filePath = path.join(tempLibraryDir, 'dance_loop_tagged.wav');
