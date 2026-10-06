@@ -325,6 +325,73 @@ describe('HTTP API Routes', () => {
       expect(badRangeRes.statusCode).toBe(416);
     });
 
+    it('GET /api/assets/:id/file and /thumbnail should handle long asset IDs exceeding 100 characters', async () => {
+      const zipPath = path.join(tempLibraryDir, 'databreache_joelsteudler.zip');
+      const innerWav = createTestWavBuffer(1.0, 8000);
+      const entryName = 'Data Breach/Conspiracy_Theory_-_128bpm_120s.wav';
+      createTestZipArchive(zipPath, [
+        { name: entryName, content: innerWav },
+      ]);
+
+      const virtualPath = `databreache_joelsteudler.zip#/${entryName}`;
+      const longId = `zip_${Buffer.from(virtualPath).toString('base64url')}`;
+      expect(longId.length).toBeGreaterThan(100);
+
+      const diskThumb = path.join(tempLibraryDir, '.assettlor', 'thumbnails', `${longId}.webp`);
+      fs.mkdirSync(path.dirname(diskThumb), { recursive: true });
+      fs.writeFileSync(diskThumb, TINY_PNG_BUFFER);
+
+      upsertAsset({
+        id: longId,
+        path: virtualPath,
+        absolutePath: zipPath,
+        name: 'Conspiracy_Theory_-_128bpm_120s.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: innerWav.length,
+        mtime: 100,
+        hash: 'h_long_audio',
+        isArchiveEntry: true,
+        archivePath: zipPath,
+        archiveEntryPath: entryName,
+        thumbnailPath: diskThumb,
+        metadata: { duration: 120, bpm: 128 },
+      });
+
+      // GET asset by long ID
+      const assetRes = await app.inject({
+        method: 'GET',
+        url: `/api/assets/${encodeURIComponent(longId)}`,
+      });
+      expect(assetRes.statusCode).toBe(200);
+      expect(assetRes.json().id).toBe(longId);
+
+      // GET thumbnail by long ID
+      const thumbRes = await app.inject({
+        method: 'GET',
+        url: `/api/assets/${encodeURIComponent(longId)}/thumbnail`,
+      });
+      expect(thumbRes.statusCode).toBe(200);
+
+      // GET file by long ID
+      const fileRes = await app.inject({
+        method: 'GET',
+        url: `/api/assets/${encodeURIComponent(longId)}/file`,
+      });
+      expect(fileRes.statusCode).toBe(200);
+      expect(fileRes.headers['content-type']).toBe('audio/wav');
+      expect(fileRes.rawPayload.equals(innerWav)).toBe(true);
+
+      // Range request by long ID
+      const rangeRes = await app.inject({
+        method: 'GET',
+        url: `/api/assets/${encodeURIComponent(longId)}/file`,
+        headers: { range: 'bytes=0-99' },
+      });
+      expect(rangeRes.statusCode).toBe(206);
+      expect(rangeRes.rawPayload.length).toBe(100);
+    });
+
     it('GET /api/assets/:id/file should return 404 if file is missing on disk', async () => {
       upsertAsset({
         id: 'missing_disk_file',

@@ -28,6 +28,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     logger: options.logger !== undefined ? options.logger : {
       level: process.env.LOG_LEVEL || 'info',
     },
+    routerOptions: {
+      maxParamLength: 2048,
+    },
   });
 
   // Enable CORS for Vite dev server

@@ -964,20 +964,20 @@ export function Inspector({
           </div>
 
           {/* Metadata Section */}
-          <div className="space-y-3 pt-3 border-t border-[#25253c]">
+          <div className="space-y-3 pt-3 border-t border-[#25253c] select-text">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider select-text">
                 {isStack ? 'Frame Metadata' : 'Asset Metadata'}
               </h4>
               {isStack && stackAssets.length > 0 && (
-                <span className="text-[10px] font-mono text-indigo-400">
+                <span className="text-[10px] font-mono text-indigo-400 select-text">
                   Frame {selectedFrameIndex + 1}/{stackAssets.length}
                 </span>
               )}
             </div>
-            <div className="space-y-2 text-xs">
+            <div className="space-y-2 text-xs select-text">
               <div className="flex justify-between py-1 border-b border-[#202033]">
-                <span className="text-slate-400">File Name</span>
+                <span className="text-slate-400 select-text">File Name</span>
                 <span
                   className="font-mono text-slate-200 select-text truncate max-w-[200px]"
                   title={displayedAsset.name}
@@ -987,41 +987,41 @@ export function Inspector({
               </div>
 
               <div className="flex justify-between py-1 border-b border-[#202033]">
-                <span className="text-slate-400">Format</span>
-                <span className="font-mono uppercase font-semibold text-indigo-400">
+                <span className="text-slate-400 select-text">Format</span>
+                <span className="font-mono uppercase font-semibold text-indigo-400 select-text">
                   {displayedAsset.extension.replace('.', '')}
                 </span>
               </div>
 
               <div className="flex justify-between py-1 border-b border-[#202033]">
-                <span className="text-slate-400">File Size</span>
-                <span className="font-mono text-slate-200">{formatBytes(displayedAsset.size)}</span>
+                <span className="text-slate-400 select-text">File Size</span>
+                <span className="font-mono text-slate-200 select-text">{formatBytes(displayedAsset.size)}</span>
               </div>
 
               {isDisplayedImage &&
                 displayedAsset.metadata.width &&
                 displayedAsset.metadata.height && (
                   <div className="flex justify-between py-1 border-b border-[#202033] items-center">
-                    <span className="text-slate-400">Dimensions</span>
-                    <div className="flex items-center gap-1 font-mono text-xs">
+                    <span className="text-slate-400 select-text">Dimensions</span>
+                    <div className="flex items-center gap-1 font-mono text-xs select-text">
                       <button
                         onClick={() =>
                           onSelectWidth &&
                           onSelectWidth(String(displayedAsset.metadata.width))
                         }
                         title={`Filter library by width = ${displayedAsset.metadata.width}px`}
-                        className="font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer"
+                        className="font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer select-text"
                       >
                         {displayedAsset.metadata.width}w
                       </button>
-                      <span className="text-slate-500">×</span>
+                      <span className="text-slate-500 select-text">×</span>
                       <button
                         onClick={() =>
                           onSelectHeight &&
                           onSelectHeight(String(displayedAsset.metadata.height))
                         }
                         title={`Filter library by height = ${displayedAsset.metadata.height}px`}
-                        className="font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer"
+                        className="font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer select-text"
                       >
                         {displayedAsset.metadata.height}h
                       </button>
@@ -1041,8 +1041,8 @@ export function Inspector({
 
               {isDisplayedImage && displayedAsset.metadata.colorSpace && (
                 <div className="flex justify-between py-1 border-b border-[#202033]">
-                  <span className="text-slate-400">Color Space</span>
-                  <span className="font-mono text-slate-300">
+                  <span className="text-slate-400 select-text">Color Space</span>
+                  <span className="font-mono text-slate-300 select-text">
                     {displayedAsset.metadata.colorSpace}
                   </span>
                 </div>
@@ -1050,11 +1050,11 @@ export function Inspector({
 
               {isDisplayedImage && (
                 <div className="flex justify-between py-1 border-b border-[#202033] items-center">
-                  <span className="text-slate-400 flex items-center gap-1">
+                  <span className="text-slate-400 flex items-center gap-1 select-text">
                     <Sparkles className="w-3.5 h-3.5 text-purple-400" />
                     Sprite Type
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 select-text">
                     {displayedAsset.metadata.spriteType ? (
                       <button
                         type="button"
@@ -1063,7 +1063,7 @@ export function Inspector({
                           onSelectSprite(displayedAsset.metadata.spriteType || null)
                         }
                         title={`Filter library by sprite:${displayedAsset.metadata.spriteType}`}
-                        className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] capitalize border cursor-pointer hover:opacity-80 transition-opacity ${
+                        className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] capitalize border cursor-pointer hover:opacity-80 transition-opacity select-text ${
                           displayedAsset.metadata.spriteType === 'character'
                             ? 'text-purple-300 bg-purple-950/40 border-purple-500/40'
                             : displayedAsset.metadata.spriteType === 'object'
@@ -1081,13 +1081,13 @@ export function Inspector({
                           : ''}
                       </button>
                     ) : (
-                      <span className="text-slate-500 italic text-[11px]">Not classified</span>
+                      <span className="text-slate-500 italic text-[11px] select-text">Not classified</span>
                     )}
                     <button
                       type="button"
                       onClick={handleClassifySprite}
                       disabled={classifyingSprite}
-                      className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-purple-950/40 text-purple-300 border border-[#3b3b5c] hover:border-purple-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50"
+                      className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-purple-950/40 text-purple-300 border border-[#3b3b5c] hover:border-purple-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50 select-none"
                       title="Run Sprite Classifier on this image asset"
                     >
                       {classifyingSprite ? (
@@ -1107,14 +1107,14 @@ export function Inspector({
 
               {isDisplayedAudio && displayedAsset.metadata.duration && (
                 <div className="flex justify-between py-1 border-b border-[#202033] items-center">
-                  <span className="text-slate-400">Duration</span>
+                  <span className="text-slate-400 select-text">Duration</span>
                   <button
                     onClick={() =>
                       onSelectDuration &&
                       onSelectDuration(String(Math.round(displayedAsset.metadata.duration!)))
                     }
                     title={`Filter library by duration ≈ ${Math.round(displayedAsset.metadata.duration)}s`}
-                    className="font-mono font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer"
+                    className="font-mono font-medium text-cyan-300 hover:text-cyan-100 hover:underline cursor-pointer select-text"
                   >
                     {displayedAsset.metadata.duration.toFixed(2)} seconds
                   </button>
@@ -1123,8 +1123,8 @@ export function Inspector({
 
               {isDisplayedAudio && displayedAsset.metadata.sampleRate && (
                 <div className="flex justify-between py-1 border-b border-[#202033]">
-                  <span className="text-slate-400">Sample Rate</span>
-                  <span className="font-mono text-slate-300">
+                  <span className="text-slate-400 select-text">Sample Rate</span>
+                  <span className="font-mono text-slate-300 select-text">
                     {(displayedAsset.metadata.sampleRate / 1000).toFixed(1)} kHz
                   </span>
                 </div>
@@ -1132,8 +1132,8 @@ export function Inspector({
 
               {isDisplayedAudio && displayedAsset.metadata.numberOfChannels && (
                 <div className="flex justify-between py-1 border-b border-[#202033]">
-                  <span className="text-slate-400">Channels</span>
-                  <span className="font-mono text-slate-300">
+                  <span className="text-slate-400 select-text">Channels</span>
+                  <span className="font-mono text-slate-300 select-text">
                     {displayedAsset.metadata.numberOfChannels === 1 ? 'Mono' : 'Stereo'}
                   </span>
                 </div>
@@ -1141,11 +1141,11 @@ export function Inspector({
 
               {isDisplayedAudio && (
                 <div className="flex justify-between py-1 border-b border-[#202033] items-center">
-                  <span className="text-slate-400 flex items-center gap-1">
+                  <span className="text-slate-400 flex items-center gap-1 select-text">
                     <Activity className="w-3.5 h-3.5 text-pink-400" />
                     Tempo / BPM
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 select-text">
                     {displayedAsset.metadata.bpm ? (
                       <button
                         type="button"
@@ -1154,19 +1154,19 @@ export function Inspector({
                           onSelectBpm(String(displayedAsset.metadata.bpm))
                         }
                         title={`Filter library by ${displayedAsset.metadata.bpm} BPM`}
-                        className="font-mono font-bold text-pink-400 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 hover:border-pink-500/70 px-1.5 py-0.5 rounded text-[11px] cursor-pointer transition-colors"
+                        className="font-mono font-bold text-pink-400 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 hover:border-pink-500/70 px-1.5 py-0.5 rounded text-[11px] cursor-pointer transition-colors select-text"
                       >
                         {displayedAsset.metadata.bpm} BPM
                         {displayedAsset.metadata.tempoDescription ? ` (${displayedAsset.metadata.tempoDescription})` : ''}
                       </button>
                     ) : (
-                      <span className="text-slate-500 italic text-[11px]">Not analyzed</span>
+                      <span className="text-slate-500 italic text-[11px] select-text">Not analyzed</span>
                     )}
                     <button
                       type="button"
                       onClick={handleAnalyzeBpm}
                       disabled={analyzingBpm}
-                      className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-pink-950/40 text-pink-300 border border-[#3b3b5c] hover:border-pink-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50"
+                      className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-pink-950/40 text-pink-300 border border-[#3b3b5c] hover:border-pink-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50 select-none"
                       title="Run BPM Classifier on this audio file"
                     >
                       {analyzingBpm ? (
@@ -1186,26 +1186,26 @@ export function Inspector({
 
               {/* Asset Pack */}
               <div className="flex justify-between py-1 border-b border-[#202033] items-center">
-                <span className="text-slate-400 flex items-center gap-1">
+                <span className="text-slate-400 flex items-center gap-1 select-text">
                   <Package className="w-3.5 h-3.5 text-amber-400" />
                   Asset Pack
                 </span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 select-text">
                   {displayedAsset.metadata.pack ? (
                     <span
                       title={`Pack: ${displayedAsset.metadata.pack}`}
-                      className="font-mono font-bold text-amber-300 bg-amber-950/40 border border-amber-500/40 px-1.5 py-0.5 rounded text-[11px] truncate max-w-[150px]"
+                      className="font-mono font-bold text-amber-300 bg-amber-950/40 border border-amber-500/40 px-1.5 py-0.5 rounded text-[11px] truncate max-w-[150px] select-text"
                     >
                       {displayedAsset.metadata.pack}
                     </span>
                   ) : (
-                    <span className="text-slate-500 italic text-[11px]">Not classified</span>
+                    <span className="text-slate-500 italic text-[11px] select-text">Not classified</span>
                   )}
                   <button
                     type="button"
                     onClick={handleClassifyPack}
                     disabled={classifyingPack}
-                    className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-amber-950/40 text-amber-300 border border-[#3b3b5c] hover:border-amber-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-amber-950/40 text-amber-300 border border-[#3b3b5c] hover:border-amber-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50 select-none"
                     title="Run Pack Classifier on this asset"
                   >
                     {classifyingPack ? (
@@ -1224,8 +1224,8 @@ export function Inspector({
 
               {displayedAsset.isArchiveEntry && (
                 <div className="flex justify-between py-1 border-b border-[#202033]">
-                  <span className="text-slate-400">Archive Source</span>
-                  <span className="font-mono text-amber-400 truncate max-w-[180px]">
+                  <span className="text-slate-400 select-text">Archive Source</span>
+                  <span className="font-mono text-amber-400 truncate max-w-[180px] select-text">
                     {displayedAsset.archivePath?.split('/').pop()}
                   </span>
                 </div>

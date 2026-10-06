@@ -43,6 +43,7 @@ export function AssetCard({
   const [isExpanded, setIsExpanded] = useState(false);
   const [showMiniDrawer, setShowMiniDrawer] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [thumbnailError, setThumbnailError] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const isStack = Boolean('isStack' in item && item.isStack);
@@ -55,6 +56,7 @@ export function AssetCard({
     setHoverFrameIndex(0);
     setIsExpanded(false);
     setShowMiniDrawer(false);
+    setThumbnailError(false);
   }, [item.id]);
 
   // Format file size
@@ -168,12 +170,13 @@ export function AssetCard({
 
           {/* Small thumbnail */}
           <div className="w-10 h-10 rounded bg-[#12121d] border border-[#2b2b40] overflow-hidden shrink-0 flex items-center justify-center checkerboard-bg">
-            {currentDisplayAsset.thumbnailUrl ? (
+            {currentDisplayAsset.thumbnailUrl && !thumbnailError ? (
               <img
                 src={currentDisplayAsset.thumbnailUrl}
                 alt={title}
                 className="w-full h-full object-contain pixelated"
                 loading="lazy"
+                onError={() => setThumbnailError(true)}
               />
             ) : isAudio ? (
               <AudioAssetIcon
@@ -310,12 +313,13 @@ export function AssetCard({
           isImage ? 'checkerboard-bg' : 'bg-[#12121e]'
         }`}
       >
-        {currentDisplayAsset.thumbnailUrl ? (
+        {currentDisplayAsset.thumbnailUrl && !thumbnailError ? (
           <img
             src={currentDisplayAsset.thumbnailUrl}
             alt={title}
             className="max-w-full max-h-full object-contain pixelated p-2 transition-transform duration-200 group-hover:scale-105"
             loading="lazy"
+            onError={() => setThumbnailError(true)}
           />
         ) : isAudio ? (
           <div className="flex flex-col items-center justify-center gap-1.5 p-3">
