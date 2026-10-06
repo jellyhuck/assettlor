@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import {
   initDatabase,
   getDatabase,
+  getCurrentLibraryPath,
   getAppSettings,
   upsertAsset,
   removeDeletedAssets,
@@ -123,12 +124,11 @@ export async function scanLibrary(
     throw new Error(`Directory does not exist: ${resolvedDirs[0]}`);
   }
 
-  // Initialize DB and thumbnail cache inside primary library directory
-  const primaryLibraryPath = existingDirs[0];
-  initDatabase(primaryLibraryPath);
-  const thumbnailsDir = path.join(primaryLibraryPath, config.cacheDirName, 'thumbnails');
-  if (!fs.existsSync(thumbnailsDir)) {
-    fs.mkdirSync(thumbnailsDir, { recursive: true });
+  // Initialize DB and thumbnail cache inside active base library directory
+  let baseLibraryPath = getCurrentLibraryPath();
+  if (!baseLibraryPath) {
+    baseLibraryPath = existingDirs[0];
+    initDatabase(baseLibraryPath);
   }
 
   const settings = getAppSettings();
@@ -136,6 +136,11 @@ export async function scanLibrary(
     ? settings.libraryPaths
     : (settings.libraryPath ? [settings.libraryPath] : []);
   const resolvedConfigured = allConfigured.map((d) => path.resolve(d)).filter((d) => fs.existsSync(d));
+
+  const thumbnailsDir = path.join(baseLibraryPath, config.cacheDirName, 'thumbnails');
+  if (!fs.existsSync(thumbnailsDir)) {
+    fs.mkdirSync(thumbnailsDir, { recursive: true });
+  }
 
   // If full rescan was requested, remove cached assets for designated source directories
   if (options?.fullRescan) {
@@ -149,7 +154,7 @@ export async function scanLibrary(
 
   broadcastProgress({
     status: 'scanning',
-    libraryPath: primaryLibraryPath,
+    libraryPath: baseLibraryPath,
     libraryPaths: existingDirs,
     scannedCount: 0,
     indexedCount: 0,
@@ -408,7 +413,7 @@ export async function scanLibrary(
     if (cancelRequested) {
       broadcastProgress({
         status: 'idle',
-        libraryPath: primaryLibraryPath,
+        libraryPath: baseLibraryPath,
         libraryPaths: existingDirs,
         message: 'Scan cancelled.',
       });
@@ -468,7 +473,7 @@ export async function scanLibrary(
     const elapsedMs = Date.now() - startTime;
     broadcastProgress({
       status: 'completed',
-      libraryPath: primaryLibraryPath,
+      libraryPath: baseLibraryPath,
       libraryPaths: existingDirs,
       scannedCount,
       indexedCount,
@@ -479,7 +484,7 @@ export async function scanLibrary(
     console.error('Scan failed:', err);
     broadcastProgress({
       status: 'error',
-      libraryPath: primaryLibraryPath,
+      libraryPath: baseLibraryPath,
       libraryPaths: existingDirs,
       error: err?.message || 'Scan failed',
       message: `Scan failed: ${err?.message || 'Unknown error'}`,

@@ -133,15 +133,6 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     });
   };
 
-  const makePrimaryLibrary = (index: number) => {
-    setSettings((prev) => {
-      const list = [...(prev.libraryPaths || [])];
-      if (index <= 0 || index >= list.length) return prev;
-      const [item] = list.splice(index, 1);
-      list.unshift(item);
-      return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
-    });
-  };
 
   const removeLibrary = (index: number) => {
     setSettings((prev) => {
@@ -496,7 +487,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       Asset Library Source Directories
                     </label>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Source directories scanned and indexed by Assettlor. The primary directory stores the SQLite index and cache.
+                      Source directories scanned and indexed by Assettlor. All assets across all configured sources are included in the viewer.
                     </p>
                   </div>
 
@@ -510,30 +501,15 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       return (
                         <div
                           key={`${lib}-${idx}`}
-                          className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-colors ${
-                            isFirst
-                              ? 'bg-[#181a30] border-indigo-500/50 text-slate-100'
-                              : 'bg-[#12121d] border-[#25253c] text-slate-300'
-                          }`}
+                          className="flex items-center justify-between p-2 rounded-lg border text-xs transition-colors bg-[#12121d] border-[#25253c] text-slate-300"
                         >
                           <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
-                            <span
-                              className={`w-5 h-5 flex items-center justify-center rounded text-[10px] font-mono shrink-0 ${
-                                isFirst
-                                  ? 'bg-indigo-600 text-white font-bold'
-                                  : 'bg-[#202034] text-slate-400'
-                              }`}
-                            >
+                            <span className="w-5 h-5 flex items-center justify-center rounded text-[10px] font-mono shrink-0 bg-[#202034] text-slate-400">
                               {idx + 1}
                             </span>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-slate-200 truncate">{folderName}</span>
-                                {isFirst && (
-                                  <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
-                                    Primary Library
-                                  </span>
-                                )}
                               </div>
                               <span className="font-mono text-[11px] text-slate-400 truncate block mt-0.5" title={lib}>
                                 {lib}
@@ -552,16 +528,6 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                               <RefreshCw className={`w-3 h-3 ${rescanningLibrary === lib ? 'animate-spin' : ''}`} />
                               <span>Rescan</span>
                             </button>
-                            {!isFirst && (
-                              <button
-                                type="button"
-                                onClick={() => makePrimaryLibrary(idx)}
-                                title="Make this library primary"
-                                className="px-2 py-1 text-[11px] font-medium text-indigo-300 hover:text-indigo-200 bg-indigo-950/40 hover:bg-indigo-900/60 rounded border border-indigo-800/50 transition-colors cursor-pointer"
-                              >
-                                Set Primary
-                              </button>
-                            )}
                             <button
                               type="button"
                               onClick={() => moveLibrary(idx, 'up')}

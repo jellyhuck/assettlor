@@ -297,29 +297,30 @@ function MainApp() {
   }, [showToast, loadAssets, refreshFilters]);
 
   // Trigger Scan
-  const handleTriggerScan = async () => {
+  const handleTriggerScan = useCallback(async (explicitLibraryPaths?: string[]) => {
     try {
+      const paths = explicitLibraryPaths || (settings.libraryPaths && settings.libraryPaths.length > 0 ? settings.libraryPaths : [settings.libraryPath]);
       const res = await fetch('/api/scan/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          libraryPath: settings.libraryPath,
-          libraryPaths: settings.libraryPaths,
+          libraryPath: paths && paths.length > 0 ? paths[0] : settings.libraryPath,
+          libraryPaths: paths && paths.length > 0 ? paths : settings.libraryPaths,
         }),
       });
       if (!res.ok) throw new Error('Could not start scan');
-      const count = settings.libraryPaths?.length || 1;
+      const count = paths?.length || settings.libraryPaths?.length || 1;
       showToast(
         'info',
         'Scan Initiated',
         count > 1
           ? `Scanning ${count} asset source libraries...`
-          : `Scanning directory: ${settings.libraryPath}`
+          : `Scanning directory: ${paths?.[0] || settings.libraryPath}`
       );
     } catch (err: any) {
       showToast('error', 'Scan Failed', err.message);
     }
-  };
+  }, [settings.libraryPath, settings.libraryPaths, showToast]);
 
   // Keyboard shortcut Ctrl+K to search
   useEffect(() => {
@@ -462,6 +463,9 @@ function MainApp() {
         onClose={() => setIsSettingsOpen(false)}
         onSettingsSaved={(newSettings) => {
           setSettings(newSettings);
+          if (newSettings.libraryPaths && newSettings.libraryPaths.length > 0) {
+            handleTriggerScan(newSettings.libraryPaths);
+          }
           loadAssets();
         }}
       />

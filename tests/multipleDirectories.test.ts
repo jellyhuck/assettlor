@@ -144,7 +144,7 @@ describe('Multiple Source and Project Directories', () => {
   });
 
   describe('Source Directories (Libraries) Management & Scanning', () => {
-    it('should store multiple library source directories and set first as primary', () => {
+    it('should store multiple library source directories and maintain default libraryPath', () => {
       const libA = '/path/to/lib_a';
       const libB = '/path/to/lib_b';
 
