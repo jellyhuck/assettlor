@@ -4,8 +4,8 @@ import fastifyStatic from '@fastify/static';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { config } from './config.js';
-import { initDatabase, getAppSettings } from './db/database.js';
+import { config, loadConfigFile, resolveDataDir } from './config.js';
+import { initDatabase } from './db/database.js';
 import { assetsRoutes } from './routes/assets.js';
 import { stacksRoutes } from './routes/stacks.js';
 import { scanRoutes } from './routes/scan.js';
@@ -20,10 +20,16 @@ export interface BuildServerOptions {
   logger?: boolean | object;
   initDb?: boolean;
   libraryPath?: string;
+  dataDir?: string;
+  configPath?: string;
   clientDistPath?: string;
 }
 
 export async function buildServer(options: BuildServerOptions = {}) {
+  if (options.configPath) {
+    loadConfigFile(options.configPath);
+  }
+
   const server = Fastify({
     logger: options.logger !== undefined ? options.logger : {
       level: process.env.LOG_LEVEL || 'info',
@@ -39,14 +45,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     credentials: true,
   });
 
-  // Initialize DB with library path
+  // Initialize DB with data directory
   if (options.initDb !== false) {
     try {
-      const libraryPath = options.libraryPath || config.defaultLibraryPath;
-      if (!fs.existsSync(libraryPath)) {
-        fs.mkdirSync(libraryPath, { recursive: true });
+      const dataDir = options.dataDir || (options.libraryPath ? resolveDataDir(options.libraryPath) : config.dataDir);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
       }
-      initDatabase(libraryPath);
+      initDatabase(dataDir);
     } catch (err) {
       console.warn('Initial database init note:', err);
     }
@@ -87,6 +93,8 @@ export async function startServer() {
   try {
     await server.listen({ port: config.port, host: config.host });
     console.log(`🚀 Assettlor Backend running on http://${config.host}:${config.port}`);
+    console.log(`📁 Config file: ${config.configFilePath}`);
+    console.log(`💾 Data directory: ${config.dataDir}`);
   } catch (err) {
     server.log.error(err);
     process.exit(1);

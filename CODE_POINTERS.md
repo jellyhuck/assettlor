@@ -15,7 +15,7 @@ A navigation and reference guide for understanding subsystem implementations and
        ▼ (Extract metadata & thumbs)    │
 [image.ts / audio.ts]                   ▼
        │                        [better-sqlite3 WAL]
-       └──────────────────────► `library/.assettlor/index.db`
+       └──────────────────────► `<data_dir>/index.db`
                                        ▲
                                        │ REST / SSE
 [client/src/App.tsx] ◄─────────────────┘
@@ -45,10 +45,10 @@ A navigation and reference guide for understanding subsystem implementations and
 ## 3. Core Subsystems
 
 ### A. Scanning & Indexing (`server/src/services/scanner.ts`)
-- Scans `libraryPath` recursively, computing file stats (`size`, `mtime`) and quick SHA hashes.
+- Scans all configured source libraries recursively, computing file stats (`size`, `mtime`) and quick SHA hashes.
 - Skips unchanged files based on cache records in `index.db`.
 - Emits real-time Server-Sent Events (`SSE`) for UI progress feedback via `routes/scan.ts`.
-- Generates 256x256 WebP thumbnails saved to `<libraryPath>/.assettlor/thumbnails/<hash>.webp`.
+- Generates 256x256 WebP thumbnails saved to `<data_dir>/thumbnails/<hash>.webp`.
 
 ### B. Virtual Archive Inspection (`server/src/services/archive.ts`)
 - Inspects `.zip` archives directly in memory using `adm-zip` without decompressing files to disk.
@@ -68,11 +68,11 @@ A navigation and reference guide for understanding subsystem implementations and
 - For animation stacks: Creates subfolder named after the stack and copies all constituent frames.
 
 ### E. SQLite Storage & Schema (`server/src/db/database.ts`)
-- Database file: `<library_path>/.assettlor/index.db`.
+- Database file: `<data_dir>/index.db` (configured via `config.yaml`, defaulting to `~/.config/assetlor/data/index.db` or `sample/.assettlor/index.db`).
 - `assets`: Main table containing path, category, format, dimensions, audio metadata, hash, virtual zip flags.
 - `stacks`: Stored animation and audio variation stacks.
 - `tags`: Indexed tags with fast lookup index.
-- `settings`: Application configuration (active project path, scan settings).
+- Configuration: Stored separately in `config.yaml` (`libraries`, `projects`, `classifiers`, `server`, `pipeline`).
 
 ---
 

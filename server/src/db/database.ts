@@ -15,7 +15,14 @@ import {
   AssetListResponse,
   ClassifierTargetType,
 } from '../../shared/types.js';
-import { config } from '../config.js';
+import {
+  config,
+  getDataDir,
+  getEffectiveConfig,
+  saveConfigFile,
+  resolveDataDir,
+  AppYamlConfig,
+} from '../config.js';
 import {
   compileFilterExpression,
   parseResolutionClause,
@@ -28,7 +35,7 @@ import {
 } from '../services/filterParser.js';
 
 let dbInstance: Database.Database | null = null;
-let currentLibraryPath: string = '';
+let currentDataDir: string = '';
 
 export function getDatabase(): Database.Database {
   if (!dbInstance) {
@@ -37,8 +44,17 @@ export function getDatabase(): Database.Database {
   return dbInstance;
 }
 
+export function getCurrentDataDir(): string {
+  return currentDataDir || getDataDir();
+}
+
+export function getThumbnailsDir(): string {
+  return path.join(getCurrentDataDir(), 'thumbnails');
+}
+
 export function getCurrentLibraryPath(): string {
-  return currentLibraryPath;
+  const settings = getAppSettings();
+  return settings.libraryPath || currentDataDir;
 }
 
 export function isDatabaseInitialized(): boolean {
@@ -53,12 +69,16 @@ export function closeDatabase(): void {
       console.error('Error closing database:', e);
     }
     dbInstance = null;
-    currentLibraryPath = '';
+    currentDataDir = '';
   }
 }
 
-export function initDatabase(libraryPath: string): Database.Database {
-  if (dbInstance && currentLibraryPath === libraryPath) {
+export function initDatabase(dataDirInput?: string): Database.Database {
+  const resolvedDataDir = dataDirInput
+    ? resolveDataDir(dataDirInput)
+    : getDataDir();
+
+  if (dbInstance && currentDataDir === resolvedDataDir) {
     return dbInstance;
   }
 
@@ -71,18 +91,17 @@ export function initDatabase(libraryPath: string): Database.Database {
     dbInstance = null;
   }
 
-  currentLibraryPath = libraryPath;
-  const assettlorDir = path.join(libraryPath, config.cacheDirName);
-  const thumbnailsDir = path.join(assettlorDir, 'thumbnails');
+  currentDataDir = resolvedDataDir;
+  const thumbnailsDir = path.join(resolvedDataDir, 'thumbnails');
 
-  if (!fs.existsSync(assettlorDir)) {
-    fs.mkdirSync(assettlorDir, { recursive: true });
+  if (!fs.existsSync(resolvedDataDir)) {
+    fs.mkdirSync(resolvedDataDir, { recursive: true });
   }
   if (!fs.existsSync(thumbnailsDir)) {
     fs.mkdirSync(thumbnailsDir, { recursive: true });
   }
 
-  const dbPath = path.join(assettlorDir, 'index.db');
+  const dbPath = path.join(resolvedDataDir, 'index.db');
   const db = new Database(dbPath);
 
   // High performance pragmas
@@ -225,146 +244,99 @@ function rowToAsset(row: AssetRow, tags: string[] = []): Asset {
 }
 
 export function getAppSettings(): AppSettings {
-  const db = getDatabase();
-  const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
-  const map = new Map<string, string>();
-  for (const r of rows) {
-    map.set(r.key, r.value);
-  }
+  const cfg = getEffectiveConfig();
+  const libraries = (cfg.libraries || []).map((p) => String(p).trim()).filter(Boolean);
+  const projects = (cfg.projects || []).map((p) => String(p).trim()).filter(Boolean);
+  const pipeline = cfg.pipeline || {};
 
-  let projectPaths: string[] = [];
-  if (map.has('projectPaths')) {
-    try {
-      const parsed = JSON.parse(map.get('projectPaths')!);
-      if (Array.isArray(parsed)) {
-        projectPaths = parsed.map((p) => String(p).trim()).filter(Boolean);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  let activeProjectPath: string;
-  if (map.has('activeProjectPath')) {
-    activeProjectPath = map.get('activeProjectPath')!;
-    if (activeProjectPath && projectPaths.length === 0) {
-      projectPaths = [activeProjectPath];
-    } else if (!activeProjectPath && !map.has('projectPaths')) {
-      projectPaths = [];
-    }
-  } else if (projectPaths.length > 0) {
-    activeProjectPath = projectPaths[0];
-  } else {
-    activeProjectPath = config.defaultActiveProjectPath;
-    projectPaths = [config.defaultActiveProjectPath];
-  }
-
-  let libraryPaths: string[] = [];
-  if (map.has('libraryPaths')) {
-    try {
-      const parsed = JSON.parse(map.get('libraryPaths')!);
-      if (Array.isArray(parsed)) {
-        libraryPaths = parsed.map((p) => String(p).trim()).filter(Boolean);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  let libraryPath: string;
-  if (map.has('libraryPath')) {
-    libraryPath = map.get('libraryPath')!;
-    if (libraryPath && libraryPaths.length === 0) {
-      libraryPaths = [libraryPath];
-    } else if (!libraryPath && !map.has('libraryPaths')) {
-      libraryPaths = [];
-    }
-  } else if (libraryPaths.length > 0) {
-    libraryPath = libraryPaths[0];
-  } else {
-    libraryPath = currentLibraryPath || config.defaultLibraryPath;
-    libraryPaths = [libraryPath];
+  let fallbackLib = currentDataDir || '';
+  if (fallbackLib.endsWith('/.assettlor')) {
+    fallbackLib = path.dirname(fallbackLib);
   }
 
   return {
-    libraryPath,
-    libraryPaths,
-    activeProjectPath,
-    projectPaths,
-    thumbnailQuality: Number(map.get('thumbnailQuality') || 80),
-    autoStackAnimations: map.get('autoStackAnimations') !== 'false',
-    autoStackAudio: map.get('autoStackAudio') !== 'false',
-    defaultFps: Number(map.get('defaultFps') || 12),
+    libraryPath: libraries.length > 0 ? libraries[0] : fallbackLib,
+    libraryPaths: libraries,
+    activeProjectPath: projects.length > 0 ? projects[0] : '',
+    projectPaths: projects,
+    thumbnailQuality: Number(pipeline.thumbnail_quality ?? 80),
+    autoStackAnimations: pipeline.auto_stack_animations !== false,
+    autoStackAudio: pipeline.auto_stack_audio !== false,
+    defaultFps: Number(pipeline.default_fps ?? 12),
   };
 }
 
 export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
-  const db = getDatabase();
-  const upsertStmt = db.prepare(`
-    INSERT INTO settings (key, value) VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `);
+  const updates: Partial<AppYamlConfig> = {};
 
-  const runTx = db.transaction(() => {
-    if (settings.libraryPaths !== undefined) {
-      const paths = Array.isArray(settings.libraryPaths)
-        ? settings.libraryPaths.map((p) => String(p).trim()).filter(Boolean)
-        : [];
-      upsertStmt.run('libraryPaths', JSON.stringify(paths));
-      if (paths.length > 0) {
-        upsertStmt.run('libraryPath', paths[0]);
-      } else {
-        upsertStmt.run('libraryPath', '');
-      }
-    } else if (settings.libraryPath !== undefined) {
-      upsertStmt.run('libraryPath', settings.libraryPath);
+  if (settings.libraryPaths !== undefined) {
+    const paths = Array.isArray(settings.libraryPaths)
+      ? settings.libraryPaths.map((p) => String(p).trim()).filter(Boolean)
+      : [];
+    updates.libraries = paths;
+  } else if (settings.libraryPath !== undefined) {
+    const single = String(settings.libraryPath).trim();
+    if (single) {
       const current = getAppSettings();
       let paths = [...current.libraryPaths];
-      if (settings.libraryPath) {
-        if (!paths.includes(settings.libraryPath)) {
-          paths = [settings.libraryPath, ...paths];
-        } else {
-          paths = [settings.libraryPath, ...paths.filter((p) => p !== settings.libraryPath)];
-        }
+      if (!paths.includes(single)) {
+        paths = [single, ...paths];
       } else {
-        paths = [];
+        paths = [single, ...paths.filter((p) => p !== single)];
       }
-      upsertStmt.run('libraryPaths', JSON.stringify(paths));
+      updates.libraries = paths;
+    } else {
+      updates.libraries = [];
     }
+  }
 
-    if (settings.projectPaths !== undefined) {
-      const pPaths = Array.isArray(settings.projectPaths)
-        ? settings.projectPaths.map((p) => String(p).trim()).filter(Boolean)
-        : [];
-      upsertStmt.run('projectPaths', JSON.stringify(pPaths));
-      if (pPaths.length > 0) {
-        upsertStmt.run('activeProjectPath', pPaths[0]);
-      } else {
-        upsertStmt.run('activeProjectPath', '');
-      }
-    } else if (settings.activeProjectPath !== undefined) {
-      upsertStmt.run('activeProjectPath', settings.activeProjectPath);
+  if (settings.projectPaths !== undefined) {
+    const pPaths = Array.isArray(settings.projectPaths)
+      ? settings.projectPaths.map((p) => String(p).trim()).filter(Boolean)
+      : [];
+    updates.projects = pPaths;
+  } else if (settings.activeProjectPath !== undefined) {
+    const singleProj = String(settings.activeProjectPath).trim();
+    if (singleProj) {
       const current = getAppSettings();
       let pPaths = [...current.projectPaths];
-      if (settings.activeProjectPath) {
-        if (!pPaths.includes(settings.activeProjectPath)) {
-          pPaths = [settings.activeProjectPath, ...pPaths];
-        } else {
-          pPaths = [settings.activeProjectPath, ...pPaths.filter((p) => p !== settings.activeProjectPath)];
-        }
+      if (!pPaths.includes(singleProj)) {
+        pPaths = [singleProj, ...pPaths];
       } else {
-        pPaths = [];
+        pPaths = [singleProj, ...pPaths.filter((p) => p !== singleProj)];
       }
-      upsertStmt.run('projectPaths', JSON.stringify(pPaths));
+      updates.projects = pPaths;
+    } else {
+      updates.projects = [];
     }
+  }
 
-    if (settings.thumbnailQuality !== undefined) upsertStmt.run('thumbnailQuality', String(settings.thumbnailQuality));
-    if (settings.autoStackAnimations !== undefined) upsertStmt.run('autoStackAnimations', String(settings.autoStackAnimations));
-    if (settings.autoStackAudio !== undefined) upsertStmt.run('autoStackAudio', String(settings.autoStackAudio));
-    if (settings.defaultFps !== undefined) upsertStmt.run('defaultFps', String(settings.defaultFps));
-  });
+  const currentCfg = getEffectiveConfig();
+  const pipeline = { ...(currentCfg.pipeline || {}) };
+  let hasPipelineUpdates = false;
 
-  runTx();
+  if (settings.thumbnailQuality !== undefined) {
+    pipeline.thumbnail_quality = Number(settings.thumbnailQuality);
+    hasPipelineUpdates = true;
+  }
+  if (settings.autoStackAnimations !== undefined) {
+    pipeline.auto_stack_animations = Boolean(settings.autoStackAnimations);
+    hasPipelineUpdates = true;
+  }
+  if (settings.autoStackAudio !== undefined) {
+    pipeline.auto_stack_audio = Boolean(settings.autoStackAudio);
+    hasPipelineUpdates = true;
+  }
+  if (settings.defaultFps !== undefined) {
+    pipeline.default_fps = Number(settings.defaultFps);
+    hasPipelineUpdates = true;
+  }
+
+  if (hasPipelineUpdates) {
+    updates.pipeline = pipeline;
+  }
+
+  saveConfigFile(updates);
   return getAppSettings();
 }
 
@@ -1028,24 +1000,19 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
 }
 
 export function getClassifierSettings(classifierId: string): Record<string, unknown> | null {
-  const db = getDatabase();
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`classifier:${classifierId}`) as { value: string } | undefined;
-  if (!row) return null;
-  try {
-    return JSON.parse(row.value);
-  } catch {
-    return null;
-  }
+  const cfg = getEffectiveConfig();
+  const classifiers = cfg.classifiers || {};
+  return (classifiers[classifierId] as Record<string, unknown>) || null;
 }
 
 export function updateClassifierSettings(classifierId: string, settings: Record<string, unknown>): Record<string, unknown> {
-  const db = getDatabase();
-  const current = getClassifierSettings(classifierId) || {};
+  const cfg = getEffectiveConfig();
+  const classifiers = { ...(cfg.classifiers || {}) };
+  const current = (classifiers[classifierId] || {}) as Record<string, unknown>;
   const merged = { ...current, ...settings };
-  db.prepare(`
-    INSERT INTO settings (key, value) VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(`classifier:${classifierId}`, JSON.stringify(merged));
+  classifiers[classifierId] = merged;
+
+  saveConfigFile({ classifiers });
   return merged;
 }
 

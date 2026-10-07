@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import {
   initDatabase,
   getDatabase,
+  isDatabaseInitialized,
   getCurrentLibraryPath,
   getAppSettings,
   upsertAsset,
@@ -11,6 +12,7 @@ import {
   removeAssetsForSourceDirectory,
   removeDeletedAssetsForSourceDirectory,
   getAssetByPath,
+  getThumbnailsDir,
 } from '../db/database.js';
 import { isSupportedImageExtension, processImageFile } from './image.js';
 import { isSupportedAudioExtension, processAudioFile } from './audio.js';
@@ -18,7 +20,7 @@ import { isArchiveFile, inspectZipArchive } from './archive.js';
 import { runStackingEngine } from './stacker.js';
 import { getAllClassifiers, getEffectiveClassifierSettings, runClassifier } from './classifiers/index.js';
 import { ScanProgressEvent, ScanStatusType } from '../../shared/types.js';
-import { config } from '../config.js';
+import { config, getDataDir } from '../config.js';
 
 type SseListener = (event: ScanProgressEvent) => void;
 const sseListeners = new Set<SseListener>();
@@ -124,11 +126,9 @@ export async function scanLibrary(
     throw new Error(`Directory does not exist: ${resolvedDirs[0]}`);
   }
 
-  // Initialize DB and thumbnail cache inside active base library directory
-  let baseLibraryPath = getCurrentLibraryPath();
-  if (!baseLibraryPath) {
-    baseLibraryPath = existingDirs[0];
-    initDatabase(baseLibraryPath);
+  // Ensure DB and thumbnail cache are initialized inside configured data_dir
+  if (!isDatabaseInitialized()) {
+    initDatabase(getDataDir());
   }
 
   const settings = getAppSettings();
@@ -137,7 +137,7 @@ export async function scanLibrary(
     : (settings.libraryPath ? [settings.libraryPath] : []);
   const resolvedConfigured = allConfigured.map((d) => path.resolve(d)).filter((d) => fs.existsSync(d));
 
-  const thumbnailsDir = path.join(baseLibraryPath, config.cacheDirName, 'thumbnails');
+  const thumbnailsDir = getThumbnailsDir();
   if (!fs.existsSync(thumbnailsDir)) {
     fs.mkdirSync(thumbnailsDir, { recursive: true });
   }
@@ -154,7 +154,7 @@ export async function scanLibrary(
 
   broadcastProgress({
     status: 'scanning',
-    libraryPath: baseLibraryPath,
+    libraryPath: existingDirs[0] || '',
     libraryPaths: existingDirs,
     scannedCount: 0,
     indexedCount: 0,
@@ -418,7 +418,7 @@ export async function scanLibrary(
     if (cancelRequested) {
       broadcastProgress({
         status: 'idle',
-        libraryPath: baseLibraryPath,
+        libraryPath: existingDirs[0] || '',
         libraryPaths: existingDirs,
         message: 'Scan cancelled.',
       });
@@ -478,7 +478,7 @@ export async function scanLibrary(
     const elapsedMs = Date.now() - startTime;
     broadcastProgress({
       status: 'completed',
-      libraryPath: baseLibraryPath,
+      libraryPath: existingDirs[0] || '',
       libraryPaths: existingDirs,
       scannedCount,
       indexedCount,
@@ -489,7 +489,7 @@ export async function scanLibrary(
     console.error('Scan failed:', err);
     broadcastProgress({
       status: 'error',
-      libraryPath: baseLibraryPath,
+      libraryPath: existingDirs[0] || '',
       libraryPaths: existingDirs,
       error: err?.message || 'Scan failed',
       message: `Scan failed: ${err?.message || 'Unknown error'}`,

@@ -7,7 +7,7 @@
 ## 🌟 Key Features
 
 ### 1. High-Performance Local-First Architecture
-- **Embedded SQLite with WAL Mode**: Stores index data locally at `<library_path>/.assettlor/index.db` with query caching.
+- **Embedded SQLite with WAL Mode**: Stores index data locally at `<data_dir>/index.db` (configured via `config.yaml`, defaulting to `~/.config/assetlor/data/index.db`) with query caching.
 - **Incremental Scanning**: Computes file stats and fast content hashes to skip unchanged assets on subsequent scans.
 - **Real-Time Progress via SSE**: Live updates streamed to the UI as files are scanned and indexed.
 

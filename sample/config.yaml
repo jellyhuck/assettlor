@@ -1,0 +1,48 @@
+server:
+  port: 3001
+  host: "0.0.0.0"
+
+data_dir: "./sample/.assettlor"
+
+libraries:
+  - "./sample/assets"
+
+projects:
+  - "./sample/game-project"
+
+classifiers:
+  bpm:
+    enabled: true
+    minBpm: 60
+    maxBpm: 200
+    minDurationSeconds: 1.0
+    maxAnalysisSeconds: 45.0
+    applyBpmTag: false
+    applyTempoTag: false
+  sprite:
+    enabled: true
+    minConfidence: 0.5
+    enableVisualAnalysis: true
+    enablePathAnalysis: true
+    enableStackAnalysis: true
+    applySpriteTag: false
+  pack:
+    enabled: true
+    inferFromArchive: true
+    inferFromDirectory: true
+    directoryStrategy: "top"
+    directoryDepth: 1
+    cleanSeparators: true
+    stripVersionSuffix: true
+    stripAffixes: false
+    caseConvention: "as-is"
+    applyTag: false
+    tagPrefix: "pack:"
+    targetArchives: []
+    targetDirectories: []
+
+pipeline:
+  thumbnail_quality: 80
+  auto_stack_animations: true
+  auto_stack_audio: true
+  default_fps: 12

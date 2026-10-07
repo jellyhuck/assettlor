@@ -7,7 +7,8 @@ import {
   addScanListener,
   requestCancelScan,
 } from '../server/src/services/scanner.js';
-import { getDatabase, queryAssets } from '../server/src/db/database.js';
+import { getDatabase, queryAssets, closeDatabase, initDatabase } from '../server/src/db/database.js';
+import { getThumbnailsDir } from '../server/src/config.js';
 import {
   createTempDir,
   cleanupTempDir,
@@ -22,9 +23,11 @@ describe('Scanner Service', () => {
 
   beforeEach(() => {
     libraryDir = createTempDir('lib-scanner-');
+    initDatabase(libraryDir);
   });
 
   afterEach(() => {
+    closeDatabase();
     cleanupTempDir(libraryDir);
   });
 

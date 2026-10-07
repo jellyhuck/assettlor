@@ -3,9 +3,11 @@ import fs from 'fs';
 import { initDatabase, getDatabase, queryAssets, getAllTags, getAllFormats } from '../server/src/db/database.js';
 import { scanLibrary } from '../server/src/services/scanner.js';
 import { copyAssetToProject } from '../server/src/services/copier.js';
+import { loadConfigFile } from '../server/src/config.js';
 
 async function runTestPipeline() {
   console.log('🧪 Starting Assettlor Backend Pipeline Verification...');
+  loadConfigFile(path.join(process.cwd(), 'sample', 'config.yaml'));
   const sampleDir = path.join(process.cwd(), 'sample', 'assets');
   const projectDir = path.join(process.cwd(), 'sample', 'game-project');
 
