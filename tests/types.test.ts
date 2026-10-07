@@ -6,6 +6,7 @@ import {
   CopyAssetRequest,
   CopyAssetResult,
   ScanProgressEvent,
+  getImageDisplayUrl,
 } from '../shared/types.js';
 
 describe('Shared Data Types and Contracts', () => {
@@ -79,4 +80,53 @@ describe('Shared Data Types and Contracts', () => {
     expect(settings.activeProjectPath).toBe(settings.projectPaths[0]);
     expect(settings.libraryPath).toBe(settings.libraryPaths[0]);
   });
+
+  describe('getImageDisplayUrl', () => {
+    it('should prioritize thumbnailUrl for TGA assets because browsers do not support TGA in img tags', () => {
+      const tgaAsset = {
+        extension: '.tga',
+        fileUrl: '/api/assets/tile_tga/file',
+        thumbnailUrl: '/api/assets/tile_tga/thumbnail',
+      };
+      expect(getImageDisplayUrl(tgaAsset)).toBe('/api/assets/tile_tga/thumbnail');
+    });
+
+    it('should prioritize fileUrl for browser-supported images like PNG or JPEG', () => {
+      const pngAsset = {
+        extension: '.png',
+        fileUrl: '/api/assets/hero_png/file',
+        thumbnailUrl: '/api/assets/hero_png/thumbnail',
+      };
+      expect(getImageDisplayUrl(pngAsset)).toBe('/api/assets/hero_png/file');
+    });
+
+    it('should prioritize thumbnailUrl for PNG when preferThumbnail is true', () => {
+      const pngAsset = {
+        extension: '.png',
+        fileUrl: '/api/assets/hero_png/file',
+        thumbnailUrl: '/api/assets/hero_png/thumbnail',
+      };
+      expect(getImageDisplayUrl(pngAsset, true)).toBe('/api/assets/hero_png/thumbnail');
+    });
+
+    it('should fallback gracefully when thumbnailUrl or fileUrl is missing', () => {
+      expect(getImageDisplayUrl(null)).toBe('');
+      expect(getImageDisplayUrl(undefined)).toBe('');
+
+      const tgaNoThumb = {
+        extension: '.tga',
+        fileUrl: '/api/assets/raw_tga/file',
+        thumbnailUrl: '',
+      };
+      expect(getImageDisplayUrl(tgaNoThumb)).toBe('/api/assets/raw_tga/file');
+
+      const pngNoFile = {
+        extension: '.png',
+        fileUrl: '',
+        thumbnailUrl: '/api/assets/raw_png/thumbnail',
+      };
+      expect(getImageDisplayUrl(pngNoFile)).toBe('/api/assets/raw_png/thumbnail');
+    });
+  });
 });
+

@@ -45,11 +45,24 @@ function decodeTgaBuffer(buffer: Buffer): { width: number; height: number; data:
 
   let srcIdx = offset;
   for (let i = 0; i < width * height; i++) {
-    const b = buffer[srcIdx] || 0;
-    const g = buffer[srcIdx + 1] || 0;
-    const r = buffer[srcIdx + 2] || 0;
-    const a = bytesPerPixel === 4 ? buffer[srcIdx + 3] : 255;
-    srcIdx += bytesPerPixel;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let a = 255;
+
+    if (imageType === 3) {
+      const gray = buffer[srcIdx] || 0;
+      r = gray;
+      g = gray;
+      b = gray;
+      srcIdx += bytesPerPixel;
+    } else {
+      b = buffer[srcIdx] || 0;
+      g = buffer[srcIdx + 1] || 0;
+      r = buffer[srcIdx + 2] || 0;
+      a = bytesPerPixel === 4 ? buffer[srcIdx + 3] : 255;
+      srcIdx += bytesPerPixel;
+    }
 
     const destIdx = i * 4;
     rgba[destIdx] = r;

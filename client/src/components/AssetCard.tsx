@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Asset, AssetStack, ViewMode, CardZoom } from '../types';
+import { Asset, AssetStack, ViewMode, CardZoom, getImageDisplayUrl } from '../types';
 import {
   Layers,
   Copy,
@@ -186,7 +186,7 @@ export function AssetCard({
               />
             ) : (
               <img
-                src={currentDisplayAsset.fileUrl}
+                src={getImageDisplayUrl(currentDisplayAsset, thumbnailError)}
                 alt={title}
                 className="w-full h-full object-contain pixelated"
                 loading="lazy"
@@ -266,7 +266,7 @@ export function AssetCard({
                   </span>
                   <div className="w-7 h-7 rounded bg-[#10101a] border border-[#26263a] overflow-hidden shrink-0 flex items-center justify-center checkerboard-bg">
                     <img
-                      src={frame.thumbnailUrl || frame.fileUrl}
+                      src={getImageDisplayUrl(frame, true)}
                       alt={frame.name}
                       className="w-full h-full object-contain pixelated"
                     />
@@ -336,7 +336,7 @@ export function AssetCard({
           </div>
         ) : (
           <img
-            src={currentDisplayAsset.fileUrl}
+            src={getImageDisplayUrl(currentDisplayAsset, thumbnailError)}
             alt={title}
             className="max-w-full max-h-full object-contain pixelated p-2 transition-transform duration-200 group-hover:scale-105"
             loading="lazy"

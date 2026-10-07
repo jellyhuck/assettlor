@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Asset } from '../types';
+import { Asset, getImageDisplayUrl } from '../types';
 import { Play, Pause, SkipBack, SkipForward, Repeat, RotateCcw, Eye } from 'lucide-react';
 
 interface FlipbookPlayerProps {
@@ -101,7 +101,7 @@ export function FlipbookPlayer({
         }`}
       >
         <img
-          src={currentAsset.fileUrl || currentAsset.thumbnailUrl}
+          src={getImageDisplayUrl(currentAsset)}
           alt={currentAsset.name}
           className={`max-w-full max-h-[260px] object-contain transition-none ${
             pixelated ? 'pixelated' : 'smooth-render'
@@ -236,7 +236,7 @@ export function FlipbookPlayer({
               title={`Frame ${index + 1}: ${frame.name}${titleSuffix}`}
             >
               <img
-                src={frame.thumbnailUrl || frame.fileUrl}
+                src={getImageDisplayUrl(frame, true)}
                 alt={frame.name}
                 className={`w-full h-full object-contain ${pixelated ? 'pixelated' : 'smooth-render'}`}
               />

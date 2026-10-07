@@ -17,6 +17,7 @@ import {
   TINY_PNG_BUFFER,
   createTestWavBuffer,
   createTestBpmWavBuffer,
+  createTestTgaBuffer,
 } from './helpers.js';
 
 describe('HTTP API Routes', () => {
@@ -275,6 +276,34 @@ describe('HTTP API Routes', () => {
         headers: { range: 'bytes=99999-999999' },
       });
       expect(invalidRangeRes.statusCode).toBe(416);
+    });
+
+    it('GET /api/assets/:id/file should serve TGA file with image/x-tga content-type', async () => {
+      const diskTga = path.join(tempLibraryDir, 'stone_brick_tile.tga');
+      const tgaBuf = createTestTgaBuffer(2, 2, false);
+      fs.writeFileSync(diskTga, tgaBuf);
+
+      upsertAsset({
+        id: 'stone_brick_tile_id',
+        path: 'stone_brick_tile.tga',
+        absolutePath: diskTga,
+        name: 'stone_brick_tile.tga',
+        extension: '.tga',
+        category: 'image',
+        size: tgaBuf.length,
+        mtime: 3000,
+        hash: 'h_tile',
+        isArchiveEntry: false,
+        metadata: { width: 2, height: 2, format: 'tga' },
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/assets/stone_brick_tile_id/file',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe('image/x-tga');
+      expect(res.rawPayload.equals(tgaBuf)).toBe(true);
     });
 
     it('GET /api/assets/:id/file should stream virtual zip entries with ranges', async () => {

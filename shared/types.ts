@@ -58,6 +58,25 @@ export interface Asset {
 
 export type StackType = 'animation' | 'audio_variation';
 
+/**
+ * Resolves the appropriate image URL for browser rendering.
+ * Formats like TGA (.tga) are not natively supported by web browsers in <img> tags,
+ * so their converted WebP thumbnail is used instead. For web-native formats (.png, .jpg, etc.),
+ * the full-resolution fileUrl is preferred unless preferThumbnail is requested or an error occurred.
+ */
+export function getImageDisplayUrl(
+  asset?: { extension?: string; fileUrl?: string; thumbnailUrl?: string } | null,
+  preferThumbnail = false
+): string {
+  if (!asset) return '';
+  const ext = (asset.extension || '').toLowerCase();
+  const isNonBrowserFormat = ext === '.tga';
+  if (isNonBrowserFormat || preferThumbnail) {
+    return asset.thumbnailUrl || asset.fileUrl || '';
+  }
+  return asset.fileUrl || asset.thumbnailUrl || '';
+}
+
 export interface AssetStack {
   id: string;
   name: string;

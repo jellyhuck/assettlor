@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Asset, AssetStack, AppSettings, TagInfo } from '../types';
+import { Asset, AssetStack, AppSettings, TagInfo, getImageDisplayUrl } from '../types';
 import {
   X,
   Copy,
@@ -87,6 +87,7 @@ export function Inspector({
   const [applyTagsToStack, setApplyTagsToStack] = useState(false);
   const [tagSuggestionsOpen, setTagSuggestionsOpen] = useState(false);
   const [localAvailableTags, setLocalAvailableTags] = useState<TagInfo[]>([]);
+  const [failedImageIds, setFailedImageIds] = useState<Set<string>>(() => new Set());
   const tagInputRef = useRef<HTMLInputElement | null>(null);
 
   const isStack = Boolean(item && 'isStack' in item && item.isStack);
@@ -771,7 +772,7 @@ export function Inspector({
                         title={`${assetItem.name} (${formatBytes(assetItem.size)})`}
                       >
                         <img
-                          src={assetItem.thumbnailUrl || assetItem.fileUrl}
+                          src={getImageDisplayUrl(assetItem, true)}
                           alt={assetItem.name}
                           className={`w-full h-full object-contain ${
                             pixelated ? 'pixelated' : 'smooth-render'
@@ -846,8 +847,15 @@ export function Inspector({
                     }`}
                   >
                     <img
-                      src={currentSeparateAsset.fileUrl || currentSeparateAsset.thumbnailUrl}
+                      key={currentSeparateAsset.id}
+                      src={getImageDisplayUrl(
+                        currentSeparateAsset,
+                        failedImageIds.has(currentSeparateAsset.id)
+                      )}
                       alt={currentSeparateAsset.name}
+                      onError={() => {
+                        setFailedImageIds((prev) => new Set(prev).add(currentSeparateAsset.id));
+                      }}
                       style={{ transform: `scale(${zoomLevel})` }}
                       className={`max-w-full max-h-full object-contain origin-center transition-transform ${
                         pixelated ? 'pixelated' : 'smooth-render'
@@ -922,8 +930,15 @@ export function Inspector({
                 }`}
               >
                 <img
-                  src={displayedAsset.fileUrl || displayedAsset.thumbnailUrl}
+                  key={displayedAsset.id}
+                  src={getImageDisplayUrl(
+                    displayedAsset,
+                    failedImageIds.has(displayedAsset.id)
+                  )}
                   alt={displayedAsset.name}
+                  onError={() => {
+                    setFailedImageIds((prev) => new Set(prev).add(displayedAsset.id));
+                  }}
                   style={{ transform: `scale(${zoomLevel})` }}
                   className={`max-w-full max-h-full object-contain origin-center transition-transform ${
                     pixelated ? 'pixelated' : 'smooth-render'

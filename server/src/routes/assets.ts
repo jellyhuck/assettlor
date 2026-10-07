@@ -37,6 +37,7 @@ function getMimeTypeForExtension(ext: string): string {
     case '.gif': return 'image/gif';
     case '.svg': return 'image/svg+xml';
     case '.bmp': return 'image/bmp';
+    case '.tga': return 'image/x-tga';
     case '.wav': return 'audio/wav';
     case '.mp3': return 'audio/mpeg';
     case '.ogg': return 'audio/ogg';
