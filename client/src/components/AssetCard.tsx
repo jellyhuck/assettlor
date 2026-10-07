@@ -200,7 +200,7 @@ export function AssetCard({
               <span className="text-xs font-semibold text-slate-200 truncate">{title}</span>
               {isStack && (
                 <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-indigo-950/70 text-indigo-300 border border-indigo-500/30 shrink-0">
-                  {stack?.type === 'animation' ? `🎬 ${stack?.itemCount} frames` : `🎵 ${stack?.itemCount} vars`}
+                  {stack?.itemCount}
                 </span>
               )}
             </div>
@@ -343,28 +343,11 @@ export function AssetCard({
           />
         )}
 
-        {/* Stack Badge & View Action */}
+        {/* Stack Badge */}
         {isStack && (
-          <div className="absolute top-2 left-2 flex items-center gap-1 z-10">
-            <div className="px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-xs border border-white/10 text-[10px] font-mono font-semibold text-cyan-300 flex items-center gap-1 shadow-sm">
-              <Layers className="w-3 h-3 text-indigo-400" />
-              {stack?.type === 'animation'
-                ? `${stack?.itemCount} frames`
-                : `${stack?.itemCount} vars`}
-            </div>
-            {onViewStackAssets && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onViewStackAssets();
-                }}
-                title="View content assets separately"
-                className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded-md bg-indigo-900/90 hover:bg-indigo-600 border border-indigo-500/40 text-[10px] font-medium text-indigo-200 hover:text-white shadow-sm transition-all cursor-pointer flex items-center gap-1"
-              >
-                <Eye className="w-3 h-3" />
-                <span>Frames</span>
-              </button>
-            )}
+          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-xs border border-white/10 text-[10px] font-mono font-semibold text-cyan-300 flex items-center gap-1 shadow-sm z-10">
+            <Layers className="w-3 h-3 text-indigo-400" />
+            {stack?.itemCount}
           </div>
         )}
 
