@@ -29,7 +29,7 @@ import {
 
 describe('Sprite Classifier Subsystem (Todo #5)', () => {
   let tempLibraryDir: string;
-  const sampleAssetsDir = path.resolve(__dirname, '../sample-assets');
+  const sampleAssetsDir = path.resolve(__dirname, '../sample/assets');
 
   beforeEach(() => {
     tempLibraryDir = createTempDir('sprite-classifier-test-');

@@ -21,7 +21,7 @@
 | **Test Single** | `npx vitest run tests/<file>.test.ts` | Runs a targeted test suite |
 | **Pipeline Test** | `npm run test:pipeline` | End-to-end scanner, stacker, and copier verification |
 | **Lint** | `npm --prefix client run lint` | Runs Oxlint on client code |
-| **Generate Samples** | `npm run generate:samples` | Creates sample assets and `RetroPack.zip` in `sample-assets/` |
+| **Generate Samples** | `npm run generate:samples` | Creates sample assets and `RetroPack.zip` in `sample/assets/` |
 
 ---
 
@@ -40,7 +40,7 @@ Do not read all documentation upfront. Load detailed docs only when relevant to 
 - **Targeted Test Execution**: Run `npx vitest run tests/<name>.test.ts` to isolate and debug failures without running the entire suite.
 - **Inspect Embedded Database**: SQLite database lives at `<library_path>/.assettlor/index.db`. Inspect with:
   ```bash
-  sqlite3 sample-assets/.assettlor/index.db "SELECT id, path, category, stack_id FROM assets LIMIT 10;"
+  sqlite3 sample/assets/.assettlor/index.db "SELECT id, path, category, stack_id FROM assets LIMIT 10;"
   ```
 - **Verify Scanning & Copying Pipeline**: Run `npm run test:pipeline` to test incremental scanning, AdmZip virtual inspection, sequential stacking, and file copying end-to-end against sample data.
 - **Client Lint Verification**: Run `npm --prefix client run lint` to catch React hook dependency errors and cascading render warnings.

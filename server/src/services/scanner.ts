@@ -265,6 +265,9 @@ export async function scanLibrary(
               if (
                 existing &&
                 existing.hash === item.hash &&
+                existing.absolutePath === fullPath &&
+                existing.archivePath === fullPath &&
+                existing.sourceDirectory === rootDir &&
                 fs.existsSync(thumbDiskPath) &&
                 (item.category !== 'audio' || existing.metadata?.audioThumbnailVersion === 4)
               ) {
@@ -311,6 +314,8 @@ export async function scanLibrary(
           if (
             existing &&
             existing.hash === quickHash &&
+            existing.absolutePath === fullPath &&
+            existing.sourceDirectory === rootDir &&
             fs.existsSync(thumbDiskPath) &&
             (!isAud || existing.metadata?.audioThumbnailVersion === 4)
           ) {

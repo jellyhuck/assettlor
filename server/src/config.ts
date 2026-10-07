@@ -11,8 +11,8 @@ export interface ServerConfig {
   cacheDirName: string; // '.assettlor'
 }
 
-const defaultLibraryPath = path.join(process.cwd(), 'sample-assets');
-const defaultActiveProjectPath = path.join(process.cwd(), 'sample-game-project');
+const defaultLibraryPath = path.join(process.cwd(), 'sample', 'assets');
+const defaultActiveProjectPath = path.join(process.cwd(), 'sample', 'game-project');
 
 const userHome = os.homedir();
 const appDataDir = path.join(userHome, '.assettlor');

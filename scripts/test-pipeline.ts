@@ -6,8 +6,8 @@ import { copyAssetToProject } from '../server/src/services/copier.js';
 
 async function runTestPipeline() {
   console.log('🧪 Starting Assettlor Backend Pipeline Verification...');
-  const sampleDir = path.join(process.cwd(), 'sample-assets');
-  const projectDir = path.join(process.cwd(), 'sample-game-project');
+  const sampleDir = path.join(process.cwd(), 'sample', 'assets');
+  const projectDir = path.join(process.cwd(), 'sample', 'game-project');
 
   // Clean previous output if any
   if (fs.existsSync(projectDir)) {

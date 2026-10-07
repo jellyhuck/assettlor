@@ -3,7 +3,7 @@ import path from 'path';
 import sharp from 'sharp';
 import AdmZip from 'adm-zip';
 
-const sampleDir = path.join(process.cwd(), 'sample-assets');
+const sampleDir = path.join(process.cwd(), 'sample', 'assets');
 
 // Helper to generate a valid PCM WAV buffer
 function createWavBuffer({
