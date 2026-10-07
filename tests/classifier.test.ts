@@ -480,5 +480,73 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       expect(progressEvents[0].totalSteps).toBe(4);
       expect(progressEvents[3].stepIndex).toBe(4);
     });
+
+    it('should extract analysis window from the middle of the audio track when exceeding maxAnalysisSeconds', async () => {
+      // Create a 10s track:
+      // - 0s to 3s: silence (intro)
+      // - 3s to 7s: 4s of rhythmic 120 BPM pulses
+      // - 7s to 10s: silence (outro)
+      const sampleRate = 22050;
+      const durationSec = 10;
+      const numSamples = sampleRate * durationSec;
+      const dataSize = numSamples * 2;
+      const customWav = Buffer.alloc(44 + dataSize);
+
+      customWav.write('RIFF', 0);
+      customWav.writeUInt32LE(36 + dataSize, 4);
+      customWav.write('WAVE', 8);
+      customWav.write('fmt ', 12);
+      customWav.writeUInt32LE(16, 16);
+      customWav.writeUInt16LE(1, 20);
+      customWav.writeUInt16LE(1, 22);
+      customWav.writeUInt32LE(sampleRate, 24);
+      customWav.writeUInt32LE(sampleRate * 2, 28);
+      customWav.writeUInt16LE(2, 32);
+      customWav.writeUInt16LE(16, 34);
+      customWav.write('data', 36);
+      customWav.writeUInt32LE(dataSize, 40);
+
+      const beatInterval = 60 / 120;
+      for (let i = 0; i < numSamples; i++) {
+        const t = i / sampleRate;
+        let sample = 0;
+        if (t >= 3.0 && t < 7.0) {
+          const timeInBeat = (t - 3.0) % beatInterval;
+          if (timeInBeat < 0.05) {
+            sample = Math.sin(2 * Math.PI * 150 * timeInBeat) * 30000;
+          }
+        }
+        customWav.writeInt16LE(Math.floor(sample), 44 + i * 2);
+      }
+
+      const filePath = path.join(tempLibraryDir, 'middle_beat.wav');
+      fs.writeFileSync(filePath, customWav);
+
+      upsertAsset({
+        id: 'asset_middle_beat',
+        path: 'middle_beat.wav',
+        absolutePath: filePath,
+        name: 'middle_beat.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: customWav.length,
+        mtime: Date.now(),
+        hash: 'h_mid_beat',
+        isArchiveEntry: false,
+        metadata: { duration: 10.0 },
+      });
+
+      // Windowing with maxAnalysisSeconds: 4 on a 10s track extracts middle [3s, 7s], where the beats are
+      const runResult = await runClassifier(bpmClassifier, {
+        targetType: 'asset',
+        targetValue: 'asset_middle_beat',
+        settingsOverride: { maxAnalysisSeconds: 4.0 },
+      });
+
+      expect(runResult.totalTargeted).toBe(1);
+      expect(runResult.classifiedCount).toBe(1);
+      expect(runResult.details[0].success).toBe(true);
+      expect(runResult.details[0].result?.bpm).toBe(120);
+    });
   });
 });

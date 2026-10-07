@@ -119,10 +119,11 @@ const decodeStep: ClassifierStep<BpmClassifierSettings, BpmIntermediateState> = 
       }
     }
 
-    // Limit maximum analysis window to conserve CPU for long tracks
+    // Limit maximum analysis window to conserve CPU for long tracks; take window from the middle of the track
     const maxSamples = Math.floor(sampleRate * (settings.maxAnalysisSeconds || 45));
     if (monoPcm.length > maxSamples) {
-      monoPcm = monoPcm.slice(0, maxSamples);
+      const startSample = Math.floor((monoPcm.length - maxSamples) / 2);
+      monoPcm = monoPcm.slice(startSample, startSample + maxSamples);
     }
 
     intermediate.pcmData = monoPcm;
