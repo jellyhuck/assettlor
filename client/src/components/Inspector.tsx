@@ -89,6 +89,16 @@ export function Inspector({
   const [localAvailableTags, setLocalAvailableTags] = useState<TagInfo[]>([]);
   const [failedImageIds, setFailedImageIds] = useState<Set<string>>(() => new Set());
   const tagInputRef = useRef<HTMLInputElement | null>(null);
+  const [copiedName, setCopiedName] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const isStack = Boolean(item && 'isStack' in item && item.isStack);
   const stack = isStack ? (item as AssetStack & { isStack: true }) : null;
@@ -188,6 +198,19 @@ export function Inspector({
   const copyPathToClipboard = () => {
     navigator.clipboard.writeText(displayedAsset.absolutePath);
     showToast('success', 'Path Copied', displayedAsset.absolutePath);
+  };
+
+  const copyNameToClipboard = (nameToCopy?: string) => {
+    const name = nameToCopy || displayedAsset.name;
+    navigator.clipboard.writeText(name);
+    setCopiedName(true);
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current);
+    }
+    copyTimeoutRef.current = setTimeout(() => {
+      setCopiedName(false);
+    }, 1500);
+    showToast('success', 'File Name Copied', name);
   };
 
   const handleAnalyzeBpm = async () => {
@@ -570,6 +593,23 @@ export function Inspector({
             <span className="text-xs font-semibold text-slate-100 truncate">
               {isStack && stackViewMode === 'stack' ? stack?.name : displayedAsset.name}
             </span>
+            <button
+              type="button"
+              onClick={() =>
+                copyNameToClipboard(
+                  isStack && stackViewMode === 'stack' ? stack?.name : displayedAsset.name
+                )
+              }
+              title={copiedName ? 'Copied!' : 'Copy name to clipboard'}
+              aria-label="Copy name to clipboard"
+              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#252538] transition-colors cursor-pointer shrink-0"
+            >
+              {copiedName ? (
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
             {isStack && (
               <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-950/70 text-indigo-300 border border-indigo-500/30 shrink-0">
                 {stack?.itemCount} items
@@ -991,14 +1031,29 @@ export function Inspector({
               )}
             </div>
             <div className="space-y-2 text-xs select-text">
-              <div className="flex justify-between py-1 border-b border-[#202033]">
+              <div className="flex items-center justify-between py-1 border-b border-[#202033]">
                 <span className="text-slate-400 select-text">File Name</span>
-                <span
-                  className="font-mono text-slate-200 select-text truncate max-w-[200px]"
-                  title={displayedAsset.name}
-                >
-                  {displayedAsset.name}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span
+                    className="font-mono text-slate-200 select-text truncate max-w-[190px]"
+                    title={displayedAsset.name}
+                  >
+                    {displayedAsset.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyNameToClipboard(displayedAsset.name)}
+                    title={copiedName ? 'Copied!' : 'Copy file name to clipboard'}
+                    aria-label="Copy file name to clipboard"
+                    className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#252538] transition-colors cursor-pointer shrink-0"
+                  >
+                    {copiedName ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="flex justify-between py-1 border-b border-[#202033]">
