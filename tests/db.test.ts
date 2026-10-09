@@ -75,7 +75,7 @@ describe('Database Service', () => {
       const db1 = getDatabase();
       const db2 = initDatabase(tempDir);
       expect(db1).toBe(db2);
-      expect(getCurrentLibraryPath()).toBe(tempDir);
+      expect(getCurrentLibraryPath()).toBe('');
     });
 
     it('should close old db and switch when called with different libraryPath', () => {
@@ -83,7 +83,7 @@ describe('Database Service', () => {
       const db1 = getDatabase();
       const db2 = initDatabase(otherDir);
       expect(db2).not.toBe(db1);
-      expect(getCurrentLibraryPath()).toBe(otherDir);
+      expect(getCurrentLibraryPath()).toBe('');
       cleanupTempDir(otherDir);
     });
   });
@@ -96,7 +96,7 @@ describe('Database Service', () => {
       expect(settings.autoStackAnimations).toBe(true);
       expect(settings.autoStackAudio).toBe(true);
       expect(settings.defaultFps).toBe(12);
-      expect(settings.libraryPath).toBe(tempDir);
+      expect(settings.libraryPath).toBe('');
     });
 
     it('should update and persist settings', () => {

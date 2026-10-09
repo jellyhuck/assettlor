@@ -9,7 +9,7 @@ import {
   saveConfigFile,
 } from '../server/src/config.js';
 import { createTempDir, cleanupTempDir } from './helpers.js';
-import { updateAppSettings } from '../server/src/db/database.js';
+import { getAppSettings, initDatabase, updateAppSettings } from '../server/src/db/database.js';
 import { parseCliConfigArg, resolveConfigPath } from '../server/src/config.js';
 
 describe('durable runtime configuration', () => {
@@ -161,5 +161,15 @@ describe('durable runtime configuration', () => {
     expect(() => saveConfigFile({ pipeline: { auto_stack_audio: 'false' as never } }))
       .toThrow('pipeline.auto_stack_audio');
     expect(() => updateAppSettings({ defaultFps: Infinity })).toThrow('pipeline.default_fps');
+  });
+
+  it('keeps an empty library list empty across database startup and reload', () => {
+    initDatabase(path.join(root, 'index-data'));
+    expect(getAppSettings()).toMatchObject({ libraryPath: '', libraryPaths: [] });
+
+    updateAppSettings({ libraryPaths: [] });
+    expect(getAppSettings()).toMatchObject({ libraryPath: '', libraryPaths: [] });
+    loadConfigFile(configPath);
+    expect(getAppSettings()).toMatchObject({ libraryPath: '', libraryPaths: [] });
   });
 });

@@ -55,8 +55,7 @@ export function getThumbnailsDir(): string {
 }
 
 export function getCurrentLibraryPath(): string {
-  const settings = getAppSettings();
-  return settings.libraryPath || currentDataDir;
+  return getAppSettings().libraryPath;
 }
 
 export function isDatabaseInitialized(): boolean {
@@ -251,13 +250,8 @@ export function getAppSettings(): AppSettings {
   const projects = (cfg.projects || []).map((p) => String(p).trim()).filter(Boolean);
   const pipeline = cfg.pipeline || {};
 
-  let fallbackLib = currentDataDir || '';
-  if (fallbackLib.endsWith('/.assettlor')) {
-    fallbackLib = path.dirname(fallbackLib);
-  }
-
   return {
-    libraryPath: libraries.length > 0 ? libraries[0] : fallbackLib,
+    libraryPath: libraries[0] || '',
     libraryPaths: libraries,
     activeProjectPath: projects.length > 0 ? projects[0] : '',
     projectPaths: projects,
