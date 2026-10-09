@@ -214,22 +214,36 @@ function migrateTagProvenance(db: Database.Database): void {
 
 function migrateCanonicalAssetIds(db: Database.Database): void {
   const rows = db.prepare(`
-    SELECT id, absolute_path, archive_entry_path
+    SELECT id, absolute_path, archive_entry_path, stack_id, stack_index
     FROM assets
     WHERE id LIKE 'file_%' OR id LIKE 'zip_%'
-  `).all() as { id: string; absolute_path: string; archive_entry_path: string | null }[];
+  `).all() as {
+    id: string;
+    absolute_path: string;
+    archive_entry_path: string | null;
+    stack_id: string | null;
+    stack_index: number | null;
+  }[];
   const replaceId = db.prepare('UPDATE assets SET id = ? WHERE id = ?');
   const replaceTagId = db.prepare('UPDATE tags SET asset_id = ? WHERE asset_id = ?');
   const replaceRepresentativeId = db.prepare('UPDATE stacks SET representative_asset_id = ? WHERE representative_asset_id = ?');
   const addAlias = db.prepare('INSERT OR REPLACE INTO asset_id_aliases (old_id, asset_id) VALUES (?, ?)');
   const migrate = db.transaction(() => {
+    const affectedStacks = new Set<string>();
     for (const row of rows) {
       const nextId = canonicalAssetId(row.absolute_path, row.archive_entry_path);
       if (row.id === nextId) continue;
       // An older index may contain the same disk file under overlapping roots.
       // Merge that duplicate's curation into the canonical row.
-      const duplicate = db.prepare('SELECT id FROM assets WHERE id = ?').get(nextId) as { id: string } | undefined;
+      const duplicate = db.prepare('SELECT id, stack_id FROM assets WHERE id = ?').get(nextId) as
+        { id: string; stack_id: string | null } | undefined;
       if (duplicate) {
+        if (row.stack_id) affectedStacks.add(row.stack_id);
+        if (duplicate.stack_id) affectedStacks.add(duplicate.stack_id);
+        if (!duplicate.stack_id && row.stack_id) {
+          db.prepare('UPDATE assets SET stack_id = ?, stack_index = ? WHERE id = ?')
+            .run(row.stack_id, row.stack_index, nextId);
+        }
         db.prepare(`
           INSERT OR IGNORE INTO tags (asset_id, tag, source)
           SELECT ?, tag, source FROM tags WHERE asset_id = ?
@@ -243,6 +257,32 @@ function migrateCanonicalAssetIds(db: Database.Database): void {
         replaceRepresentativeId.run(nextId, row.id);
       }
       addAlias.run(row.id, nextId);
+    }
+
+    // A merged asset can occupy only one stack. Repair stacks that lost a
+    // duplicate member so their representatives, counts, and indices agree.
+    const membersStmt = db.prepare(`
+      SELECT id FROM assets WHERE stack_id = ?
+      ORDER BY stack_index IS NULL, stack_index, id
+    `);
+    const stackStmt = db.prepare('SELECT representative_asset_id FROM stacks WHERE id = ?');
+    const updateMember = db.prepare('UPDATE assets SET stack_index = ? WHERE id = ?');
+    const unlinkMembers = db.prepare('UPDATE assets SET stack_id = NULL, stack_index = NULL WHERE stack_id = ?');
+    const deleteStack = db.prepare('DELETE FROM stacks WHERE id = ?');
+    const updateStack = db.prepare('UPDATE stacks SET item_count = ?, representative_asset_id = ? WHERE id = ?');
+    for (const stackId of affectedStacks) {
+      const stack = stackStmt.get(stackId) as { representative_asset_id: string } | undefined;
+      const members = membersStmt.all(stackId) as { id: string }[];
+      if (!stack || members.length < 2) {
+        unlinkMembers.run(stackId);
+        if (stack) deleteStack.run(stackId);
+        continue;
+      }
+      const representative = members.some((member) => member.id === stack.representative_asset_id)
+        ? stack.representative_asset_id
+        : members[0].id;
+      updateStack.run(members.length, representative, stackId);
+      members.forEach((member, index) => updateMember.run(index, member.id));
     }
   });
   migrate();
