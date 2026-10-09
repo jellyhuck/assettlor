@@ -7,14 +7,14 @@
 ## 🌟 Key Features
 
 ### 1. High-Performance Local-First Architecture
-- **Embedded SQLite with WAL Mode**: Stores index data locally at `<data_dir>/index.db` (configured via `config.yaml`, defaulting to `~/.config/assetlor/data/index.db`) with query caching.
-- **Incremental Scanning**: Computes file stats and fast content hashes to skip unchanged assets on subsequent scans.
+- **Embedded SQLite with WAL Mode**: Stores index data locally at `<data_dir>/index.db` (configured via `config.yaml`, defaulting to `~/.config/assetlor/data/index.db`).
+- **Incremental Scanning**: Compares file size and modification time to skip unchanged assets on subsequent scans.
 - **Real-Time Progress via SSE**: Live updates streamed to the UI as files are scanned and indexed.
 
 ### 2. Virtual Archive Inspection (`.zip`)
 - **Zero Disk Extraction**: Inspects `.zip` archives directly in memory using `adm-zip` without decompressing to disk.
 - **Virtual Paths**: Items indexed as `Archive.zip#/path/to/sprite.png`.
-- **On-the-Fly Thumbnail Generation & Streaming**: Extracts buffers on demand for instant previewing and streaming.
+- **Cached Thumbnails & On-Demand Files**: Builds thumbnails during scanning, then extracts archive entry buffers when serving the original file.
 - **Auto-Archive Tagging**: Tags every asset with the archive name and interior folder structure.
 
 ### 3. Automatic Tagging & Stacking Engine
@@ -26,10 +26,10 @@
 ### 4. AssetHoard Dark Palette & Modern Web UI
 - **Aesthetic**: Deep dark slate palette (`#141420`, `#1a1a2e`, `#252538`) with high-contrast accent badges.
 - **Inspector Panel**:
-  - **Images**: Pan & Zoom, Checkerboard transparency toggle, Nearest-Neighbor (pixel art) vs Bilinear smooth scaling.
+  - **Images**: Zoom controls, checkerboard transparency toggle, Nearest-Neighbor (pixel art) vs Bilinear smooth scaling. Drag-to-pan is not implemented.
   - **Audio**: Interactive waveform visualization powered by `wavesurfer.js`, seeking, looping, volume, and variation tabs.
   - **Metadata**: Dimensions, channels, sample rate, bitrate, format, file size, filesystem path, tags.
-- **Gallery Grid**: Virtualized responsive card grid with quick copy, audio preview, and animation flipbook on hover.
+- **Gallery Grid**: Responsive card grid with quick copy, audio preview, and animation flipbook on hover. The client currently loads the first 100 matching items and renders them directly; it has no pagination controls or grid virtualization.
 
 ### 5. "Copy to Game Project" Workflow
 - Configure an **Active Game Project** destination path in Settings.
@@ -89,6 +89,14 @@ npm run typecheck:server
 
 Run all four checks with `npm run verify`.
 
+Run the isolated scanner-to-copy integration check with `npm run test:pipeline`.
+
+### Configuration
+
+`npm run dev` loads `sample/config.yaml`. `npm start` uses `~/.config/assetlor/config.yaml` by default; select another file with `--config`, `ASSETTLOR_CONFIG`, or `CONFIG_PATH`. Relative `data_dir`, `libraries`, and `projects` paths resolve from the directory containing that YAML file. The sample paths therefore point inside `sample/`.
+
+The server binds to `127.0.0.1` by default. `server.allowed_origins` lists browser origins allowed to use the API from another origin; the sample config includes the Vite development origin. `server.allowed_hosts` lists additional accepted HTTP Host names. For intentional LAN use, configure `server.host`; add any separate browser origin and custom Host name you use. Requests from other browser origins are rejected; local command-line requests without an Origin header remain supported.
+
 ---
 
 ## 📐 Project Structure
@@ -113,17 +121,17 @@ assettlor/
 │   │       ├── scanner.ts       # Recursive incremental scanner with SSE
 │   │       ├── stacker.ts       # Sequential animation & audio variation stacker
 │   │       ├── image.ts         # Sharp image processor, TGA/BMP decoder, WebP thumbnails
-│   │       ├── audio.ts         # Music-metadata extractor & waveform thumbnail generator
+│   │       ├── audio.ts         # Music-metadata extractor & audio artwork generator
 │   │       ├── archive.ts       # In-memory AdmZip inspector & virtual streaming
 │   │       └── copier.ts        # Copy to active game project service
 ├── client/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── Sidebar.tsx      # Categories, Tag/Format filters, Scan button
-│   │   │   ├── TopBar.tsx       # Search, Stacked/Flat toggle, Zoom, Sort
-│   │   │   ├── AssetGrid.tsx    # Responsive virtualized card gallery
+│   │   │   ├── TopBar.tsx       # Search, Stacked/Flat toggle, card size, Sort
+│   │   │   ├── AssetGrid.tsx    # Responsive card gallery
 │   │   │   ├── AssetCard.tsx    # Asset card with hover flipbook & audio preview
-│   │   │   ├── Inspector.tsx    # Right inspector with pan/zoom, flipbook, wavesurfer
+│   │   │   ├── Inspector.tsx    # Right inspector with zoom, flipbook, wavesurfer
 │   │   │   ├── FlipbookPlayer.tsx  # Interactive animation player (Play/Pause/FPS/scrub)
 │   │   │   ├── AudioWaveformPlayer.tsx # Wavesurfer waveform audio player
 │   │   │   ├── SettingsModal.tsx   # Config modal for active game project
@@ -147,11 +155,11 @@ assettlor/
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/assets` | Query assets with filters, search, sorting, and pagination |
+| `GET` | `/api/assets` | Query assets with `category`, `tag`, `format`, `search`, `stackType`, `isStackedView`, `sortBy`, `sortOrder`, `page`, and `limit` (plus metadata filters such as `resolution`, `bpm`, `width`, `height`, and `duration`) |
 | `GET` | `/api/assets/:id` | Get asset metadata details |
 | `GET` | `/api/assets/:id/thumbnail` | Serve WebP thumbnail buffer |
 | `GET` | `/api/assets/:id/file` | Stream raw asset (with HTTP 206 Partial Content range support) |
-| `POST` | `/api/assets/copy` | Copy asset or entire stack to active game project |
+| `POST` | `/api/assets/copy` | Copy an `assetId`, or send `stackId` with `copyStackAll: true` for the whole stack; `targetPath` and `targetSubfolder` are optional |
 | `GET` | `/api/stacks/:id` | Get stack details |
 | `GET` | `/api/stacks/:id/assets` | Get ordered frames or variations for a stack |
 | `GET` | `/api/tags` | List all indexed tags with usage counts |
