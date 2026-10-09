@@ -1,20 +1,16 @@
 import path from 'path';
 import fs from 'fs';
-import { initDatabase, getDatabase, queryAssets, getAllTags, getAllFormats } from '../server/src/db/database.js';
-import { scanLibrary } from '../server/src/services/scanner.js';
-import { copyAssetToProject } from '../server/src/services/copier.js';
-import { loadConfigFile } from '../server/src/config.js';
+import os from 'os';
+import { fileURLToPath } from 'url';
+import YAML from 'yaml';
 
-async function runTestPipeline() {
+type DatabaseApi = Pick<typeof import('../server/src/db/database.js'), 'getDatabase' | 'queryAssets'>;
+
+async function verifyPipeline(sampleDir: string, projectDir: string, { getDatabase, queryAssets }: DatabaseApi) {
+  const { scanLibrary } = await import('../server/src/services/scanner.js');
+  const { copyAssetToProject } = await import('../server/src/services/copier.js');
+
   console.log('🧪 Starting Assettlor Backend Pipeline Verification...');
-  loadConfigFile(path.join(process.cwd(), 'sample', 'config.yaml'));
-  const sampleDir = path.join(process.cwd(), 'sample', 'assets');
-  const projectDir = path.join(process.cwd(), 'sample', 'game-project');
-
-  // Clean previous output if any
-  if (fs.existsSync(projectDir)) {
-    fs.rmSync(projectDir, { recursive: true, force: true });
-  }
 
   // 1. Test scanning & indexing
   console.log('\n--- 1. Testing Scanner & Indexer ---');
@@ -170,7 +166,58 @@ async function runTestPipeline() {
   console.log('\n🎉 ALL PIPELINE TESTS PASSED SUCCESSFULLY! 🎉\n');
 }
 
+async function runTestPipeline() {
+  const fixtureDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../sample/assets');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'assettlor-pipeline-'));
+  const sampleDir = path.join(tempRoot, 'assets');
+  const projectDir = path.join(tempRoot, 'game-project');
+  const dataDir = path.join(tempRoot, 'data');
+  const configPath = path.join(tempRoot, 'config.yaml');
+  const previousConfigEnv = process.env.ASSETTLOR_CONFIG;
+  const previousArgv = process.argv;
+  let closeDatabase: (() => void) | undefined;
+
+  try {
+    fs.cpSync(fixtureDir, sampleDir, {
+      recursive: true,
+      filter: (source) => !path.basename(source).startsWith('.'),
+    });
+    fs.writeFileSync(configPath, YAML.stringify({
+      data_dir: dataDir,
+      libraries: [sampleDir],
+      projects: [projectDir],
+    }));
+
+    // config.ts loads on import. Point that first load at the owned fixture.
+    process.env.ASSETTLOR_CONFIG = configPath;
+    process.argv = previousArgv.slice(0, 2);
+    try {
+      const { loadConfigFile } = await import('../server/src/config.js');
+      loadConfigFile(configPath);
+    } finally {
+      process.argv = previousArgv;
+    }
+
+    const database = await import('../server/src/db/database.js');
+    closeDatabase = database.closeDatabase;
+    database.initDatabase(dataDir);
+    await verifyPipeline(sampleDir, projectDir, database);
+  } finally {
+    try {
+      closeDatabase?.();
+    } finally {
+      process.argv = previousArgv;
+      if (previousConfigEnv === undefined) {
+        delete process.env.ASSETTLOR_CONFIG;
+      } else {
+        process.env.ASSETTLOR_CONFIG = previousConfigEnv;
+      }
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+}
+
 runTestPipeline().catch((err) => {
   console.error('❌ Pipeline Test Failed:', err);
-  process.exit(1);
+  process.exitCode = 1;
 });
