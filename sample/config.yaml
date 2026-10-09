@@ -2,13 +2,13 @@ server:
   port: 3001
   host: "0.0.0.0"
 
-data_dir: "./sample/.assettlor"
+data_dir: "./.assettlor"
 
 libraries:
-  - "./sample/assets"
+  - "./assets"
 
 projects:
-  - "./sample/game-project"
+  - "./game-project"
 
 classifiers:
   bpm:

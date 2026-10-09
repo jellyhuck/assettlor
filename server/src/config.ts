@@ -7,6 +7,8 @@ import YAML from 'yaml';
 export interface ServerYamlConfig {
   port?: number;
   host?: string;
+  allowed_origins?: string[];
+  allowed_hosts?: string[];
 }
 
 export interface PipelineYamlConfig {
@@ -48,7 +50,9 @@ export function createDefaultYamlConfig(): AppYamlConfig {
   return {
     server: {
       port: 3001,
-      host: '0.0.0.0',
+      host: '127.0.0.1',
+      allowed_origins: [],
+      allowed_hosts: [],
     },
     data_dir: DEFAULT_DATA_DIR,
     libraries: [],
@@ -103,7 +107,7 @@ export function parseCliConfigArg(): string | undefined {
       return process.argv[i + 1];
     }
     if (arg.startsWith('--config=')) {
-      return arg.split('=')[1];
+      return arg.slice('--config='.length);
     }
   }
   return undefined;
@@ -117,18 +121,7 @@ export function resolveConfigPath(rawPath: string, configDir: string): string {
   if (path.isAbsolute(rawPath)) {
     return rawPath;
   }
-  const relCwd = path.resolve(process.cwd(), rawPath);
-  if (fs.existsSync(relCwd)) {
-    return relCwd;
-  }
-  const relConfig = path.resolve(configDir, rawPath);
-  if (fs.existsSync(relConfig)) {
-    return relConfig;
-  }
-  if (rawPath.startsWith('./sample/') || rawPath.startsWith('sample/')) {
-    return relCwd;
-  }
-  return relConfig;
+  return path.resolve(configDir, rawPath);
 }
 
 export function resolveDataDir(inputDir: string): string {
@@ -138,6 +131,92 @@ export function resolveDataDir(inputDir: string): string {
     return resolved;
   }
   return path.join(resolved, '.assettlor');
+}
+
+export class ConfigValidationError extends Error {
+  readonly statusCode = 400;
+}
+
+function requireRecord(value: unknown, name: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ConfigValidationError(`${name} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireInteger(value: unknown, name: string, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+    throw new ConfigValidationError(`${name} must be an integer from ${min} to ${max}`);
+  }
+  return value;
+}
+
+function requireString(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new ConfigValidationError(`${name} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function requireStringList(value: unknown, name: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new ConfigValidationError(`${name} must be an array of strings`);
+  }
+  return value.map((entry, index) => requireString(entry, `${name}[${index}]`));
+}
+
+function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
+  const input = requireRecord(raw, 'Configuration');
+  const defaults = createDefaultYamlConfig();
+  const serverInput = input.server === undefined ? {} : requireRecord(input.server, 'server');
+  const pipelineInput = input.pipeline === undefined ? {} : requireRecord(input.pipeline, 'pipeline');
+  const classifiersInput = input.classifiers === undefined
+    ? {}
+    : requireRecord(input.classifiers, 'classifiers');
+  const classifiers: Record<string, Record<string, unknown>> = { ...defaults.classifiers };
+  for (const [name, settings] of Object.entries(classifiersInput)) {
+    classifiers[name] = requireRecord(settings, `classifiers.${name}`);
+  }
+
+  const server = { ...defaults.server, ...serverInput };
+  if (server.port !== undefined) server.port = requireInteger(server.port, 'server.port', 1, 65535);
+  if (server.host !== undefined) server.host = requireString(server.host, 'server.host');
+  for (const field of ['allowed_origins', 'allowed_hosts'] as const) {
+    if (server[field] !== undefined) server[field] = requireStringList(server[field], `server.${field}`);
+  }
+
+  const pipeline = { ...defaults.pipeline, ...pipelineInput };
+  if (pipeline.thumbnail_quality !== undefined) {
+    pipeline.thumbnail_quality = requireInteger(pipeline.thumbnail_quality, 'pipeline.thumbnail_quality', 1, 100);
+  }
+  if (pipeline.default_fps !== undefined) {
+    pipeline.default_fps = requireInteger(pipeline.default_fps, 'pipeline.default_fps', 1, 60);
+  }
+  for (const field of ['auto_stack_animations', 'auto_stack_audio'] as const) {
+    if (typeof pipeline[field] !== 'boolean') {
+      throw new ConfigValidationError(`pipeline.${field} must be a boolean`);
+    }
+  }
+
+  const dataDir = input.data_dir === undefined
+    ? defaults.data_dir
+    : resolveConfigPath(requireString(input.data_dir, 'data_dir'), configDir);
+  const libraries = input.libraries === undefined
+    ? defaults.libraries
+    : requireStringList(input.libraries, 'libraries').map((p) => resolveConfigPath(p, configDir));
+  const projects = input.projects === undefined
+    ? defaults.projects
+    : requireStringList(input.projects, 'projects').map((p) => resolveConfigPath(p, configDir));
+
+  return {
+    ...input,
+    server: server as ServerYamlConfig,
+    data_dir: dataDir,
+    libraries,
+    projects,
+    classifiers,
+    pipeline: pipeline as PipelineYamlConfig,
+  };
 }
 
 let currentConfigFilePath: string = DEFAULT_CONFIG_FILE;
@@ -151,7 +230,7 @@ let isMemoryOnly: boolean = Boolean(
 
 export const config: ServerConfig = {
   port: Number(process.env.PORT) || 3001,
-  host: process.env.HOST || '0.0.0.0',
+  host: process.env.HOST || '127.0.0.1',
   dataDir: DEFAULT_DATA_DIR,
   libraries: [],
   projects: [],
@@ -163,8 +242,10 @@ export const config: ServerConfig = {
 };
 
 function syncConfigObject(): void {
-  config.port = Number(process.env.PORT) || currentYamlConfig.server?.port || 3001;
-  config.host = process.env.HOST || currentYamlConfig.server?.host || '0.0.0.0';
+  config.port = process.env.PORT === undefined
+    ? currentYamlConfig.server?.port ?? 3001
+    : requireInteger(Number(process.env.PORT), 'PORT', 1, 65535);
+  config.host = process.env.HOST || currentYamlConfig.server?.host || '127.0.0.1';
   config.dataDir = resolveDataDir(currentYamlConfig.data_dir || DEFAULT_DATA_DIR);
   config.libraries = currentYamlConfig.libraries || [];
   config.projects = currentYamlConfig.projects || [];
@@ -175,68 +256,54 @@ export function loadConfigFile(customPath?: string): AppYamlConfig {
   const cliArg = parseCliConfigArg();
   const envArg = process.env.ASSETTLOR_CONFIG || process.env.CONFIG_PATH;
   const targetPath = customPath || cliArg || envArg || DEFAULT_CONFIG_FILE;
-
-  currentConfigFilePath = path.resolve(targetPath);
-  isMemoryOnly = Boolean(
+  const selectedPath = path.resolve(targetPath);
+  const selectedMemoryOnly = Boolean(
     process.env.VITEST && !customPath && !cliArg && !envArg
   );
+  const configDir = path.dirname(selectedPath);
+  let candidate: AppYamlConfig;
 
-  const defaults = createDefaultYamlConfig();
-  const configDir = path.dirname(currentConfigFilePath);
-
-  if (fs.existsSync(currentConfigFilePath)) {
+  if (fs.existsSync(selectedPath)) {
+    const content = fs.readFileSync(selectedPath, 'utf-8');
+    let parsed: unknown;
     try {
-      const content = fs.readFileSync(currentConfigFilePath, 'utf-8');
-      const parsed = (YAML.parse(content) || {}) as Partial<AppYamlConfig>;
-
-      currentYamlConfig = {
-        server: { ...defaults.server, ...(parsed.server || {}) },
-        data_dir: parsed.data_dir
-          ? resolveConfigPath(parsed.data_dir, configDir)
-          : defaults.data_dir,
-        libraries: Array.isArray(parsed.libraries)
-          ? parsed.libraries.map((p) => resolveConfigPath(String(p).trim(), configDir)).filter(Boolean)
-          : defaults.libraries,
-        projects: Array.isArray(parsed.projects)
-          ? parsed.projects.map((p) => resolveConfigPath(String(p).trim(), configDir)).filter(Boolean)
-          : defaults.projects,
-        classifiers: {
-          ...defaults.classifiers,
-          ...(parsed.classifiers || {}),
-        },
-        pipeline: { ...defaults.pipeline, ...(parsed.pipeline || {}) },
-      };
+      parsed = YAML.parse(content);
     } catch (err) {
-      console.warn(`Failed to parse config file at ${currentConfigFilePath}:`, err);
-      currentYamlConfig = defaults;
+      throw new ConfigValidationError(`Invalid YAML configuration at ${selectedPath}: ${String(err)}`);
     }
+    if (parsed === null || parsed === undefined) {
+      throw new ConfigValidationError(`Configuration at ${selectedPath} must be an object`);
+    }
+    candidate = normalizeYamlConfig(parsed, configDir);
   } else {
-    currentYamlConfig = defaults;
-    if (!isMemoryOnly) {
-      try {
-        if (!fs.existsSync(configDir)) {
-          fs.mkdirSync(configDir, { recursive: true });
-        }
-        fs.writeFileSync(currentConfigFilePath, YAML.stringify(currentYamlConfig), 'utf-8');
-      } catch (err) {
-        console.warn(`Could not create default config file at ${currentConfigFilePath}:`, err);
-      }
+    candidate = normalizeYamlConfig(createDefaultYamlConfig(), configDir);
+    if (!selectedMemoryOnly) {
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(selectedPath, YAML.stringify(candidate), { encoding: 'utf-8', flag: 'wx' });
     }
   }
 
+  if (process.env.PORT !== undefined) requireInteger(Number(process.env.PORT), 'PORT', 1, 65535);
+  currentConfigFilePath = selectedPath;
+  isMemoryOnly = selectedMemoryOnly;
+  currentYamlConfig = candidate;
   syncConfigObject();
   return currentYamlConfig;
 }
 
 export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
   const configDir = path.dirname(currentConfigFilePath);
-  const candidate: AppYamlConfig = {
+  const input = requireRecord(partial, 'Configuration update');
+  for (const field of ['server', 'pipeline', 'classifiers'] as const) {
+    if (input[field] !== undefined) requireRecord(input[field], field);
+  }
+  const candidate = normalizeYamlConfig({
     ...currentYamlConfig,
     ...partial,
     server: { ...currentYamlConfig.server, ...partial.server },
     classifiers: { ...currentYamlConfig.classifiers, ...partial.classifiers },
     pipeline: { ...currentYamlConfig.pipeline, ...partial.pipeline },
-  };
+  }, configDir);
 
   if (!isMemoryOnly) {
     const tempPath = path.join(

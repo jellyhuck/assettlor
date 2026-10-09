@@ -50,7 +50,7 @@ describe('Server Config & YAML Persistence', () => {
 
     const loaded = loadConfigFile(sampleConfigPath);
     expect(loaded.server?.port).toBe(3001);
-    expect(loaded.server?.host).toBe('0.0.0.0');
+    expect(loaded.server?.host).toBe('127.0.0.1');
     expect(loaded.libraries).toBeDefined();
     expect(loaded.libraries?.length).toBeGreaterThan(0);
     expect(loaded.libraries?.[0]).toContain(path.join('sample', 'assets'));
@@ -101,9 +101,9 @@ describe('Server Config & YAML Persistence', () => {
     expect(resolveDataDir('/tmp/test-lib')).toBe('/tmp/test-lib/.assettlor');
   });
 
-  it('should resolve relative paths relative to config file directory or cwd', () => {
+  it('should resolve relative paths relative to the config file directory', () => {
     const configDir = path.join(process.cwd(), 'sample');
-    const resolvedAsset = resolveConfigPath('./sample/assets', configDir);
+    const resolvedAsset = resolveConfigPath('./assets', configDir);
     expect(resolvedAsset).toBe(path.join(process.cwd(), 'sample', 'assets'));
 
     const resolvedRelative = resolveConfigPath('./assets', configDir);

@@ -21,6 +21,8 @@ import {
   getEffectiveConfig,
   saveConfigFile,
   resolveDataDir,
+  resolveConfigPath,
+  ConfigValidationError,
   AppYamlConfig,
 } from '../config.js';
 import {
@@ -267,15 +269,29 @@ export function getAppSettings(): AppSettings {
 }
 
 export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
+  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) {
+    throw new ConfigValidationError('Settings must be an object');
+  }
   const updates: Partial<AppYamlConfig> = {};
+  const configDir = path.dirname(config.configFilePath);
+  const settingPath = (value: unknown, name: string, allowEmpty = false): string => {
+    if (typeof value !== 'string' || (!allowEmpty && !value.trim())) {
+      throw new ConfigValidationError(`${name} must be a ${allowEmpty ? '' : 'non-empty '}string`);
+    }
+    const trimmed = value.trim();
+    return trimmed ? resolveConfigPath(trimmed, configDir) : '';
+  };
+  const settingPaths = (value: unknown, name: string): string[] => {
+    if (!Array.isArray(value)) {
+      throw new ConfigValidationError(`${name} must be an array of paths`);
+    }
+    return value.map((entry, index) => settingPath(entry, `${name}[${index}]`));
+  };
 
   if (settings.libraryPaths !== undefined) {
-    const paths = Array.isArray(settings.libraryPaths)
-      ? settings.libraryPaths.map((p) => String(p).trim()).filter(Boolean)
-      : [];
-    updates.libraries = paths;
+    updates.libraries = settingPaths(settings.libraryPaths, 'libraryPaths');
   } else if (settings.libraryPath !== undefined) {
-    const single = String(settings.libraryPath).trim();
+    const single = settingPath(settings.libraryPath, 'libraryPath', true);
     if (single) {
       const current = getAppSettings();
       let paths = [...current.libraryPaths];
@@ -291,12 +307,9 @@ export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
   }
 
   if (settings.projectPaths !== undefined) {
-    const pPaths = Array.isArray(settings.projectPaths)
-      ? settings.projectPaths.map((p) => String(p).trim()).filter(Boolean)
-      : [];
-    updates.projects = pPaths;
+    updates.projects = settingPaths(settings.projectPaths, 'projectPaths');
   } else if (settings.activeProjectPath !== undefined) {
-    const singleProj = String(settings.activeProjectPath).trim();
+    const singleProj = settingPath(settings.activeProjectPath, 'activeProjectPath', true);
     if (singleProj) {
       const current = getAppSettings();
       let pPaths = [...current.projectPaths];
@@ -316,19 +329,19 @@ export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
   let hasPipelineUpdates = false;
 
   if (settings.thumbnailQuality !== undefined) {
-    pipeline.thumbnail_quality = Number(settings.thumbnailQuality);
+    pipeline.thumbnail_quality = settings.thumbnailQuality;
     hasPipelineUpdates = true;
   }
   if (settings.autoStackAnimations !== undefined) {
-    pipeline.auto_stack_animations = Boolean(settings.autoStackAnimations);
+    pipeline.auto_stack_animations = settings.autoStackAnimations;
     hasPipelineUpdates = true;
   }
   if (settings.autoStackAudio !== undefined) {
-    pipeline.auto_stack_audio = Boolean(settings.autoStackAudio);
+    pipeline.auto_stack_audio = settings.autoStackAudio;
     hasPipelineUpdates = true;
   }
   if (settings.defaultFps !== undefined) {
-    pipeline.default_fps = Number(settings.defaultFps);
+    pipeline.default_fps = settings.defaultFps;
     hasPipelineUpdates = true;
   }
 
@@ -1279,4 +1292,3 @@ export function findAssetsByScope(scope: {
     return rowToAsset(r, tagRows.map((t) => t.tag));
   });
 }
-
