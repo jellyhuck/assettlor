@@ -8,7 +8,7 @@
 
 ### 1. High-Performance Local-First Architecture
 - **Embedded SQLite with WAL Mode**: Stores index data locally at `<data_dir>/index.db` (configured via `config.yaml`, defaulting to `~/.config/assetlor/data/index.db`).
-- **Incremental Scanning**: Compares file size and modification time to skip unchanged assets on subsequent scans.
+- **Incremental Scanning**: Verifies disk content with SHA-256, inventories ZIP entries before decoding them, and refreshes thumbnails when processing settings change. Unavailable roots keep their indexed assets until a successful scan can reconcile them.
 - **Real-Time Progress via SSE**: Live updates streamed to the UI as files are scanned and indexed.
 
 ### 2. Virtual Archive Inspection (`.zip`)

@@ -45,16 +45,18 @@ A navigation and reference guide for understanding subsystem implementations and
 ## 3. Core Subsystems
 
 ### A. Scanning & Indexing (`server/src/services/scanner.ts`)
-- Scans all configured source libraries recursively, using file size and modification time as its quick change fingerprint.
-- Skips unchanged files based on cache records in `index.db`.
+- Scans configured source libraries recursively and records which roots and subtrees were successfully enumerated.
+- Verifies disk content with SHA-256 and compares ZIP entry compressed-byte fingerprints with cache records in `index.db`; unchanged assets skip media decoding. Processing fingerprints include thumbnail options and renderer versions.
 - Emits real-time Server-Sent Events (`SSE`) for UI progress feedback via `routes/scan.ts`.
-- Generates image WebP thumbnails within 400×400 pixels without enlargement; audio artwork is 400×240 pixels. The scanner caches both under `<data_dir>/thumbnails/<asset-id>.webp`, using `file_<base64url(relative path)>` for disk assets and `zip_<base64url(virtual path)>` for archive entries. The filename is based on the asset ID, not its content hash.
+- Generates image WebP thumbnails within 400×400 pixels without enlargement; audio artwork is 400×240 pixels. Canonical source and ZIP-entry identities use bounded SHA-256 IDs independent of display prefixes. Versioned cache files under `<data_dir>/thumbnails/` include the asset ID, content fingerprint, and processing fingerprint. A scan stages replacements before updating SQLite, and removes unreferenced thumbnails after commit.
+- Records completed and failed traversal scopes, preserving rows and thumbnails for offline roots, unreadable subtrees, and failed archives. Configured root removal is reconciled only after an explicit configuration change and successful scan admission. Scanner-owned tags refresh on reindex; user tags remain attached to the asset ID.
+- Cancelling before index publication removes staged thumbnails and leaves prior rows intact. Automatic classifiers run after index publication; cancelling that phase stops classifier work while the newly indexed catalog remains available. Retry markers preserve unfinished classifier targets for a later scan.
 
 ### B. Virtual Archive Inspection (`server/src/services/archive.ts`)
-- Inspects `.zip` archives directly in memory using `adm-zip` without decompressing files to disk.
+- Inspects `.zip` headers and compressed bytes in memory with `adm-zip`; only changed entries are decompressed, one archive at a time. Resource limits protect entry count, declared sizes, and compression ratio. No temporary source extraction is used.
 - Virtual path syntax: `Archive.zip#/inner/folder/sprite.png`.
 - Sets `is_archive_entry = 1`, storing the archive's disk path in `archive_path` and entry path in `archive_entry_path`.
-- Thumbnail buffers are generated and cached during scans; serving an original archive entry reads its buffer into memory on request.
+- Thumbnail buffers are staged during scans; serving an original archive entry reads its buffer into memory on request.
 
 ### C. Sequential Stacking Engine (`server/src/services/stacker.ts`)
 - **Animation Sequences**: Uses regex heuristics to identify frame suffixes (`_01`, `_frame1`, `_001`) with matching base names in the same folder.
