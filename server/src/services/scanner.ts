@@ -346,6 +346,7 @@ async function runScanLibrary(
         try {
           const opened = openZipArchive(absolutePath, displayPath(root, absolutePath), `${stats.size}:${stats.mtimeMs}`);
           for (const descriptor of opened.entries) {
+            if (seenIds.has(descriptor.id)) continue;
             seenIds.add(descriptor.id);
             await processInventoryItem({ kind: 'zip', sourceDirectory: root, archivePath: absolutePath, inventory: opened, entry: descriptor });
           }
@@ -357,6 +358,7 @@ async function runScanLibrary(
         }
       } else {
         const id = canonicalAssetId(absolutePath);
+        if (seenIds.has(id)) continue;
         seenIds.add(id);
         await processInventoryItem({
           kind: 'disk', sourceDirectory: root, absolutePath,
@@ -491,7 +493,9 @@ async function runScanLibrary(
     throwIfCancelled();
 
     // Inventory records which scopes completed; failed subtrees are never proof of deletion.
-    for (const root of targetRoots) {
+    // A file visible through overlapping roots belongs to the most specific
+    // configured root regardless of request order.
+    for (const root of [...targetRoots].sort((left, right) => right.length - left.length)) {
       throwIfCancelled();
       const scope: ScanScope = { sourceDirectory: root, completedDirectories: [], failedPaths: [], rootSucceeded: false };
       scopes.push(scope);

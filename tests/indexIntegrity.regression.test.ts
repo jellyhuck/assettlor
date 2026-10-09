@@ -92,6 +92,112 @@ describe('Index identity and curation', () => {
     expect(stack.representative_asset_id).toBe(nextId);
   });
 
+  it('migrates a mixed legacy catalog and keeps its references through root reorder', async () => {
+    const first = path.join(fixture, 'one', 'assets');
+    const second = path.join(fixture, 'two', 'assets');
+    fs.mkdirSync(first, { recursive: true });
+    fs.mkdirSync(second, { recursive: true });
+    const firstFrame = path.join(first, 'walk_01.png');
+    const secondFrame = path.join(first, 'walk_02.png');
+    const secondRootFile = path.join(second, 'button.png');
+    const archivePath = path.join(second, 'Pack.zip');
+    const entryPath = `${'nested/'.repeat(12)}sprite.png`;
+    for (const file of [firstFrame, secondFrame, secondRootFile]) {
+      fs.writeFileSync(file, TINY_PNG_BUFFER);
+    }
+    createTestZipArchive(archivePath, [{ name: entryPath, content: TINY_PNG_BUFFER }]);
+    resetConfigForTesting({ data_dir: dataDir, libraries: [first, second], classifiers: {} });
+
+    const oldIds = [
+      `file_${Buffer.from('one/assets/walk_01.png').toString('base64url')}`,
+      `file_${Buffer.from('one/assets/walk_02.png').toString('base64url')}`,
+      `file_${Buffer.from('two/assets/button.png').toString('base64url')}`,
+      `zip_${Buffer.from(`two/assets/Pack.zip#/${entryPath}`).toString('base64url')}`,
+    ];
+    const canonicalIds = [
+      canonicalAssetId(firstFrame),
+      canonicalAssetId(secondFrame),
+      canonicalAssetId(secondRootFile),
+      canonicalAssetId(archivePath, entryPath),
+    ];
+    const db = getDatabase();
+    const insertAsset = db.prepare(`
+      INSERT INTO assets (id, path, absolute_path, name, extension, category, size,
+        mtime, hash, is_archive_entry, archive_path, archive_entry_path,
+        source_directory, metadata, stack_id, stack_index, created_at, updated_at)
+      VALUES (?, ?, ?, ?, '.png', 'image', ?, 1, 'legacy', ?, ?, ?, ?, '{}', ?, ?, 7, 7)
+    `);
+    insertAsset.run(oldIds[0], 'one/assets/walk_01.png', firstFrame, 'walk_01.png',
+      TINY_PNG_BUFFER.length, 0, null, null, first, 'old_stack', 0);
+    // The same source was indexed twice under overlapping roots in an older index.
+    insertAsset.run(canonicalIds[0], 'duplicate/walk_01.png', firstFrame, 'walk_01.png',
+      TINY_PNG_BUFFER.length, 0, null, null, first, 'old_stack', 1);
+    insertAsset.run(oldIds[1], 'one/assets/walk_02.png', secondFrame, 'walk_02.png',
+      TINY_PNG_BUFFER.length, 0, null, null, first, 'old_stack', 2);
+    insertAsset.run(oldIds[2], 'two/assets/button.png', secondRootFile, 'button.png',
+      TINY_PNG_BUFFER.length, 0, null, null, second, null, null);
+    insertAsset.run(oldIds[3], `two/assets/Pack.zip#/${entryPath}`, archivePath, 'sprite.png',
+      TINY_PNG_BUFFER.length, 1, archivePath, entryPath, second, null, null);
+    db.prepare(`
+      INSERT INTO stacks (id, name, type, item_count, representative_asset_id,
+        metadata, created_at)
+      VALUES ('old_stack', 'Walk', 'animation', 3, ?, '{}', 7)
+    `).run(oldIds[0]);
+    db.prepare("INSERT INTO tags (asset_id, tag, source) VALUES (?, ?, 'user')")
+      .run(oldIds[0], 'Favorite');
+    db.prepare("INSERT INTO tags (asset_id, tag, source) VALUES (?, ?, 'user')")
+      .run(canonicalIds[0], 'Keep');
+    db.prepare("INSERT INTO tags (asset_id, tag, source) VALUES (?, ?, 'user')")
+      .run(oldIds[2], 'Second Root');
+    db.prepare("INSERT INTO tags (asset_id, tag, source) VALUES (?, ?, 'user')")
+      .run(oldIds[3], 'Deep Zip');
+
+    const expectStackReferences = () => {
+      const stacks = getDatabase().prepare(`
+        SELECT id, item_count, representative_asset_id FROM stacks
+      `).all() as { id: string; item_count: number; representative_asset_id: string }[];
+      expect(stacks.length).toBeGreaterThan(0);
+      for (const stack of stacks) {
+        const members = getDatabase().prepare(`
+          SELECT id, stack_index FROM assets WHERE stack_id = ? ORDER BY stack_index
+        `).all(stack.id) as { id: string; stack_index: number }[];
+        expect(stack.item_count).toBe(members.length);
+        expect(members.map((member) => member.stack_index)).toEqual(
+          members.map((_, index) => index)
+        );
+        expect(members.some((member) => member.id === stack.representative_asset_id)).toBe(true);
+      }
+    };
+    const expectMigratedCatalog = () => {
+      const rows = getDatabase().prepare('SELECT id, path FROM assets ORDER BY id').all() as
+        { id: string; path: string }[];
+      expect(rows.map((row) => row.id).sort()).toEqual([...canonicalIds].sort());
+      expect(new Set(rows.map((row) => row.path)).size).toBe(canonicalIds.length);
+      for (const [index, oldId] of oldIds.entries()) {
+        expect(getAssetById(oldId)?.id).toBe(canonicalIds[index]);
+      }
+      expect(getAssetById(canonicalIds[0])?.tags).toEqual(expect.arrayContaining(['Favorite', 'Keep']));
+      expect(getAssetById(canonicalIds[2])?.tags).toContain('Second Root');
+      expect(getAssetById(canonicalIds[3])?.tags).toContain('Deep Zip');
+      expectStackReferences();
+    };
+
+    closeDatabase();
+    initDatabase(dataDir);
+    expectMigratedCatalog();
+    expect(getDatabase().prepare('SELECT item_count FROM stacks WHERE id = ?').get('old_stack'))
+      .toMatchObject({ item_count: 2 });
+    expect((await scanLibrary([first, second])).status).toBe('completed');
+    expectMigratedCatalog();
+    const displayPaths = canonicalIds.map((id) => getAssetById(id)!.path);
+    expect(displayPaths[0].split('/')[0]).not.toBe(displayPaths[2].split('/')[0]);
+    expect(displayPaths[3]).toContain(`Pack.zip#/${entryPath}`);
+    resetConfigForTesting({ data_dir: dataDir, libraries: [second, first], classifiers: {} });
+    expect((await scanLibrary([second, first])).status).toBe('completed');
+    expectMigratedCatalog();
+    expect(canonicalIds.map((id) => getAssetById(id)!.path)).toEqual(displayPaths);
+  });
+
   it('keeps explicit tags when scanner and classifier ownership changes', () => {
     const file = path.join(fixture, 'curated.png');
     const id = canonicalAssetId(file);

@@ -144,6 +144,37 @@ describe('scan scope reconciliation and lifecycle', () => {
     expect(fs.existsSync(beforeB.thumbnail_path!)).toBe(true);
   });
 
+  it('indexes overlapping roots once under the most specific source', async () => {
+    const nested = path.join(libraryA, 'nested');
+    const file = path.join(nested, 'icon.png');
+    writePng(file);
+    resetConfigForTesting({
+      data_dir: dataDir,
+      libraries: [libraryA, nested],
+      classifiers: {
+        bpm: { enabled: false }, sprite: { enabled: false }, pack: { enabled: false },
+      },
+    });
+
+    expect((await scanLibrary([libraryA, nested])).status).toBe('completed');
+    const first = byDiskPath(file)!;
+    expect(indexedAssets()).toHaveLength(1);
+    expect(first.source_directory).toBe(nested);
+
+    resetConfigForTesting({
+      data_dir: dataDir,
+      libraries: [nested, libraryA],
+      classifiers: {
+        bpm: { enabled: false }, sprite: { enabled: false }, pack: { enabled: false },
+      },
+    });
+    expect((await scanLibrary([nested, libraryA])).status).toBe('completed');
+    expect(indexedAssets()).toHaveLength(1);
+    expect(byDiskPath(file)).toMatchObject({
+      id: first.id, source_directory: nested, path: first.path,
+    });
+  });
+
   it('keeps a legacy nested-root row with no source directory when the inner root is offline', async () => {
     const inner = path.join(libraryA, 'inner');
     const file = path.join(inner, 'icon.png');
