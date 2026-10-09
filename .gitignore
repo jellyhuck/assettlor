@@ -7,3 +7,29 @@ sample/assets/.assettlor/
 *.log
 .DS_Store
 coverage/
+
+# Local environment files (keep shareable examples)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Node.js tooling caches and build metadata
+.npm/
+.pnpm-store/
+.cache/
+.vite/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+.nyc_output/
+
+# Package manager debug logs, including rotated logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary development files
+tmp/
+temp/
