@@ -1,6 +1,6 @@
 ---
 name: git-commit-messages
-description: Draft, revise, or review Git commit messages using capitalized imperative subjects, a 50-character subject target (72 maximum), and bodies wrapped at 72 characters. Use whenever writing a commit message, including as part of an authorized commit workflow.
+description: Draft, validate, revise, or review Git commit messages using capitalized imperative subjects, a 50-character subject target (72 maximum), and bodies wrapped at 72 characters. Use whenever writing a commit message, including as part of an authorized commit workflow.
 ---
 
 # Git Commit Messages
@@ -35,17 +35,30 @@ message. A request for a message alone does not authorize a commit.
 7. Explain what changed and why in the body. Describe the problem and
    intended outcome; include relevant consequences or tradeoffs. Avoid
    narrating implementation details already apparent in the diff.
+8. Never include "Co-Authored-By:", tool signatures, or any other
+   unnecessary AI indicators in the subject, body, or trailers.
 
 Use a plain imperative subject by default. Do not add Conventional Commits
 prefixes such as `feat:` or `fix:` unless explicitly requested. The linked
 cheatsheet does not introduce additional formatting requirements.
 
-## Deliver the message
+## Validate the exact message
 
-Before returning the message, check subject length, capitalization,
-imperative phrasing, the absence of a trailing period, blank-line
-separation, and body line lengths. Ensure the message covers only the
-intended changes and that the body adds useful context.
+Before returning a message or running `git commit`, check subject length,
+capitalization, imperative phrasing, the absence of a trailing period,
+blank-line separation, and body line lengths. Ensure the message contains no
+"Co-Authored-By:" lines or unnecessary AI indicators, covers only the
+intended changes, and adds useful context in the body.
+
+For an authorized commit, write the complete message to a temporary file,
+hard-wrap its body, and pass that file with `git commit --file`. Git does
+not wrap text supplied with `-m`, and `git diff --check` does not inspect
+commit messages. In this repository, the `commit-msg` hook checks the
+mechanical rules; review imperative wording, sentence case, and the
+message's meaning yourself. After committing or amending, inspect the
+actual message with `git show -s --format=%B HEAD`. Fix a malformed local,
+unpublished commit before continuing; do not rewrite published history
+without authorization.
 
 When asked only for a commit message, return one ready-to-copy message in
 a fenced text block, without commentary unless the user requests it.
