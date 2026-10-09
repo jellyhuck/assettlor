@@ -12,6 +12,7 @@ import {
   removeAssetsForSourceDirectory,
   removeDeletedAssetsForSourceDirectory,
   getAssetByPath,
+  getAssetById,
   getThumbnailsDir,
 } from '../db/database.js';
 import { isSupportedImageExtension, processImageFile } from './image.js';
@@ -21,6 +22,7 @@ import { runStackingEngine } from './stacker.js';
 import { getAllClassifiers, getEffectiveClassifierSettings, runClassifier } from './classifiers/index.js';
 import type { ScanProgressEvent, ScanStatusType } from '../../../shared/types.js';
 import { config, getDataDir } from '../config.js';
+import { canonicalAssetId, sourceDisplaySuffix } from './assetIdentity.js';
 
 type SseListener = (event: ScanProgressEvent) => void;
 const sseListeners = new Set<SseListener>();
@@ -135,7 +137,7 @@ export async function scanLibrary(
   const allConfigured = settings.libraryPaths && settings.libraryPaths.length > 0
     ? settings.libraryPaths
     : (settings.libraryPath ? [settings.libraryPath] : []);
-  const resolvedConfigured = allConfigured.map((d) => path.resolve(d)).filter((d) => fs.existsSync(d));
+  const resolvedConfigured = allConfigured.map((d) => path.resolve(d));
 
   const thumbnailsDir = getThumbnailsDir();
   if (!fs.existsSync(thumbnailsDir)) {
@@ -166,7 +168,9 @@ export async function scanLibrary(
   });
 
   // Calculate unique prefixes for multiple directories based on full configured list
-  const prefixSourceDirs = resolvedConfigured.length > 1 ? resolvedConfigured : existingDirs;
+  const prefixSourceDirs = resolvedConfigured.length > 0 && existingDirs.every((d) => resolvedConfigured.includes(d))
+    ? resolvedConfigured
+    : resolvedDirs;
   const dirPrefixes = new Map<string, string>();
   if (prefixSourceDirs.length > 1) {
     const baseCounts = new Map<string, number>();
@@ -174,19 +178,16 @@ export async function scanLibrary(
       const base = path.basename(d);
       baseCounts.set(base, (baseCounts.get(base) || 0) + 1);
     }
-    const baseUsed = new Map<string, number>();
     for (const d of prefixSourceDirs) {
       const base = path.basename(d);
       if ((baseCounts.get(base) || 0) > 1) {
-        const idx = (baseUsed.get(base) || 0) + 1;
-        baseUsed.set(base, idx);
-        dirPrefixes.set(d, `${base} (${idx})`);
+        dirPrefixes.set(d, `${base} (${sourceDisplaySuffix(d)})`);
       } else {
         dirPrefixes.set(d, base);
       }
     }
   } else {
-    dirPrefixes.set(existingDirs[0], '');
+    dirPrefixes.set(prefixSourceDirs[0], '');
   }
 
   const activePaths = new Set<string>();
@@ -306,13 +307,14 @@ export async function scanLibrary(
           // Regular image or audio file
           activePaths.add(relativePath);
 
-          const assetId = `file_${Buffer.from(relativePath).toString('base64url')}`;
+          const assetId = canonicalAssetId(fullPath);
           const thumbFilename = `${assetId}.webp`;
           const thumbDiskPath = path.join(thumbnailsDir, thumbFilename);
 
-          const existing = getAssetByPath(relativePath);
+          const existing = getAssetById(assetId);
           if (
             existing &&
+            existing.path === relativePath &&
             existing.hash === quickHash &&
             existing.absolutePath === fullPath &&
             existing.sourceDirectory === rootDir &&

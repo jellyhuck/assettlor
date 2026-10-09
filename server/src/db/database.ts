@@ -35,6 +35,7 @@ import {
   parseHeightClause,
   parseDurationClause,
 } from '../services/filterParser.js';
+import { canonicalAssetId } from '../services/assetIdentity.js';
 
 let dbInstance: Database.Database | null = null;
 let currentDataDir: string = '';
@@ -151,6 +152,11 @@ export function initDatabase(dataDirInput?: string): Database.Database {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS asset_id_aliases (
+      old_id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_assets_category ON assets(category);
     CREATE INDEX IF NOT EXISTS idx_assets_extension ON assets(extension);
     CREATE INDEX IF NOT EXISTS idx_assets_stack_id ON assets(stack_id);
@@ -164,6 +170,7 @@ export function initDatabase(dataDirInput?: string): Database.Database {
     if (!assetColumns.some((column) => column.name === 'source_directory')) {
       db.exec('ALTER TABLE assets ADD COLUMN source_directory TEXT');
     }
+    migrateCanonicalAssetIds(db);
   } catch (err) {
     db.close();
     throw err;
@@ -180,6 +187,42 @@ export function initDatabase(dataDirInput?: string): Database.Database {
   dbInstance = db;
   currentDataDir = resolvedDataDir;
   return db;
+}
+
+function migrateCanonicalAssetIds(db: Database.Database): void {
+  const rows = db.prepare(`
+    SELECT id, absolute_path, archive_entry_path
+    FROM assets
+    WHERE id LIKE 'file_%' OR id LIKE 'zip_%'
+  `).all() as { id: string; absolute_path: string; archive_entry_path: string | null }[];
+  const replaceId = db.prepare('UPDATE assets SET id = ? WHERE id = ?');
+  const replaceTagId = db.prepare('UPDATE tags SET asset_id = ? WHERE asset_id = ?');
+  const replaceRepresentativeId = db.prepare('UPDATE stacks SET representative_asset_id = ? WHERE representative_asset_id = ?');
+  const addAlias = db.prepare('INSERT OR REPLACE INTO asset_id_aliases (old_id, asset_id) VALUES (?, ?)');
+  const migrate = db.transaction(() => {
+    for (const row of rows) {
+      const nextId = canonicalAssetId(row.absolute_path, row.archive_entry_path);
+      if (row.id === nextId) continue;
+      // An older index may contain the same disk file under overlapping roots.
+      // Merge that duplicate's curation into the canonical row.
+      const duplicate = db.prepare('SELECT id FROM assets WHERE id = ?').get(nextId) as { id: string } | undefined;
+      if (duplicate) {
+        db.prepare(`
+          INSERT OR IGNORE INTO tags (asset_id, tag, source)
+          SELECT ?, tag, source FROM tags WHERE asset_id = ?
+        `).run(nextId, row.id);
+        db.prepare('DELETE FROM tags WHERE asset_id = ?').run(row.id);
+        replaceRepresentativeId.run(nextId, row.id);
+        db.prepare('DELETE FROM assets WHERE id = ?').run(row.id);
+      } else {
+        replaceId.run(nextId, row.id);
+        replaceTagId.run(nextId, row.id);
+        replaceRepresentativeId.run(nextId, row.id);
+      }
+      addAlias.run(row.id, nextId);
+    }
+  });
+  migrate();
 }
 
 export interface AssetRow {
@@ -354,10 +397,14 @@ export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
 
 export function getAssetById(id: string): Asset | null {
   const db = getDatabase();
-  const row = db.prepare('SELECT * FROM assets WHERE id = ?').get(id) as AssetRow | undefined;
+  const row = db.prepare(`
+    SELECT * FROM assets WHERE id = COALESCE(
+      (SELECT asset_id FROM asset_id_aliases WHERE old_id = ?), ?
+    )
+  `).get(id, id) as AssetRow | undefined;
   if (!row) return null;
 
-  const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(id) as { tag: string }[];
+  const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(row.id) as { tag: string }[];
   const tags = tagRows.map((t) => t.tag);
   return rowToAsset(row, tags);
 }
@@ -404,8 +451,8 @@ export function upsertAsset(asset: {
       ?, ?, ?, ?, ?,
       ?, ?, ?
     )
-    ON CONFLICT(path) DO UPDATE SET
-      id = excluded.id,
+    ON CONFLICT(id) DO UPDATE SET
+      path = excluded.path,
       absolute_path = excluded.absolute_path,
       name = excluded.name,
       extension = excluded.extension,
@@ -427,6 +474,20 @@ export function upsertAsset(asset: {
   const insertTagStmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
 
   const tx = db.transaction(() => {
+    const pathOwner = db.prepare('SELECT id, absolute_path, archive_entry_path FROM assets WHERE path = ?').get(asset.path) as
+      { id: string; absolute_path: string; archive_entry_path: string | null } | undefined;
+    if (pathOwner && pathOwner.id !== asset.id) {
+      if (path.resolve(pathOwner.absolute_path) !== path.resolve(asset.absolutePath) ||
+          (pathOwner.archive_entry_path || null) !== (asset.archiveEntryPath || null)) {
+        throw new Error(`Display path belongs to another source: ${asset.path}`);
+      }
+      deleteTagsByPathStmt.run(asset.path);
+      db.prepare('UPDATE stacks SET representative_asset_id = ? WHERE representative_asset_id = ?')
+        .run(asset.id, pathOwner.id);
+      db.prepare('UPDATE assets SET id = ? WHERE id = ?').run(asset.id, pathOwner.id);
+      db.prepare('INSERT OR REPLACE INTO asset_id_aliases (old_id, asset_id) VALUES (?, ?)')
+        .run(pathOwner.id, asset.id);
+    }
     deleteTagsByPathStmt.run(asset.path);
     upsertStmt.run(
       asset.id,
