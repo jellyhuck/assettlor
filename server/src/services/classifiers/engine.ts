@@ -16,6 +16,13 @@ import {
 import { getZipEntryBuffer } from '../archive.js';
 import { getEffectiveClassifierSettings } from './registry.js';
 
+export class ClassifierCancelledError extends Error {
+  constructor() {
+    super('Classifier run cancelled');
+    this.name = 'ClassifierCancelledError';
+  }
+}
+
 export async function loadAssetBuffer(asset: Asset): Promise<Buffer | null> {
   const libraryPath = getCurrentLibraryPath();
 
@@ -50,6 +57,11 @@ export async function runClassifier(
   classifier: Classifier,
   options: RunClassifierOptions
 ): Promise<ClassifierRunResult> {
+  const throwIfCancelled = (): void => {
+    if (options.shouldCancel?.()) throw new ClassifierCancelledError();
+  };
+
+  throwIfCancelled();
   const startTime = Date.now();
   const effectiveSettings = {
     ...getEffectiveClassifierSettings(classifier),
@@ -63,16 +75,19 @@ export async function runClassifier(
     targetValue: options.targetValue,
     category: targetCategory,
   });
+  throwIfCancelled();
 
   const totalTargeted = assets.length;
   const results: ClassifierAssetResult[] = [];
 
   for (let i = 0; i < assets.length; i++) {
+    throwIfCancelled();
     const asset = assets[i];
     const intermediate = classifier.createIntermediateState(asset, effectiveSettings);
 
     try {
       const buffer = await loadAssetBuffer(asset);
+      throwIfCancelled();
       const context = {
         asset,
         buffer,
@@ -81,6 +96,7 @@ export async function runClassifier(
       };
 
       for (let s = 0; s < classifier.steps.length; s++) {
+        throwIfCancelled();
         const step = classifier.steps[s];
 
         if (options.onProgress) {
@@ -93,25 +109,31 @@ export async function runClassifier(
             stepName: step.name,
           });
         }
+        throwIfCancelled();
 
         const continueExecution = await step.execute(context);
+        throwIfCancelled();
         if (continueExecution === false || (intermediate as any).skipped) {
           break;
         }
       }
 
+      throwIfCancelled();
       const assetResult = classifier.createAssetResult(asset, intermediate, effectiveSettings);
       results.push(assetResult);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (err instanceof ClassifierCancelledError) throw err;
       results.push({
         assetId: asset.id,
         assetPath: asset.path,
         success: false,
-        error: err?.message || 'Unexpected classifier error',
+        error: err instanceof Error ? err.message : 'Unexpected classifier error',
+        retryable: true,
       });
     }
   }
 
+  throwIfCancelled();
   const classifiedCount = results.filter((r) => r.success).length;
   const failedCount = results.length - classifiedCount;
 

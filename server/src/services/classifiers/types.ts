@@ -37,6 +37,8 @@ export interface RunClassifierOptions<TSettings = any> {
   targetType: ClassifierTargetType;
   targetValue?: string | string[];
   settingsOverride?: Partial<TSettings>;
+  /** Checked between assets and steps; cancellation stops the run without a normal result. */
+  shouldCancel?: () => boolean;
   onProgress?: (progress: {
     processedCount: number;
     totalTargeted: number;

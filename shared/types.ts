@@ -312,6 +312,7 @@ export interface ClassifierAssetResult {
   result?: Record<string, unknown>;
   tagsAdded?: string[];
   error?: string;
+  retryable?: boolean;
 }
 
 export interface ClassifierRunResult {
