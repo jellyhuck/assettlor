@@ -29,6 +29,8 @@ export interface AudioMetadata {
 
 export type AssetMetadata = ImageMetadata & AudioMetadata & {
   pack?: string;
+  thumbnailFingerprint?: string;
+  metadataProcessingVersion?: string;
   raw?: Record<string, unknown>;
 };
 
@@ -132,6 +134,7 @@ export interface ScanProgressEvent {
   startTime?: number;
   elapsedMs?: number;
   error?: string;
+  failedScopes?: string[];
 }
 
 export interface AppSettings {
@@ -326,4 +329,3 @@ export interface ClassifierRunResult {
   details: ClassifierAssetResult[];
   elapsedMs: number;
 }
-

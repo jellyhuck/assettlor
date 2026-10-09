@@ -109,6 +109,11 @@ describe('server startup and filesystem errors', () => {
     });
     expect(response.statusCode).toBe(200);
 
+    for (let attempt = 0; attempt < 50 && !releaseRead; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(releaseRead).toBeDefined();
+
     let closed = false;
     const closing = app.close().then(() => { closed = true; });
     await new Promise((resolve) => setTimeout(resolve, 10));

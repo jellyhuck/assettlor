@@ -482,6 +482,49 @@ export function getAssetByPath(assetPath: string): Asset | null {
   return rowToAsset(row, tags);
 }
 
+export interface ScanCacheRecord {
+  id: string;
+  path: string;
+  absolutePath: string;
+  archivePath: string | null;
+  sourceDirectory: string | null;
+  hash: string;
+  size: number;
+  mtime: number;
+  thumbnailPath: string | null;
+  metadata: AssetMetadata;
+}
+
+export function getScanCacheRecord(id: string): ScanCacheRecord | null {
+  const row = getDatabase().prepare(`
+    SELECT id, path, absolute_path, archive_path, source_directory, hash, size, mtime,
+      thumbnail_path, metadata FROM assets WHERE id = ?
+  `).get(id) as Pick<AssetRow,
+    'id' | 'path' | 'absolute_path' | 'archive_path' | 'source_directory' |
+    'hash' | 'size' | 'mtime' | 'thumbnail_path' | 'metadata'> | undefined;
+  if (!row) return null;
+  let metadata: AssetMetadata = {};
+  if (row.metadata) {
+    try {
+      metadata = JSON.parse(row.metadata) as AssetMetadata;
+    } catch {
+      metadata = {};
+    }
+  }
+  return {
+    id: row.id,
+    path: row.path,
+    absolutePath: row.absolute_path,
+    archivePath: row.archive_path,
+    sourceDirectory: row.source_directory,
+    hash: row.hash,
+    size: row.size,
+    mtime: row.mtime,
+    thumbnailPath: row.thumbnail_path,
+    metadata,
+  };
+}
+
 export function upsertAsset(asset: {
   id: string;
   path: string;
@@ -887,6 +930,55 @@ export function removeAssetsForSourceDirectory(sourceDir: string): { removedCoun
   }
 
   return { removedCount: rows.length, thumbnailPaths: thumbPaths };
+}
+
+export interface CompletedScanScope {
+  sourceDirectory: string;
+  completedDirectories: string[];
+  failedPaths: string[];
+}
+
+function pathIsWithin(candidate: string, parent: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/** Called inside the scan commit transaction after all media work succeeds. */
+export function reconcileScannedAssets(
+  scopes: CompletedScanScope[],
+  seenAssetIds: Set<string>,
+  removedConfiguredSources: string[] = []
+): { removedIds: string[]; thumbnailPaths: string[] } {
+  const db = getDatabase();
+  const removedSources = new Set(removedConfiguredSources.map((source) => path.resolve(source)));
+  const rows = db.prepare('SELECT id, absolute_path, source_directory, thumbnail_path FROM assets').all() as
+    { id: string; absolute_path: string; source_directory: string | null; thumbnail_path: string | null }[];
+  const deleteTags = db.prepare('DELETE FROM tags WHERE asset_id = ?');
+  const deleteAliases = db.prepare('DELETE FROM asset_id_aliases WHERE asset_id = ?');
+  const deleteAsset = db.prepare('DELETE FROM assets WHERE id = ?');
+  const removedIds: string[] = [];
+  const thumbnailPaths: string[] = [];
+
+  for (const row of rows) {
+    if (seenAssetIds.has(row.id)) continue;
+    const source = row.source_directory ? path.resolve(row.source_directory) : null;
+    const removedSource = source !== null && removedSources.has(source);
+    const scope = source !== null
+      ? scopes.find((candidate) => candidate.sourceDirectory === source)
+      : scopes
+        .filter((candidate) => pathIsWithin(row.absolute_path, candidate.sourceDirectory))
+        .sort((left, right) => right.sourceDirectory.length - left.sourceDirectory.length)[0];
+    const observed = scope?.completedDirectories.some((directory) => pathIsWithin(row.absolute_path, directory)) ?? false;
+    const failed = scopes.some((candidate) => candidate.failedPaths.some((failedPath) =>
+      pathIsWithin(row.absolute_path, failedPath)));
+    if (!removedSource && (!observed || failed)) continue;
+    deleteTags.run(row.id);
+    deleteAliases.run(row.id);
+    deleteAsset.run(row.id);
+    removedIds.push(row.id);
+    if (row.thumbnail_path) thumbnailPaths.push(row.thumbnail_path);
+  }
+  return { removedIds, thumbnailPaths };
 }
 
 export function queryAssets(params: AssetQueryParams): AssetListResponse {

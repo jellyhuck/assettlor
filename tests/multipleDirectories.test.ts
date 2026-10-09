@@ -254,11 +254,13 @@ describe('Multiple Source and Project Directories', () => {
         fs.writeFileSync(path.join(lib2, 'remove.png'), TINY_PNG_BUFFER);
 
         // Scan both
+        updateAppSettings({ libraryPaths: [lib1, lib2] });
         await scanLibrary([lib1, lib2]);
         let db = getDatabase();
         expect((db.prepare('SELECT COUNT(*) as c FROM assets').get() as any).c).toBe(2);
 
         // Rescan with only lib1
+        updateAppSettings({ libraryPaths: [lib1] });
         await scanLibrary([lib1]);
         db = getDatabase();
         expect((db.prepare('SELECT COUNT(*) as c FROM assets').get() as any).c).toBe(1);
