@@ -1,51 +1,68 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+
+function errorCode(err: unknown): string | undefined {
+  return err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Filesystem operation failed';
+}
 
 export async function fsRoutes(fastify: FastifyInstance) {
   fastify.get('/api/fs/browse', async (req: FastifyRequest<{ Querystring: { path?: string } }>, reply) => {
+    const rawPath: unknown = req.query.path;
+    if (rawPath !== undefined && (typeof rawPath !== 'string' || !rawPath.trim())) {
+      return reply.status(400).send({ error: 'path must be a non-empty string' });
+    }
+    const requestedPath = path.resolve(typeof rawPath === 'string' ? rawPath : process.cwd());
+
     try {
-      const requestedPath = req.query.path ? path.resolve(req.query.path) : process.cwd();
-      const currentPath = fs.existsSync(requestedPath) ? requestedPath : os.homedir();
-      const parentPath = path.dirname(currentPath);
-
-      const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
-      const directories: { name: string; path: string }[] = [];
-
-      for (const entry of entries) {
-        if (entry.isDirectory() && !entry.name.startsWith('.')) {
-          directories.push({
-            name: entry.name,
-            path: path.join(currentPath, entry.name),
-          });
-        }
+      const stat = await fs.promises.stat(requestedPath);
+      if (!stat.isDirectory()) {
+        return reply.status(400).send({ error: 'path must refer to a directory' });
       }
-
-      directories.sort((a, b) => a.name.localeCompare(b.name));
-
+      const entries = await fs.promises.readdir(requestedPath, { withFileTypes: true });
+      const directories = entries
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+        .map((entry) => ({ name: entry.name, path: path.join(requestedPath, entry.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const parentPath = path.dirname(requestedPath);
       return reply.send({
-        currentPath,
-        parentPath: parentPath !== currentPath ? parentPath : null,
+        currentPath: requestedPath,
+        parentPath: parentPath !== requestedPath ? parentPath : null,
         directories,
       });
-    } catch (err: any) {
-      return reply.status(500).send({ error: err.message });
+    } catch (err: unknown) {
+      const code = errorCode(err);
+      const status = code === 'ENOENT' ? 404 : code === 'ENOTDIR' ? 400 :
+        code === 'EACCES' || code === 'EPERM' ? 403 : 500;
+      return reply.status(status).send({ error: errorMessage(err) });
     }
   });
 
   fastify.post('/api/fs/validate', async (req: FastifyRequest<{ Body: { path: string } }>, reply) => {
+    const body: unknown = req.body;
+    if (body === null || typeof body !== 'object' || Array.isArray(body) ||
+        !('path' in body) || typeof body.path !== 'string' || !body.path.trim()) {
+      return reply.status(400).send({ error: 'path must be a non-empty string' });
+    }
+    const resolvedPath = path.resolve(body.path);
+
     try {
-      const checkPath = path.resolve(req.body.path);
-      const exists = fs.existsSync(checkPath);
-      let isDirectory = false;
-      if (exists) {
-        const stat = await fs.promises.stat(checkPath);
-        isDirectory = stat.isDirectory();
+      const stat = await fs.promises.stat(resolvedPath);
+      if (!stat.isDirectory()) {
+        return reply.status(400).send({ error: 'path must refer to a directory' });
       }
-      return reply.send({ exists, isDirectory, resolvedPath: checkPath });
-    } catch (err: any) {
-      return reply.status(500).send({ error: err.message });
+      return reply.send({ exists: true, isDirectory: true, resolvedPath });
+    } catch (err: unknown) {
+      const code = errorCode(err);
+      if (code === 'ENOENT') {
+        return reply.send({ exists: false, isDirectory: false, resolvedPath });
+      }
+      return reply.status(code === 'ENOTDIR' ? 400 : code === 'EACCES' || code === 'EPERM' ? 403 : 500)
+        .send({ error: errorMessage(err) });
     }
   });
 }

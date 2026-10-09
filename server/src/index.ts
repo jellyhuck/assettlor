@@ -7,7 +7,13 @@ import os from 'os';
 import { isIP } from 'net';
 import { fileURLToPath } from 'url';
 import { config, getEffectiveConfig, loadConfigFile, resolveDataDir } from './config.js';
-import { initDatabase } from './db/database.js';
+import {
+  closeDatabase,
+  getCurrentDataDir,
+  getDatabase,
+  initDatabase,
+  isDatabaseInitialized,
+} from './db/database.js';
 import { assetsRoutes } from './routes/assets.js';
 import { stacksRoutes } from './routes/stacks.js';
 import { scanRoutes } from './routes/scan.js';
@@ -17,6 +23,32 @@ import { classifiersRoutes } from './routes/classifiers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+let serverDatabaseUsers = 0;
+let serverOwnedDatabase: ReturnType<typeof getDatabase> | null = null;
+
+function acquireServerDatabase(inputDir: string): () => void {
+  const dataDir = resolveDataDir(inputDir);
+  if (isDatabaseInitialized()) {
+    if (getCurrentDataDir() !== dataDir) {
+      throw new Error(`Database is already open at ${getCurrentDataDir()}`);
+    }
+  } else {
+    initDatabase(dataDir);
+    serverOwnedDatabase = getDatabase();
+  }
+  serverDatabaseUsers++;
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    serverDatabaseUsers--;
+    if (serverDatabaseUsers === 0 && serverOwnedDatabase) {
+      if (isDatabaseInitialized() && getDatabase() === serverOwnedDatabase) closeDatabase();
+      serverOwnedDatabase = null;
+    }
+  };
+}
 
 function parseHostHeader(value: string | undefined): URL | undefined {
   // Host is an HTTP authority, not a general URL. Reject userinfo, paths and
@@ -156,59 +188,60 @@ export async function buildServer(options: BuildServerOptions = {}) {
     },
   });
 
-  // Initialize DB with data directory
-  if (options.initDb !== false) {
-    try {
+  try {
+    // Initialize DB with data directory
+    if (options.initDb !== false) {
       const dataDir = options.dataDir || (options.libraryPath ? resolveDataDir(options.libraryPath) : config.dataDir);
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
-      }
-      initDatabase(dataDir);
-    } catch (err) {
-      console.warn('Initial database init note:', err);
+      const releaseDatabase = acquireServerDatabase(dataDir);
+      server.addHook('onClose', async () => releaseDatabase());
     }
-  }
 
-  // Register API routes
-  await server.register(assetsRoutes);
-  await server.register(stacksRoutes);
-  await server.register(scanRoutes);
-  await server.register(settingsRoutes);
-  await server.register(fsRoutes);
-  await server.register(classifiersRoutes);
+    // Register API routes
+    await server.register(assetsRoutes);
+    await server.register(stacksRoutes);
+    await server.register(scanRoutes);
+    await server.register(settingsRoutes);
+    await server.register(fsRoutes);
+    await server.register(classifiersRoutes);
 
-  // Serve frontend build if dist exists
-  const clientDistPath = options.clientDistPath || path.resolve(__dirname, '../../client/dist');
-  if (fs.existsSync(clientDistPath)) {
-    await server.register(fastifyStatic, {
-      root: clientDistPath,
-      prefix: '/',
-    });
-  }
-
-  server.setNotFoundHandler((req, reply) => {
-    if (req.raw.url && req.raw.url.startsWith('/api')) {
-      return reply.status(404).send({ error: 'Endpoint not found' });
-    }
+    // Serve frontend build if dist exists
+    const clientDistPath = options.clientDistPath || path.resolve(__dirname, '../../client/dist');
     if (fs.existsSync(clientDistPath)) {
-      return reply.sendFile('index.html');
+      await server.register(fastifyStatic, {
+        root: clientDistPath,
+        prefix: '/',
+      });
     }
-    return reply.status(404).send({ error: 'Endpoint not found' });
-  });
 
-  return server;
+    server.setNotFoundHandler((req, reply) => {
+      if (req.raw.url && req.raw.url.startsWith('/api')) {
+        return reply.status(404).send({ error: 'Endpoint not found' });
+      }
+      if (fs.existsSync(clientDistPath)) {
+        return reply.sendFile('index.html');
+      }
+      return reply.status(404).send({ error: 'Endpoint not found' });
+    });
+
+    return server;
+  } catch (err) {
+    await server.close();
+    throw err;
+  }
 }
 
 export async function startServer() {
-  const server = await buildServer();
+  let server: Awaited<ReturnType<typeof buildServer>> | undefined;
   try {
+    server = await buildServer();
     await server.listen({ port: config.port, host: config.host });
     console.log(`🚀 Assettlor Backend running on http://${config.host}:${config.port}`);
     console.log(`📁 Config file: ${config.configFilePath}`);
     console.log(`💾 Data directory: ${config.dataDir}`);
   } catch (err) {
-    server.log.error(err);
-    process.exit(1);
+    server?.log.error(err);
+    await server?.close();
+    throw err;
   }
 }
 
@@ -217,5 +250,8 @@ const isDirectRun = Boolean(
 );
 
 if (isDirectRun) {
-  startServer();
+  startServer().catch((err) => {
+    console.error('Failed to start Assettlor:', err);
+    process.exitCode = 1;
+  });
 }

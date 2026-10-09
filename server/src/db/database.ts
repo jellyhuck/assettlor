@@ -83,16 +83,8 @@ export function initDatabase(dataDirInput?: string): Database.Database {
     return dbInstance;
   }
 
-  if (dbInstance) {
-    try {
-      dbInstance.close();
-    } catch (e) {
-      console.error('Error closing previous database:', e);
-    }
-    dbInstance = null;
-  }
+  const previousDatabase = dbInstance;
 
-  currentDataDir = resolvedDataDir;
   const thumbnailsDir = path.join(resolvedDataDir, 'thumbnails');
 
   if (!fs.existsSync(resolvedDataDir)) {
@@ -105,14 +97,15 @@ export function initDatabase(dataDirInput?: string): Database.Database {
   const dbPath = path.join(resolvedDataDir, 'index.db');
   const db = new Database(dbPath);
 
-  // High performance pragmas
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('temp_store = MEMORY');
-  db.pragma('busy_timeout = 5000');
+  try {
+    // High performance pragmas
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('temp_store = MEMORY');
+    db.pragma('busy_timeout = 5000');
 
-  // Schema creation
-  db.exec(`
+    // Schema creation
+    db.exec(`
     CREATE TABLE IF NOT EXISTS assets (
       id TEXT PRIMARY KEY,
       path TEXT NOT NULL UNIQUE,
@@ -165,15 +158,27 @@ export function initDatabase(dataDirInput?: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
     CREATE INDEX IF NOT EXISTS idx_tags_asset_id ON tags(asset_id);
     CREATE INDEX IF NOT EXISTS idx_stacks_type ON stacks(type);
-  `);
+    `);
 
-  try {
-    db.exec('ALTER TABLE assets ADD COLUMN source_directory TEXT');
-  } catch {
-    // column already exists
+    const assetColumns = db.pragma('table_info(assets)') as { name: string }[];
+    if (!assetColumns.some((column) => column.name === 'source_directory')) {
+      db.exec('ALTER TABLE assets ADD COLUMN source_directory TEXT');
+    }
+  } catch (err) {
+    db.close();
+    throw err;
   }
 
+  if (previousDatabase) {
+    try {
+      previousDatabase.close();
+    } catch (err) {
+      db.close();
+      throw err;
+    }
+  }
   dbInstance = db;
+  currentDataDir = resolvedDataDir;
   return db;
 }
 

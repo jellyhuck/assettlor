@@ -8,8 +8,27 @@ import {
 import { getAppSettings, updateAppSettings } from '../db/database.js';
 
 export async function scanRoutes(fastify: FastifyInstance) {
+  const closeStreams = new Set<() => void>();
+  const activeScans = new Set<Promise<unknown>>();
+  const startScan = (paths: string[], fullRescan: boolean): void => {
+    const task = scanLibrary(paths, {
+      fullRescan,
+      rescanDirectories: fullRescan ? paths : undefined,
+    }).catch((err) => {
+      console.error('Background scan error:', err);
+    }).finally(() => activeScans.delete(task));
+    activeScans.add(task);
+  };
+  fastify.addHook('preClose', async () => {
+    for (const closeStream of closeStreams) closeStream();
+    if (activeScans.size > 0) {
+      requestCancelScan();
+      await Promise.allSettled(activeScans);
+    }
+  });
+
   // SSE progress stream
-  fastify.get('/api/scan/progress', async (req, reply) => {
+  fastify.get('/api/scan/progress', async (_req, reply) => {
     reply.raw.setHeader('Content-Type', 'text/event-stream');
     reply.raw.setHeader('Cache-Control', 'no-cache');
     reply.raw.setHeader('Connection', 'keep-alive');
@@ -20,10 +39,20 @@ export async function scanRoutes(fastify: FastifyInstance) {
     });
 
     return new Promise((resolve) => {
-      req.raw.on('close', () => {
+      let closed = false;
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
         unsubscribe();
+        closeStreams.delete(closeStream);
         resolve(undefined);
-      });
+      };
+      const closeStream = () => {
+        if (!reply.raw.writableEnded) reply.raw.end();
+        cleanup();
+      };
+      closeStreams.add(closeStream);
+      reply.raw.once('close', cleanup);
     });
   });
 
@@ -65,12 +94,7 @@ export async function scanRoutes(fastify: FastifyInstance) {
     const fullRescan = Boolean(req.body?.fullRescan);
 
     // Run scan asynchronously
-    scanLibrary(targetPaths, {
-      fullRescan,
-      rescanDirectories: fullRescan ? targetPaths : undefined,
-    }).catch((err) => {
-      console.error('Background scan error:', err);
-    });
+    startScan(targetPaths, fullRescan);
 
     return reply.send({
       message: fullRescan ? 'Full rescan started' : 'Scan started',
@@ -105,12 +129,7 @@ export async function scanRoutes(fastify: FastifyInstance) {
     }
 
     // Run full rescan asynchronously
-    scanLibrary(targetPaths, {
-      fullRescan: true,
-      rescanDirectories: targetPaths,
-    }).catch((err) => {
-      console.error('Background rescan error:', err);
-    });
+    startScan(targetPaths, true);
 
     return reply.send({
       message: 'Full rescan started',
