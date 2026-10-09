@@ -1,6 +1,7 @@
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import YAML from 'yaml';
 
 export interface ServerYamlConfig {
@@ -229,43 +230,40 @@ export function loadConfigFile(customPath?: string): AppYamlConfig {
 
 export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
   const configDir = path.dirname(currentConfigFilePath);
-
-  if (partial.server) {
-    currentYamlConfig.server = { ...currentYamlConfig.server, ...partial.server };
-  }
-  if (partial.data_dir !== undefined) {
-    currentYamlConfig.data_dir = partial.data_dir;
-  }
-  if (partial.libraries !== undefined) {
-    currentYamlConfig.libraries = partial.libraries;
-  }
-  if (partial.projects !== undefined) {
-    currentYamlConfig.projects = partial.projects;
-  }
-  if (partial.classifiers !== undefined) {
-    currentYamlConfig.classifiers = {
-      ...currentYamlConfig.classifiers,
-      ...partial.classifiers,
-    };
-  }
-  if (partial.pipeline !== undefined) {
-    currentYamlConfig.pipeline = {
-      ...currentYamlConfig.pipeline,
-      ...partial.pipeline,
-    };
-  }
+  const candidate: AppYamlConfig = {
+    ...currentYamlConfig,
+    ...partial,
+    server: { ...currentYamlConfig.server, ...partial.server },
+    classifiers: { ...currentYamlConfig.classifiers, ...partial.classifiers },
+    pipeline: { ...currentYamlConfig.pipeline, ...partial.pipeline },
+  };
 
   if (!isMemoryOnly) {
+    const tempPath = path.join(
+      configDir,
+      `.${path.basename(currentConfigFilePath)}.${process.pid}.${randomUUID()}.tmp`
+    );
     try {
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
+      fs.mkdirSync(configDir, { recursive: true });
+      const fd = fs.openSync(tempPath, 'wx', 0o600);
+      try {
+        fs.writeFileSync(fd, YAML.stringify(candidate), 'utf-8');
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
       }
-      fs.writeFileSync(currentConfigFilePath, YAML.stringify(currentYamlConfig), 'utf-8');
+      fs.renameSync(tempPath, currentConfigFilePath);
     } catch (err) {
-      console.warn(`Failed to save config file to ${currentConfigFilePath}:`, err);
+      try {
+        fs.rmSync(tempPath, { force: true });
+      } catch {
+        // The original config is still intact even if temporary-file cleanup fails.
+      }
+      throw new Error(`Failed to save config file to ${currentConfigFilePath}`, { cause: err });
     }
   }
 
+  currentYamlConfig = candidate;
   syncConfigObject();
   return currentYamlConfig;
 }
