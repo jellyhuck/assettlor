@@ -5,7 +5,7 @@ import {
   addTagsToStack,
   removeTagsFromStack,
 } from '../db/database.js';
-import { AddAssetTagsRequest, RemoveAssetTagsRequest } from '../../shared/types.js';
+import type { AddAssetTagsRequest, RemoveAssetTagsRequest } from '../../../shared/types.js';
 
 export async function stacksRoutes(fastify: FastifyInstance) {
   fastify.get('/api/stacks/:id', async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {

@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { getAppSettings, updateAppSettings } from '../db/database.js';
-import { AppSettings } from '../../shared/types.js';
+import type { AppSettings } from '../../../shared/types.js';
 
 export async function settingsRoutes(fastify: FastifyInstance) {
   fastify.get('/api/settings', async (_req, reply) => {

@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
-import { ImageMetadata } from '../../shared/types.js';
+import type { ImageMetadata } from '../../../shared/types.js';
 // @ts-ignore
 import bmp from 'bmp-js';
 

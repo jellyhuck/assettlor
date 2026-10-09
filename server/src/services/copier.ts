@@ -7,7 +7,7 @@ import {
   getAppSettings,
 } from '../db/database.js';
 import { getZipEntryBuffer } from './archive.js';
-import { CopyAssetRequest, CopyAssetResult } from '../../shared/types.js';
+import type { CopyAssetRequest, CopyAssetResult } from '../../../shared/types.js';
 
 export async function copyAssetToProject(req: CopyAssetRequest): Promise<CopyAssetResult> {
   const settings = getAppSettings();

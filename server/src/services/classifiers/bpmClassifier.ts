@@ -1,10 +1,10 @@
 import decode from 'audio-decode';
 import MusicTempo from 'music-tempo';
-import {
+import type {
   BpmClassifierSettings,
   Asset,
   ClassifierAssetResult,
-} from '../../../shared/types.js';
+} from '../../../../shared/types.js';
 import {
   Classifier,
   ClassifierStep,

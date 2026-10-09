@@ -19,7 +19,7 @@ import { isSupportedAudioExtension, processAudioFile } from './audio.js';
 import { isArchiveFile, inspectZipArchive } from './archive.js';
 import { runStackingEngine } from './stacker.js';
 import { getAllClassifiers, getEffectiveClassifierSettings, runClassifier } from './classifiers/index.js';
-import { ScanProgressEvent, ScanStatusType } from '../../shared/types.js';
+import type { ScanProgressEvent, ScanStatusType } from '../../../shared/types.js';
 import { config, getDataDir } from '../config.js';
 
 type SseListener = (event: ScanProgressEvent) => void;

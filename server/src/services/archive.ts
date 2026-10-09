@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { isSupportedImageExtension, processImageBuffer } from './image.js';
 import { isSupportedAudioExtension, processAudioBuffer, getAudioMimeType } from './audio.js';
-import { AssetMetadata, AssetCategory } from '../../shared/types.js';
+import type { AssetMetadata, AssetCategory } from '../../../shared/types.js';
 
 export function isArchiveFile(filePath: string): boolean {
   return path.extname(filePath).toLowerCase() === '.zip';

@@ -1,4 +1,4 @@
-import { ClassifierInfo } from '../../../shared/types.js';
+import type { ClassifierInfo } from '../../../../shared/types.js';
 import { Classifier } from './types.js';
 import { spriteClassifier } from './spriteClassifier.js';
 import { bpmClassifier } from './bpmClassifier.js';

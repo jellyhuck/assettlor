@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import {
+import type {
   Asset,
   ClassifierRunResult,
   ClassifierAssetResult,
-} from '../../../shared/types.js';
+} from '../../../../shared/types.js';
 import {
   Classifier,
   RunClassifierOptions,

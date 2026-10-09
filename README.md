@@ -82,7 +82,12 @@ The Fastify server serves both the REST/SSE API and the compiled React productio
 ### 5. Run Verification Pipeline Tests
 ```bash
 npm test
+npm --prefix client run lint
+npm run build
+npm run typecheck:server
 ```
+
+Run all four checks with `npm run verify`.
 
 ---
 

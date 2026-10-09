@@ -1,9 +1,9 @@
 import path from 'path';
-import {
+import type {
   Asset,
   ClassifierAssetResult,
   PackClassifierSettings,
-} from '../../../shared/types.js';
+} from '../../../../shared/types.js';
 import {
   Classifier,
   ClassifierStep,

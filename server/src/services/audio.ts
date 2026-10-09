@@ -2,7 +2,7 @@ import * as mm from 'music-metadata';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
-import { AudioMetadata } from '../../shared/types.js';
+import type { AudioMetadata } from '../../../shared/types.js';
 
 export const SUPPORTED_AUDIO_EXTENSIONS = new Set(['.wav', '.mp3', '.ogg', '.flac']);
 

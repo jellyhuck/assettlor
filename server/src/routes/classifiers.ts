@@ -6,7 +6,7 @@ import {
   saveClassifierSettings,
   runClassifier,
 } from '../services/classifiers/index.js';
-import { RunClassifierRequest, ClassifierTargetType } from '../../shared/types.js';
+import type { RunClassifierRequest, ClassifierTargetType } from '../../../shared/types.js';
 
 export async function classifiersRoutes(fastify: FastifyInstance) {
   // GET /api/classifiers - List all available classifiers with metadata and settings

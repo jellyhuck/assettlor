@@ -19,14 +19,14 @@ import {
 import { copyAssetToProject } from '../services/copier.js';
 import { getZipEntryBuffer } from '../services/archive.js';
 import { getAudioMimeType } from '../services/audio.js';
-import {
+import type {
   CopyAssetRequest,
   AssetQueryParams,
   AddAssetTagsRequest,
   RemoveAssetTagsRequest,
   SetAssetTagsRequest,
   BatchAssetTagsRequest,
-} from '../../shared/types.js';
+} from '../../../shared/types.js';
 
 function getMimeTypeForExtension(ext: string): string {
   switch (ext.toLowerCase()) {

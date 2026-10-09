@@ -8,6 +8,8 @@
     "dev:server": "tsx watch server/src/index.ts --config ./sample/config.yaml",
     "dev:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
+    "typecheck:server": "tsc --noEmit",
+    "verify": "npm test && npm --prefix client run lint && npm run build && npm run typecheck:server",
     "start": "tsx server/src/index.ts",
     "generate:samples": "tsx scripts/generate-sample-assets.ts",
     "test": "vitest run",

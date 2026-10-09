@@ -1,11 +1,11 @@
 import sharp from 'sharp';
-import {
+import type {
   Asset,
   ClassifierCategory,
   ClassifierAssetResult,
   SpriteClassifierSettings,
   SpriteCategory,
-} from '../../../shared/types.js';
+} from '../../../../shared/types.js';
 import {
   getDatabase,
   updateAssetMetadata,

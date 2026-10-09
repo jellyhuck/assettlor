@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import {
+import type {
   Asset,
   AssetCategory,
   AssetMetadata,
@@ -14,7 +14,7 @@ import {
   AssetQueryParams,
   AssetListResponse,
   ClassifierTargetType,
-} from '../../shared/types.js';
+} from '../../../shared/types.js';
 import {
   config,
   getDataDir,

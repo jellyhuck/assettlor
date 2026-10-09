@@ -1,9 +1,9 @@
-import {
+import type {
   Asset,
   ClassifierCategory,
   ClassifierTargetType,
   ClassifierAssetResult,
-} from '../../../shared/types.js';
+} from '../../../../shared/types.js';
 
 export interface ClassifierStepContext<TSettings = any, TIntermediate = any> {
   asset: Asset;
