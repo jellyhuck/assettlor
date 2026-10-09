@@ -7,10 +7,14 @@ import {
   getAssetById,
   getDatabase,
   initDatabase,
+  addAssetTags,
+  getAllTags,
+  removeAssetTagsBySource,
+  upsertAsset,
 } from '../server/src/db/database.js';
 import { canonicalAssetId } from '../server/src/services/assetIdentity.js';
 import { scanLibrary } from '../server/src/services/scanner.js';
-import { cleanupTempDir, createTempDir, TINY_PNG_BUFFER } from './helpers.js';
+import { cleanupTempDir, createTempDir, createTestZipArchive, TINY_PNG_BUFFER } from './helpers.js';
 
 describe('Index identity and curation', () => {
   let fixture: string;
@@ -86,5 +90,87 @@ describe('Index identity and curation', () => {
     const stack = getDatabase().prepare('SELECT representative_asset_id FROM stacks WHERE id = ?').get('old_stack') as
       { representative_asset_id: string };
     expect(stack.representative_asset_id).toBe(nextId);
+  });
+
+  it('keeps explicit tags when scanner and classifier ownership changes', () => {
+    const file = path.join(fixture, 'curated.png');
+    const id = canonicalAssetId(file);
+    const base = {
+      id,
+      path: 'curated.png',
+      absolutePath: file,
+      name: 'curated.png',
+      extension: '.png',
+      category: 'image',
+      size: 10,
+      mtime: 1,
+      isArchiveEntry: false,
+    };
+    upsertAsset({ ...base, hash: 'one', metadata: { width: 32 }, tags: [
+      { tag: 'Favorite', source: 'auto' },
+      { tag: 'Animated', source: 'auto' },
+    ] });
+    addAssetTags(id, ['FAVORITE', { tag: 'Classified', source: 'classifier:sprite' }]);
+    upsertAsset({ ...base, hash: 'one', metadata: { height: 32 }, tags: [
+      { tag: 'favorite', source: 'auto' },
+    ] });
+    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).toEqual(
+      expect.arrayContaining(['favorite', 'classified'])
+    );
+    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).not.toContain('animated');
+    expect(getAssetById(id)?.metadata).toMatchObject({ width: 32, height: 32 });
+    expect(getAllTags().find((tag) => tag.name.toLowerCase() === 'favorite')?.count).toBe(1);
+
+    removeAssetTagsBySource(id, 'auto');
+    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).toContain('favorite');
+    upsertAsset({ ...base, hash: 'two', metadata: { width: 64 }, tags: [] });
+    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).toEqual(['favorite']);
+    expect(getAssetById(id)?.metadata).toEqual({ width: 64 });
+  });
+
+  it('migrates legacy tag rows to independent case-insensitive sources', () => {
+    const id = 'old_asset';
+    const db = getDatabase();
+    db.prepare(`
+      INSERT INTO assets (id, path, absolute_path, name, extension, category, size,
+        mtime, hash, is_archive_entry, created_at, updated_at)
+      VALUES (?, 'old.png', ?, 'old.png', '.png', 'image', 1, 1, 'x', 0, 1, 1)
+    `).run(id, path.join(fixture, 'old.png'));
+    db.exec(`
+      DROP TABLE tags;
+      CREATE TABLE tags (
+        asset_id TEXT NOT NULL, tag TEXT NOT NULL, source TEXT NOT NULL,
+        PRIMARY KEY (asset_id, tag)
+      );
+    `);
+    db.prepare("INSERT INTO tags (asset_id, tag, source) VALUES (?, 'Favorite', 'user')").run(id);
+    closeDatabase();
+    initDatabase(dataDir);
+    expect(getAssetById(id)?.tags).toEqual(['Favorite']);
+    addAssetTags(id, [{ tag: 'favorite', source: 'classifier:sprite' }]);
+    removeAssetTagsBySource(id, 'classifier:sprite');
+    expect(getAssetById(id)?.tags).toEqual(['Favorite']);
+  });
+
+  it('preserves disk and ZIP curation through a full rescan', async () => {
+    const library = path.join(fixture, 'library');
+    fs.mkdirSync(library);
+    const diskFile = path.join(library, 'icon.png');
+    const archiveFile = path.join(library, 'pack.zip');
+    fs.writeFileSync(diskFile, TINY_PNG_BUFFER);
+    createTestZipArchive(archiveFile, [{ name: 'inner/art.png', content: TINY_PNG_BUFFER }]);
+    resetConfigForTesting({ data_dir: dataDir, libraries: [library], classifiers: {} });
+    expect((await scanLibrary(library)).status).toBe('completed');
+    const diskId = canonicalAssetId(diskFile);
+    const zipId = canonicalAssetId(archiveFile, 'inner/art.png');
+    addAssetTags(diskId, ['favorite']);
+    addAssetTags(zipId, ['favorite']);
+    const before = [getAssetById(diskId), getAssetById(zipId)];
+
+    expect((await scanLibrary(library, { fullRescan: true })).status).toBe('completed');
+    for (const [index, id] of [diskId, zipId].entries()) {
+      expect(getAssetById(id)?.tags).toContain('favorite');
+      expect(getAssetById(id)?.createdAt).toBe(before[index]?.createdAt);
+    }
   });
 });

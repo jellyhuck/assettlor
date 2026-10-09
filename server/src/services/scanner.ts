@@ -9,7 +9,6 @@ import {
   getAppSettings,
   upsertAsset,
   removeDeletedAssets,
-  removeAssetsForSourceDirectory,
   removeDeletedAssetsForSourceDirectory,
   getAssetByPath,
   getAssetById,
@@ -144,16 +143,6 @@ export async function scanLibrary(
     fs.mkdirSync(thumbnailsDir, { recursive: true });
   }
 
-  // If full rescan was requested, remove cached assets for designated source directories
-  if (options?.fullRescan) {
-    const dirsToClear = options.rescanDirectories && options.rescanDirectories.length > 0
-      ? options.rescanDirectories.map((d) => path.resolve(d))
-      : existingDirs;
-    for (const d of dirsToClear) {
-      removeAssetsForSourceDirectory(d);
-    }
-  }
-
   broadcastProgress({
     status: 'scanning',
     libraryPath: existingDirs[0] || '',
@@ -264,7 +253,7 @@ export async function scanLibrary(
               const thumbDiskPath = path.join(thumbnailsDir, thumbFilename);
 
               if (
-                existing &&
+                !options?.fullRescan && existing &&
                 existing.hash === item.hash &&
                 existing.absolutePath === fullPath &&
                 existing.archivePath === fullPath &&
@@ -313,7 +302,7 @@ export async function scanLibrary(
 
           const existing = getAssetById(assetId);
           if (
-            existing &&
+            !options?.fullRescan && existing &&
             existing.path === relativePath &&
             existing.hash === quickHash &&
             existing.absolutePath === fullPath &&

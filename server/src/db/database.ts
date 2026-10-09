@@ -141,9 +141,9 @@ export function initDatabase(dataDirInput?: string): Database.Database {
 
     CREATE TABLE IF NOT EXISTS tags (
       asset_id TEXT NOT NULL,
-      tag TEXT NOT NULL,
+      tag TEXT NOT NULL COLLATE NOCASE,
       source TEXT NOT NULL,
-      PRIMARY KEY (asset_id, tag),
+      PRIMARY KEY (asset_id, tag, source),
       FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE ON UPDATE CASCADE
     );
 
@@ -170,6 +170,7 @@ export function initDatabase(dataDirInput?: string): Database.Database {
     if (!assetColumns.some((column) => column.name === 'source_directory')) {
       db.exec('ALTER TABLE assets ADD COLUMN source_directory TEXT');
     }
+    migrateTagProvenance(db);
     migrateCanonicalAssetIds(db);
   } catch (err) {
     db.close();
@@ -187,6 +188,28 @@ export function initDatabase(dataDirInput?: string): Database.Database {
   dbInstance = db;
   currentDataDir = resolvedDataDir;
   return db;
+}
+
+function migrateTagProvenance(db: Database.Database): void {
+  const columns = db.pragma('table_info(tags)') as { name: string; pk: number }[];
+  if (columns.find((column) => column.name === 'source')?.pk === 3) return;
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE tags_next (
+        asset_id TEXT NOT NULL,
+        tag TEXT NOT NULL COLLATE NOCASE,
+        source TEXT NOT NULL,
+        PRIMARY KEY (asset_id, tag, source),
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE ON UPDATE CASCADE
+      );
+      INSERT OR IGNORE INTO tags_next (asset_id, tag, source)
+      SELECT asset_id, TRIM(tag), source FROM tags WHERE TRIM(tag) <> '';
+      DROP TABLE tags;
+      ALTER TABLE tags_next RENAME TO tags;
+      CREATE INDEX idx_tags_tag ON tags(tag);
+      CREATE INDEX idx_tags_asset_id ON tags(asset_id);
+    `);
+  })();
 }
 
 function migrateCanonicalAssetIds(db: Database.Database): void {
@@ -404,7 +427,7 @@ export function getAssetById(id: string): Asset | null {
   `).get(id, id) as AssetRow | undefined;
   if (!row) return null;
 
-  const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(row.id) as { tag: string }[];
+  const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(row.id) as { tag: string }[];
   const tags = tagRows.map((t) => t.tag);
   return rowToAsset(row, tags);
 }
@@ -414,7 +437,7 @@ export function getAssetByPath(assetPath: string): Asset | null {
   const row = db.prepare('SELECT * FROM assets WHERE path = ?').get(assetPath) as AssetRow | undefined;
   if (!row) return null;
 
-  const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(row.id) as { tag: string }[];
+  const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(row.id) as { tag: string }[];
   const tags = tagRows.map((t) => t.tag);
   return rowToAsset(row, tags);
 }
@@ -439,7 +462,6 @@ export function upsertAsset(asset: {
 }): void {
   const db = getDatabase();
   const now = Date.now();
-  const metadataJson = JSON.stringify(asset.metadata || {});
 
   const upsertStmt = db.prepare(`
     INSERT INTO assets (
@@ -469,8 +491,11 @@ export function upsertAsset(asset: {
       updated_at = excluded.updated_at
   `);
 
-  const deleteTagsByPathStmt = db.prepare('DELETE FROM tags WHERE asset_id IN (SELECT id FROM assets WHERE path = ?)');
-  const deleteTagsStmt = db.prepare('DELETE FROM tags WHERE asset_id = ?');
+  const deleteScannerTagsStmt = db.prepare(`
+    DELETE FROM tags WHERE asset_id = ?
+      AND source IN ('folder', 'archive', 'extension', 'category', 'auto')
+  `);
+  const deleteClassifierTagsStmt = db.prepare("DELETE FROM tags WHERE asset_id = ? AND source LIKE 'classifier:%'");
   const insertTagStmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
 
   const tx = db.transaction(() => {
@@ -481,14 +506,25 @@ export function upsertAsset(asset: {
           (pathOwner.archive_entry_path || null) !== (asset.archiveEntryPath || null)) {
         throw new Error(`Display path belongs to another source: ${asset.path}`);
       }
-      deleteTagsByPathStmt.run(asset.path);
       db.prepare('UPDATE stacks SET representative_asset_id = ? WHERE representative_asset_id = ?')
         .run(asset.id, pathOwner.id);
       db.prepare('UPDATE assets SET id = ? WHERE id = ?').run(asset.id, pathOwner.id);
+      db.prepare('UPDATE tags SET asset_id = ? WHERE asset_id = ?').run(asset.id, pathOwner.id);
       db.prepare('INSERT OR REPLACE INTO asset_id_aliases (old_id, asset_id) VALUES (?, ?)')
         .run(pathOwner.id, asset.id);
     }
-    deleteTagsByPathStmt.run(asset.path);
+    const previous = db.prepare('SELECT hash, metadata FROM assets WHERE id = ?').get(asset.id) as
+      { hash: string; metadata: string | null } | undefined;
+    const contentChanged = Boolean(previous && previous.hash !== asset.hash);
+    let previousMetadata: AssetMetadata = {};
+    if (previous?.metadata && !contentChanged) {
+      try {
+        previousMetadata = JSON.parse(previous.metadata) as AssetMetadata;
+      } catch {
+        previousMetadata = {};
+      }
+    }
+    const metadataJson = JSON.stringify({ ...previousMetadata, ...(asset.metadata || {}) });
     upsertStmt.run(
       asset.id,
       asset.path,
@@ -509,11 +545,13 @@ export function upsertAsset(asset: {
       now
     );
 
-    if (asset.tags && asset.tags.length > 0) {
-      deleteTagsStmt.run(asset.id);
+    if (contentChanged) deleteClassifierTagsStmt.run(asset.id);
+    if (asset.tags !== undefined) {
+      deleteScannerTagsStmt.run(asset.id);
       for (const t of asset.tags) {
         if (t.tag && t.tag.trim().length > 0) {
-          insertTagStmt.run(asset.id, t.tag.trim(), t.source || 'auto');
+          const clean = t.tag.replace(/^#/, '').trim();
+          if (clean) insertTagStmt.run(asset.id, clean, t.source || 'auto');
         }
       }
     }
@@ -525,9 +563,11 @@ export function upsertAsset(asset: {
 export function getAllTags(): TagInfo[] {
   const db = getDatabase();
   const rows = db.prepare(`
-    SELECT tag as name, COUNT(asset_id) as count, source
+    SELECT tag as name, COUNT(DISTINCT asset_id) as count,
+      CASE WHEN SUM(CASE WHEN source = 'user' THEN 1 ELSE 0 END) > 0
+        THEN 'user' ELSE MIN(source) END as source
     FROM tags
-    GROUP BY tag
+    GROUP BY tag COLLATE NOCASE
     ORDER BY count DESC, name ASC
   `).all() as { name: string; count: number; source: string }[];
 
@@ -659,7 +699,7 @@ export function getStackById(id: string): AssetStack | null {
   const repAsset = getAssetById(row.representative_asset_id);
   const assetRows = db.prepare('SELECT * FROM assets WHERE stack_id = ? ORDER BY stack_index ASC').all(id) as AssetRow[];
   const assets = assetRows.map((ar) => {
-    const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(ar.id) as { tag: string }[];
+    const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(ar.id) as { tag: string }[];
     return rowToAsset(ar, tagRows.map((t) => t.tag));
   });
 
@@ -694,7 +734,7 @@ export function getStackAssets(stackId: string): Asset[] {
   const db = getDatabase();
   const assetRows = db.prepare('SELECT * FROM assets WHERE stack_id = ? ORDER BY stack_index ASC').all(stackId) as AssetRow[];
   return assetRows.map((ar) => {
-    const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(ar.id) as { tag: string }[];
+    const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(ar.id) as { tag: string }[];
     return rowToAsset(ar, tagRows.map((t) => t.tag));
   });
 }
@@ -1025,7 +1065,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
   })[];
 
   const items = rows.map((r) => {
-    const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(r.id) as { tag: string }[];
+    const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(r.id) as { tag: string }[];
     const asset = rowToAsset(r, tagRows.map((t) => t.tag));
 
     if (isStackedView && r.s_id) {
@@ -1142,8 +1182,9 @@ export function addAssetTags(
     return getAssetById(assetId);
   }
 
-  const existingRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(assetId) as { tag: string }[];
-  const existingLowerSet = new Set(existingRows.map((r) => r.tag.toLowerCase()));
+  const existingRows = db.prepare('SELECT tag, source FROM tags WHERE asset_id = ?').all(assetId) as
+    { tag: string; source: string }[];
+  const existingSourceSet = new Set(existingRows.map((r) => `${r.tag.toLowerCase()}\0${r.source}`));
 
   const insertStmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
   const updateAssetStmt = db.prepare('UPDATE assets SET updated_at = ? WHERE id = ?');
@@ -1152,9 +1193,10 @@ export function addAssetTags(
   const tx = db.transaction(() => {
     let inserted = 0;
     for (const t of normalized) {
-      if (!existingLowerSet.has(t.tag.toLowerCase())) {
+      const key = `${t.tag.toLowerCase()}\0${t.source}`;
+      if (!existingSourceSet.has(key)) {
         insertStmt.run(assetId, t.tag, t.source);
-        existingLowerSet.add(t.tag.toLowerCase());
+        existingSourceSet.add(key);
         inserted++;
       }
     }
@@ -1223,13 +1265,14 @@ export function setAssetTags(
   const updateAssetStmt = db.prepare('UPDATE assets SET updated_at = ? WHERE id = ?');
   const now = Date.now();
 
-  const seenLower = new Set<string>();
+  const seenSources = new Set<string>();
   const tx = db.transaction(() => {
     deleteStmt.run(assetId);
     for (const t of normalized) {
-      if (!seenLower.has(t.tag.toLowerCase())) {
+      const key = `${t.tag.toLowerCase()}\0${t.source}`;
+      if (!seenSources.has(key)) {
         insertStmt.run(assetId, t.tag, t.source);
-        seenLower.add(t.tag.toLowerCase());
+        seenSources.add(key);
       }
     }
     updateAssetStmt.run(now, assetId);
@@ -1348,7 +1391,7 @@ export function findAssetsByScope(scope: {
   const rows = db.prepare(`SELECT * FROM assets ${whereClause} ORDER BY name ASC`).all(...args) as AssetRow[];
 
   return rows.map((r) => {
-    const tagRows = db.prepare('SELECT tag FROM tags WHERE asset_id = ?').all(r.id) as { tag: string }[];
+    const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(r.id) as { tag: string }[];
     return rowToAsset(r, tagRows.map((t) => t.tag));
   });
 }
