@@ -2,6 +2,11 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import type { ImageMetadata } from '../../../shared/types.js';
+import {
+  DEFAULT_THUMBNAIL_QUALITY,
+  IMAGE_THUMBNAIL_SPEC,
+  normalizeThumbnailQuality,
+} from './processingFingerprint.js';
 // @ts-ignore
 import bmp from 'bmp-js';
 
@@ -89,10 +94,12 @@ function decodeTgaBuffer(buffer: Buffer): { width: number; height: number; data:
 export async function processImageBuffer(
   buffer: Buffer,
   extension: string,
-  targetWidth = 400,
-  targetHeight = 400
+  targetWidth = IMAGE_THUMBNAIL_SPEC.width,
+  targetHeight = IMAGE_THUMBNAIL_SPEC.height,
+  quality = DEFAULT_THUMBNAIL_QUALITY
 ): Promise<ImageProcessingResult> {
   const ext = extension.toLowerCase();
+  const webpQuality = normalizeThumbnailQuality(quality);
 
   if (ext === '.tga') {
     try {
@@ -107,10 +114,10 @@ export async function processImageBuffer(
 
       const thumbnailBuffer = await sharpInstance
         .resize(targetWidth, targetHeight, {
-          fit: 'inside',
-          withoutEnlargement: true,
+          fit: IMAGE_THUMBNAIL_SPEC.fit,
+          withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
         })
-        .webp({ quality: 85 })
+        .webp({ quality: webpQuality })
         .toBuffer();
 
       return {
@@ -143,10 +150,10 @@ export async function processImageBuffer(
 
       const thumbnailBuffer = await sharpInstance
         .resize(targetWidth, targetHeight, {
-          fit: 'inside',
-          withoutEnlargement: true,
+          fit: IMAGE_THUMBNAIL_SPEC.fit,
+          withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
         })
-        .webp({ quality: 85 })
+        .webp({ quality: webpQuality })
         .toBuffer();
 
       return {
@@ -170,10 +177,10 @@ export async function processImageBuffer(
 
   const thumbnailBuffer = await image
     .resize(targetWidth, targetHeight, {
-      fit: 'inside',
-      withoutEnlargement: true,
+      fit: IMAGE_THUMBNAIL_SPEC.fit,
+      withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
     })
-    .webp({ quality: 85 })
+    .webp({ quality: webpQuality })
     .toBuffer();
 
   const metadata: ImageMetadata = {
@@ -194,10 +201,11 @@ export async function processImageBuffer(
 
 export async function processImageFile(
   filePath: string,
-  targetWidth = 400,
-  targetHeight = 400
+  targetWidth = IMAGE_THUMBNAIL_SPEC.width,
+  targetHeight = IMAGE_THUMBNAIL_SPEC.height,
+  quality = DEFAULT_THUMBNAIL_QUALITY
 ): Promise<ImageProcessingResult> {
   const ext = path.extname(filePath);
   const buffer = await fs.promises.readFile(filePath);
-  return processImageBuffer(buffer, ext, targetWidth, targetHeight);
+  return processImageBuffer(buffer, ext, targetWidth, targetHeight, quality);
 }

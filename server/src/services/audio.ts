@@ -3,6 +3,11 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import type { AudioMetadata } from '../../../shared/types.js';
+import {
+  AUDIO_THUMBNAIL_SPEC,
+  DEFAULT_THUMBNAIL_QUALITY,
+  normalizeThumbnailQuality,
+} from './processingFingerprint.js';
 
 export const SUPPORTED_AUDIO_EXTENSIONS = new Set(['.wav', '.mp3', '.ogg', '.flac']);
 
@@ -86,10 +91,11 @@ export async function generateAudioThumbnail(
   name: string,
   duration?: number,
   channels?: number,
-  _bpm?: number | null
+  _bpm?: number | null,
+  quality = DEFAULT_THUMBNAIL_QUALITY
 ): Promise<Buffer> {
-  const width = 400;
-  const height = 240;
+  const width = AUDIO_THUMBNAIL_SPEC.width;
+  const height = AUDIO_THUMBNAIL_SPEC.height;
   const isSound = duration !== undefined && duration <= 5;
   const durationStr = duration
     ? `${Math.floor(duration / 60)}:${Math.floor(duration % 60).toString().padStart(2, '0')}`
@@ -209,11 +215,14 @@ export async function generateAudioThumbnail(
   `;
 
   return sharp(Buffer.from(svg))
-    .webp({ quality: 85 })
+    .webp({ quality: normalizeThumbnailQuality(quality) })
     .toBuffer();
 }
 
-export async function processAudioFile(filePath: string): Promise<AudioProcessingResult> {
+export async function processAudioFile(
+  filePath: string,
+  quality = DEFAULT_THUMBNAIL_QUALITY
+): Promise<AudioProcessingResult> {
   const ext = path.extname(filePath);
   const name = path.basename(filePath);
   let metadata: AudioMetadata = {};
@@ -229,14 +238,16 @@ export async function processAudioFile(filePath: string): Promise<AudioProcessin
         codec: parsed.format.codec,
         lossless: parsed.format.lossless,
         bpm: parsed.common.bpm,
-        audioThumbnailVersion: 4,
+        audioThumbnailVersion: AUDIO_THUMBNAIL_SPEC.rendererVersion,
       };
     }
   } catch (err) {
     console.warn(`Could not parse audio metadata for ${filePath}:`, err);
   }
 
-  const thumbnailBuffer = await generateAudioThumbnail(name, metadata.duration, metadata.numberOfChannels, metadata.bpm);
+  const thumbnailBuffer = await generateAudioThumbnail(
+    name, metadata.duration, metadata.numberOfChannels, metadata.bpm, quality
+  );
 
   return {
     metadata,
@@ -244,7 +255,12 @@ export async function processAudioFile(filePath: string): Promise<AudioProcessin
   };
 }
 
-export async function processAudioBuffer(buffer: Buffer, name: string, extension: string): Promise<AudioProcessingResult> {
+export async function processAudioBuffer(
+  buffer: Buffer,
+  name: string,
+  extension: string,
+  quality = DEFAULT_THUMBNAIL_QUALITY
+): Promise<AudioProcessingResult> {
   const mimeType = getAudioMimeType(extension);
   let metadata: AudioMetadata = {};
 
@@ -259,14 +275,16 @@ export async function processAudioBuffer(buffer: Buffer, name: string, extension
         codec: parsed.format.codec,
         lossless: parsed.format.lossless,
         bpm: parsed.common.bpm,
-        audioThumbnailVersion: 4,
+        audioThumbnailVersion: AUDIO_THUMBNAIL_SPEC.rendererVersion,
       };
     }
   } catch (err) {
     console.warn(`Could not parse audio buffer for ${name}:`, err);
   }
 
-  const thumbnailBuffer = await generateAudioThumbnail(name, metadata.duration, metadata.numberOfChannels, metadata.bpm);
+  const thumbnailBuffer = await generateAudioThumbnail(
+    name, metadata.duration, metadata.numberOfChannels, metadata.bpm, quality
+  );
 
   return {
     metadata,
