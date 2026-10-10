@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { decodeBmpBuffer, processImageBuffer } from '../server/src/services/image.js';
+import { decodeBmpBuffer, decodeTgaBuffer, processImageBuffer } from '../server/src/services/image.js';
 
 type Pixel = readonly [number, number, number, number];
 
@@ -48,6 +48,38 @@ function decodedPixels(buffer: Buffer): number[][] {
   return pixels;
 }
 
+function makeTga(
+  width: number,
+  height: number,
+  pixels: Pixel[],
+  pixelDepth: 24 | 32 = 24,
+  topDown = false,
+  rightToLeft = false
+): Buffer {
+  const bytesPerPixel = pixelDepth / 8;
+  const header = Buffer.alloc(18);
+  header[2] = 2;
+  header.writeUInt16LE(width, 12);
+  header.writeUInt16LE(height, 14);
+  header[16] = pixelDepth;
+  header[17] = (topDown ? 0x20 : 0) | (rightToLeft ? 0x10 : 0) |
+    (pixelDepth === 32 ? 8 : 0);
+  const data = Buffer.alloc(width * height * bytesPerPixel);
+  for (let fileY = 0; fileY < height; fileY++) {
+    for (let fileX = 0; fileX < width; fileX++) {
+      const x = rightToLeft ? width - fileX - 1 : fileX;
+      const y = topDown ? fileY : height - fileY - 1;
+      const [r, g, b, a] = pixels[y * width + x];
+      const offset = (fileY * width + fileX) * bytesPerPixel;
+      data[offset] = b;
+      data[offset + 1] = g;
+      data[offset + 2] = r;
+      if (pixelDepth === 32) data[offset + 3] = a;
+    }
+  }
+  return Buffer.concat([header, data]);
+}
+
 describe('BMP pixel normalization', () => {
   it.each([
     ['red', [255, 0, 0, 255]],
@@ -89,5 +121,71 @@ describe('BMP pixel normalization', () => {
     expect(decodedPixels(opaqueBmp)).toEqual([[200, 40, 20, 255]]);
     const opaqueResult = await processImageBuffer(opaqueBmp, '.bmp');
     expect(opaqueResult.metadata).toMatchObject({ channels: 3, hasAlpha: false });
+  });
+});
+
+describe('TGA header and pixel normalization', () => {
+  const pixels: Pixel[] = [
+    [255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255],
+    [255, 255, 255, 255], [255, 128, 0, 255], [30, 90, 210, 255],
+  ];
+
+  it.each([
+    [false, false], [false, true], [true, false], [true, true],
+  ])('maps topDown=%s and rightToLeft=%s into display order', (topDown, rightToLeft) => {
+    const decoded = decodeTgaBuffer(makeTga(3, 2, pixels, 24, topDown, rightToLeft));
+    const output: number[][] = [];
+    for (let i = 0; i < decoded.data.length; i += 4) {
+      output.push([...decoded.data.subarray(i, i + 4)]);
+    }
+    expect(output).toEqual(pixels);
+    expect(decoded).toMatchObject({ width: 3, height: 2, channels: 3, hasAlpha: false });
+  });
+
+  it('preserves 32-bit alpha and grayscale source metadata', async () => {
+    const color = makeTga(1, 1, [[220, 40, 80, 72]], 32, true);
+    const decoded = decodeTgaBuffer(color);
+    expect([...decoded.data]).toEqual([220, 40, 80, 72]);
+    const result = await processImageBuffer(color, '.tga');
+    expect(result.metadata).toMatchObject({ channels: 4, hasAlpha: true });
+
+    const gray = Buffer.alloc(20);
+    gray[2] = 3;
+    gray.writeUInt16LE(1, 12);
+    gray.writeUInt16LE(1, 14);
+    gray[16] = 16;
+    gray[17] = 8;
+    gray[18] = 90;
+    gray[19] = 120;
+    expect([...decodeTgaBuffer(gray).data]).toEqual([90, 90, 90, 120]);
+    expect(decodeTgaBuffer(gray)).toMatchObject({ channels: 2, hasAlpha: true });
+  });
+
+  it('rejects truncated headers, IDs, pixels, unsupported depths, and huge dimensions', async () => {
+    const valid = makeTga(1, 1, [[255, 0, 0, 255]]);
+    const withId = Buffer.from(valid);
+    withId[0] = 10;
+    const colorMap = Buffer.from(valid);
+    colorMap[1] = 1;
+    const badDepth = Buffer.from(valid);
+    badDepth[16] = 16;
+    const interleaved = Buffer.from(valid);
+    interleaved[17] = 0x40;
+    const huge = Buffer.from(valid);
+    huge.writeUInt16LE(65535, 12);
+    huge.writeUInt16LE(65535, 14);
+    const cases: [Buffer, RegExp][] = [
+      [Buffer.alloc(17), /TGA.*header/],
+      [withId, /TGA.*truncated/],
+      [valid.subarray(0, valid.length - 1), /TGA.*truncated/],
+      [colorMap, /TGA color map/],
+      [badDepth, /TGA pixel depth/],
+      [interleaved, /TGA interleaving/],
+      [huge, /TGA dimensions/],
+    ];
+    for (const [input, message] of cases) {
+      expect(() => decodeTgaBuffer(input)).toThrow(message);
+      await expect(processImageBuffer(input, '.tga')).rejects.toThrow(message);
+    }
   });
 });

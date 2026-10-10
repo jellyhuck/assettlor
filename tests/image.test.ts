@@ -110,7 +110,8 @@ describe('Image Service', () => {
       expect(result.metadata.format).toBe('tga');
       expect(result.metadata.width).toBe(4);
       expect(result.metadata.height).toBe(4);
-      expect(result.metadata.channels).toBe(4);
+      expect(result.metadata.channels).toBe(3);
+      expect(result.metadata.hasAlpha).toBe(false);
       expect(result.thumbnailBuffer).toBeInstanceOf(Buffer);
 
       const thumbMeta = await sharp(result.thumbnailBuffer).metadata();
@@ -128,9 +129,7 @@ describe('Image Service', () => {
 
     it('should handle corrupt or invalid TGA buffer gracefully', async () => {
       const invalidTga = Buffer.from([0, 0, 99, 0]); // Unsupported type 99
-      const result = await processImageBuffer(invalidTga, '.tga').catch(() => null);
-      // Either catches internally or falls back
-      expect(true).toBe(true);
+      await expect(processImageBuffer(invalidTga, '.tga')).rejects.toThrow(/TGA.*header/);
     });
   });
 

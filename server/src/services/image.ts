@@ -38,7 +38,7 @@ export interface DecodedRaster {
   channels: number;
 }
 
-const MAX_SOURCE_PIXELS = 64_000_000;
+const MAX_SOURCE_PIXELS = 16_000_000;
 
 export function decodeBmpBuffer(buffer: Buffer): DecodedRaster {
   // bmp-js allocates its output while parsing. Check the dimensions first so a
@@ -70,65 +70,91 @@ export function decodeBmpBuffer(buffer: Buffer): DecodedRaster {
   return { width: decoded.width, height: decoded.height, data, hasAlpha, channels: hasAlpha ? 4 : 3 };
 }
 
-// Pure Node.js TGA decoder without browser canvas dependency
-function decodeTgaBuffer(buffer: Buffer): { width: number; height: number; data: Buffer } {
+// Decode the supported uncompressed TGA subset before passing normalized RGBA
+// pixels to Sharp. Both origin flags affect where each source pixel is placed.
+export function decodeTgaBuffer(buffer: Buffer): DecodedRaster {
+  if (buffer.length < 18) throw new Error('Invalid TGA: truncated header');
   const idLength = buffer[0];
+  const colorMapType = buffer[1];
   const imageType = buffer[2];
+  const colorMapLength = buffer.readUInt16LE(5);
   const width = buffer.readUInt16LE(12);
   const height = buffer.readUInt16LE(14);
   const pixelDepth = buffer[16];
   const descriptor = buffer[17];
   const isTopDown = (descriptor & 0x20) !== 0;
+  const isRightToLeft = (descriptor & 0x10) !== 0;
+  const alphaBits = descriptor & 0x0f;
 
+  if (colorMapType !== 0 || colorMapLength !== 0) {
+    throw new Error('Unsupported TGA color map');
+  }
+  if (descriptor & 0xc0) throw new Error('Unsupported TGA interleaving');
   if (imageType !== 2 && imageType !== 3) {
-    throw new Error(`Unsupported TGA format type: ${imageType}`);
+    throw new Error(`Unsupported TGA image type: ${imageType}`);
+  }
+  if (width < 1 || height < 1 || width * height > MAX_SOURCE_PIXELS) {
+    throw new Error('Invalid TGA dimensions or pixel limit exceeded');
   }
 
-  const bytesPerPixel = Math.floor(pixelDepth / 8);
+  const isGray = imageType === 3;
+  const validTrueColor = !isGray && (pixelDepth === 24 || pixelDepth === 32) &&
+    (alphaBits === 0 || (pixelDepth === 32 && alphaBits === 8));
+  const validGray = isGray && (pixelDepth === 8 || pixelDepth === 16) &&
+    (alphaBits === 0 || (pixelDepth === 16 && alphaBits === 8));
+  if (!validTrueColor && !validGray) {
+    throw new Error(`Unsupported TGA pixel depth/alpha: ${pixelDepth}/${alphaBits}`);
+  }
+
+  const bytesPerPixel = pixelDepth / 8;
   const offset = 18 + idLength;
-  const rgba = Buffer.alloc(width * height * 4);
+  const pixelCount = width * height;
+  const requiredBytes = offset + pixelCount * bytesPerPixel;
+  if (buffer.length < requiredBytes) {
+    throw new Error(`Invalid TGA: truncated pixel data (need ${requiredBytes} bytes)`);
+  }
 
-  let srcIdx = offset;
-  for (let i = 0; i < width * height; i++) {
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    let a = 255;
-
-    if (imageType === 3) {
-      const gray = buffer[srcIdx] || 0;
-      r = gray;
-      g = gray;
-      b = gray;
-      srcIdx += bytesPerPixel;
+  const hasAlpha = alphaBits === 8;
+  const channels = isGray ? (hasAlpha ? 2 : 1) : (hasAlpha ? 4 : 3);
+  const rgba = Buffer.alloc(pixelCount * 4);
+  for (let i = 0; i < pixelCount; i++) {
+    const srcIdx = offset + i * bytesPerPixel;
+    const row = Math.floor(i / width);
+    const column = i % width;
+    const x = isRightToLeft ? width - column - 1 : column;
+    const y = isTopDown ? row : height - row - 1;
+    const destIdx = (y * width + x) * 4;
+    if (isGray) {
+      rgba[destIdx] = buffer[srcIdx];
+      rgba[destIdx + 1] = buffer[srcIdx];
+      rgba[destIdx + 2] = buffer[srcIdx];
+      rgba[destIdx + 3] = hasAlpha ? buffer[srcIdx + 1] : 255;
     } else {
-      b = buffer[srcIdx] || 0;
-      g = buffer[srcIdx + 1] || 0;
-      r = buffer[srcIdx + 2] || 0;
-      a = bytesPerPixel === 4 ? buffer[srcIdx + 3] : 255;
-      srcIdx += bytesPerPixel;
+      rgba[destIdx] = buffer[srcIdx + 2];
+      rgba[destIdx + 1] = buffer[srcIdx + 1];
+      rgba[destIdx + 2] = buffer[srcIdx];
+      rgba[destIdx + 3] = hasAlpha ? buffer[srcIdx + 3] : 255;
     }
-
-    const destIdx = i * 4;
-    rgba[destIdx] = r;
-    rgba[destIdx + 1] = g;
-    rgba[destIdx + 2] = b;
-    rgba[destIdx + 3] = a;
   }
 
-  // TGA files are often stored bottom-to-top unless bit 5 of descriptor is set
-  if (!isTopDown) {
-    const rowSize = width * 4;
-    const flipped = Buffer.alloc(width * height * 4);
-    for (let y = 0; y < height; y++) {
-      const srcRow = (height - 1 - y) * rowSize;
-      const destRow = y * rowSize;
-      rgba.copy(flipped, destRow, srcRow, srcRow + rowSize);
-    }
-    return { width, height, data: flipped };
-  }
+  return { width, height, data: rgba, channels, hasAlpha };
+}
 
-  return { width, height, data: rgba };
+async function encodeRasterThumbnail(
+  decoded: DecodedRaster,
+  targetWidth: number,
+  targetHeight: number,
+  quality: number
+): Promise<Buffer> {
+  return sharp(decoded.data, {
+    raw: { width: decoded.width, height: decoded.height, channels: 4 },
+  })
+    .resize(targetWidth, targetHeight, {
+      fit: IMAGE_THUMBNAIL_SPEC.fit,
+      withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
+    })
+    .webp({ quality })
+    .toBuffer();
 }
 
 export async function processImageBuffer(
@@ -142,57 +168,21 @@ export async function processImageBuffer(
   const webpQuality = normalizeThumbnailQuality(quality);
 
   if (ext === '.tga') {
-    try {
-      const decoded = decodeTgaBuffer(buffer);
-      const sharpInstance = sharp(decoded.data, {
-        raw: {
-          width: decoded.width,
-          height: decoded.height,
-          channels: 4,
-        },
-      });
-
-      const thumbnailBuffer = await sharpInstance
-        .resize(targetWidth, targetHeight, {
-          fit: IMAGE_THUMBNAIL_SPEC.fit,
-          withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
-        })
-        .webp({ quality: webpQuality })
-        .toBuffer();
-
-      return {
-        metadata: {
-          width: decoded.width,
-          height: decoded.height,
-          format: 'tga',
-          channels: 4,
-          hasAlpha: true,
-        },
-        thumbnailBuffer,
-      };
-    } catch (err) {
-      console.warn('TGA processing error:', err);
-    }
+    const decoded = decodeTgaBuffer(buffer);
+    return {
+      metadata: {
+        width: decoded.width,
+        height: decoded.height,
+        format: 'tga',
+        channels: decoded.channels,
+        hasAlpha: decoded.hasAlpha,
+      },
+      thumbnailBuffer: await encodeRasterThumbnail(decoded, targetWidth, targetHeight, webpQuality),
+    };
   }
 
   if (ext === '.bmp') {
     const decoded = decodeBmpBuffer(buffer);
-    const sharpInstance = sharp(decoded.data, {
-      raw: {
-        width: decoded.width,
-        height: decoded.height,
-        channels: 4,
-      },
-    });
-
-    const thumbnailBuffer = await sharpInstance
-      .resize(targetWidth, targetHeight, {
-        fit: IMAGE_THUMBNAIL_SPEC.fit,
-        withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
-      })
-      .webp({ quality: webpQuality })
-      .toBuffer();
-
     return {
       metadata: {
         width: decoded.width,
@@ -201,7 +191,7 @@ export async function processImageBuffer(
         channels: decoded.channels,
         hasAlpha: decoded.hasAlpha,
       },
-      thumbnailBuffer,
+      thumbnailBuffer: await encodeRasterThumbnail(decoded, targetWidth, targetHeight, webpQuality),
     };
   }
 
