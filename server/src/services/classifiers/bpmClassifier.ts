@@ -91,32 +91,48 @@ const decodeStep: ClassifierStep<BpmClassifierSettings, BpmIntermediateState> = 
     let decoded: { channelData?: Float32Array[]; sampleRate?: number };
     try {
       decoded = await decode(buffer);
-    } catch (err: any) {
-      intermediate.skipped = true;
-      intermediate.skipReason = `Audio decoding failed: ${err?.message || 'unknown error'}`;
+    } catch (err: unknown) {
+      intermediate.error = `Audio decoding failed: ${err instanceof Error ? err.message : String(err)}`;
       return false;
     }
 
     if (!decoded || !decoded.channelData || decoded.channelData.length === 0) {
-      intermediate.skipped = true;
-      intermediate.skipReason = 'Decoded audio returned no channel data';
+      intermediate.error = 'Decoded audio returned no channel data';
       return false;
     }
 
-    const sampleRate = decoded.sampleRate || 44100;
+    const sampleRate = decoded.sampleRate;
+    if (!sampleRate || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+      intermediate.error = 'Decoded audio returned an invalid sample rate';
+      return false;
+    }
+
+    const channels = decoded.channelData;
+    const channelLength = Math.min(...channels.map((channel) => channel.length));
+    if (channelLength === 0) {
+      intermediate.error = 'Decoded audio returned empty channel data';
+      return false;
+    }
+
     let monoPcm: Float32Array;
 
-    if (decoded.channelData.length === 1) {
-      monoPcm = decoded.channelData[0];
+    if (channels.length === 1) {
+      monoPcm = channels[0];
     } else {
-      // Downmix multi-channel to mono
-      const ch0 = decoded.channelData[0];
-      const ch1 = decoded.channelData[1];
-      const len = Math.min(ch0.length, ch1.length);
-      monoPcm = new Float32Array(len);
-      for (let i = 0; i < len; i++) {
-        monoPcm[i] = (ch0[i] + ch1[i]) * 0.5;
+      // Use every channel; a beat can be isolated to a channel beyond left/right.
+      monoPcm = new Float32Array(channelLength);
+      for (const channel of channels) {
+        for (let i = 0; i < channelLength; i++) {
+          monoPcm[i] += channel[i] / channels.length;
+        }
       }
+    }
+
+    const decodedDuration = channelLength / sampleRate;
+    if (decodedDuration < settings.minDurationSeconds) {
+      intermediate.skipped = true;
+      intermediate.skipReason = `Audio duration (${decodedDuration.toFixed(2)}s) is shorter than minimum threshold (${settings.minDurationSeconds}s)`;
+      return false;
     }
 
     // Limit maximum analysis window to conserve CPU for long tracks; take window from the middle of the track
@@ -144,15 +160,23 @@ const analyzeStep: ClassifierStep<BpmClassifierSettings, BpmIntermediateState> =
     if (!intermediate.pcmData || !intermediate.sampleRate) return false;
 
     try {
+      // The library measures onset spacing in hopSize samples, then converts it
+      // to seconds with timeStep. Both must derive from the decoded sample rate.
+      const hopSize = Math.max(1, Math.round(intermediate.sampleRate / 100));
       const calc = new MusicTempo(intermediate.pcmData, {
-        sampleRate: intermediate.sampleRate,
+        hopSize,
+        timeStep: hopSize / intermediate.sampleRate,
+        // Retain the library's 60-200 BPM detection span when settings narrow
+        // the result filter, while allowing a configured wider tempo range.
+        minBeatInterval: 60 / Math.max(200, settings.maxBpm),
+        maxBeatInterval: 60 / Math.min(60, settings.minBpm),
       });
 
       const parsedTempo = Number(calc.tempo);
-      if (!isNaN(parsedTempo) && parsedTempo >= settings.minBpm && parsedTempo <= settings.maxBpm) {
+      if (Number.isFinite(parsedTempo) && parsedTempo >= settings.minBpm && parsedTempo <= settings.maxBpm) {
         intermediate.bpm = Math.round(parsedTempo);
         intermediate.tempoDescription = getTempoDescription(intermediate.bpm);
-      } else if (!isNaN(parsedTempo)) {
+      } else if (Number.isFinite(parsedTempo)) {
         intermediate.bpm = null;
         intermediate.skipReason = `Detected tempo (${parsedTempo.toFixed(1)} BPM) falls outside configured range (${settings.minBpm}-${settings.maxBpm} BPM)`;
       } else {
