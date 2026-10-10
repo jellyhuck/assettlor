@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Asset, AssetStack, AppSettings, TagInfo, type ClassifierRunResult, getImageDisplayUrl } from '../types';
+import { Asset, AssetStack, AppSettings, TagInfo, type ClassifierRunResult } from '../types';
 import {
   X,
   Copy,
   Folder,
   Layers,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
   Grid,
   Volume2,
   Image as ImageIcon,
@@ -25,6 +22,8 @@ import {
 } from 'lucide-react';
 import { FlipbookPlayer } from './FlipbookPlayer';
 import { AudioWaveformPlayer } from './AudioWaveformPlayer';
+import { ImagePreview } from './ImagePreview';
+import { ImageThumbnail } from './ImageThumbnail';
 import { SoundIcon, MusicPlateIcon } from './AudioIcons';
 import { useToast } from './Toast';
 import { CopyModal } from './CopyModal';
@@ -156,7 +155,6 @@ export function Inspector({
 
   const [pixelated, setPixelated] = useState(true);
   const [checkerboard, setCheckerboard] = useState(true);
-  const [zoomLevel, setZoomLevel] = useState(1);
   const [memberState, setMemberState] = useState<MemberState | null>(null);
   const [selectedMember, setSelectedMember] = useState<{ stackId: string; id: string } | null>(null);
   const [viewChoice, setViewChoice] = useState<{
@@ -172,7 +170,6 @@ export function Inspector({
   const [stackTagChoice, setStackTagChoice] = useState<{ stackId: string; enabled: boolean } | null>(null);
   const [tagSuggestionsOpen, setTagSuggestionsOpen] = useState(false);
   const [localAvailableTags, setLocalAvailableTags] = useState<TagInfo[]>([]);
-  const [failedImageIds, setFailedImageIds] = useState<Set<string>>(() => new Set());
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const memberGate = useRef(createRequestGate());
   const parentGate = useRef(createRequestGate());
@@ -735,12 +732,11 @@ export function Inspector({
                         }`}
                         title={`${assetItem.name} (${formatBytes(assetItem.size)})`}
                       >
-                        <img
-                          src={getImageDisplayUrl(assetItem, true)}
-                          alt={assetItem.name}
-                          className={`w-full h-full object-contain ${
-                            pixelated ? 'pixelated' : 'smooth-render'
-                          }`}
+                        <ImageThumbnail
+                          asset={assetItem}
+                          pixelated={pixelated}
+                          revision={revision}
+                          className="w-full h-full object-contain"
                         />
                         <span className="absolute bottom-0 right-0 px-1 text-[9px] font-mono bg-black/85 text-slate-200 rounded-tl">
                           {index + 1}
@@ -753,80 +749,15 @@ export function Inspector({
 
               {/* Single visual or audio preview for this separate asset */}
               {isDisplayedImage ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-300">Asset Preview</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setZoomLevel((z) => Math.max(0.25, z - 0.25))}
-                        title="Zoom Out"
-                        className="p-1 rounded hover:bg-[#252538] text-slate-400 hover:text-white cursor-pointer"
-                      >
-                        <ZoomOut className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="text-[10px] font-mono text-slate-400 w-8 text-center">
-                        {Math.round(zoomLevel * 100)}%
-                      </span>
-                      <button
-                        onClick={() => setZoomLevel((z) => Math.min(4, z + 0.25))}
-                        title="Zoom In"
-                        className="p-1 rounded hover:bg-[#252538] text-slate-400 hover:text-white cursor-pointer"
-                      >
-                        <ZoomIn className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setZoomLevel(1)}
-                        title="Reset Zoom"
-                        className="p-1 rounded hover:bg-[#252538] text-slate-400 hover:text-white cursor-pointer"
-                      >
-                        <Maximize2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setPixelated(!pixelated)}
-                        title={pixelated ? 'Pixel Art: Nearest Neighbor' : 'Bilinear Filtered'}
-                        className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-mono border transition-colors cursor-pointer ${
-                          pixelated
-                            ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300'
-                            : 'bg-[#202033] border-[#2f2f48] text-slate-400'
-                        }`}
-                      >
-                        {pixelated ? 'Pixel' : 'Smooth'}
-                      </button>
-                      <button
-                        onClick={() => setCheckerboard(!checkerboard)}
-                        title="Toggle Checkerboard"
-                        className={`p-1 rounded border transition-colors cursor-pointer ${
-                          checkerboard
-                            ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300'
-                            : 'bg-[#202033] border-[#2f2f48] text-slate-400'
-                        }`}
-                      >
-                        <Grid className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    className={`relative flex items-center justify-center rounded-lg overflow-auto border border-[#2b2b42] h-60 p-2 ${
-                      checkerboard ? 'checkerboard-bg' : 'bg-[#11111d]'
-                    }`}
-                  >
-                    <img
-                      key={currentSeparateAsset.id}
-                      src={getImageDisplayUrl(
-                        currentSeparateAsset,
-                        failedImageIds.has(currentSeparateAsset.id)
-                      )}
-                      alt={currentSeparateAsset.name}
-                      onError={() => {
-                        setFailedImageIds((prev) => new Set(prev).add(currentSeparateAsset.id));
-                      }}
-                      style={{ transform: `scale(${zoomLevel})` }}
-                      className={`max-w-full max-h-full object-contain origin-center transition-transform ${
-                        pixelated ? 'pixelated' : 'smooth-render'
-                      }`}
-                    />
-                  </div>
-                </div>
+                <ImagePreview
+                  asset={currentSeparateAsset}
+                  pixelated={pixelated}
+                  checkerboard={checkerboard}
+                  onPixelatedChange={setPixelated}
+                  onCheckerboardChange={setCheckerboard}
+                  revision={revision}
+                  title="Asset Preview"
+                />
               ) : isDisplayedAudio ? (
                 <div className="space-y-2">
                   <span className="text-xs font-semibold text-slate-300">Audio Preview</span>
@@ -836,80 +767,14 @@ export function Inspector({
             </div>
           ) : isDisplayedImage ? (
             /* Standalone image preview */
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300">Preview</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setZoomLevel((z) => Math.max(0.25, z - 0.25))}
-                    title="Zoom Out"
-                    className="p-1 rounded hover:bg-[#252538] text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="text-[10px] font-mono text-slate-400 w-8 text-center">
-                    {Math.round(zoomLevel * 100)}%
-                  </span>
-                  <button
-                    onClick={() => setZoomLevel((z) => Math.min(4, z + 0.25))}
-                    title="Zoom In"
-                    className="p-1 rounded hover:bg-[#252538] text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setZoomLevel(1)}
-                    title="Reset Zoom"
-                    className="p-1 rounded hover:bg-[#252538] text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setPixelated(!pixelated)}
-                    title={pixelated ? 'Pixel Art: Nearest Neighbor' : 'Bilinear Filtered'}
-                    className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-mono border transition-colors cursor-pointer ${
-                      pixelated
-                        ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300'
-                        : 'bg-[#202033] border-[#2f2f48] text-slate-400'
-                    }`}
-                  >
-                    {pixelated ? 'Pixel' : 'Smooth'}
-                  </button>
-                  <button
-                    onClick={() => setCheckerboard(!checkerboard)}
-                    title="Toggle Checkerboard"
-                    className={`p-1 rounded border transition-colors cursor-pointer ${
-                      checkerboard
-                        ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300'
-                        : 'bg-[#202033] border-[#2f2f48] text-slate-400'
-                    }`}
-                  >
-                    <Grid className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <div
-                className={`relative flex items-center justify-center rounded-lg overflow-auto border border-[#2b2b42] h-60 p-2 ${
-                  checkerboard ? 'checkerboard-bg' : 'bg-[#11111d]'
-                }`}
-              >
-                <img
-                  key={displayedAsset.id}
-                  src={getImageDisplayUrl(
-                    displayedAsset,
-                    failedImageIds.has(displayedAsset.id)
-                  )}
-                  alt={displayedAsset.name}
-                  onError={() => {
-                    setFailedImageIds((prev) => new Set(prev).add(displayedAsset.id));
-                  }}
-                  style={{ transform: `scale(${zoomLevel})` }}
-                  className={`max-w-full max-h-full object-contain origin-center transition-transform ${
-                    pixelated ? 'pixelated' : 'smooth-render'
-                  }`}
-                />
-              </div>
-            </div>
+            <ImagePreview
+              asset={displayedAsset}
+              pixelated={pixelated}
+              checkerboard={checkerboard}
+              onPixelatedChange={setPixelated}
+              onCheckerboardChange={setCheckerboard}
+              revision={revision}
+            />
           ) : isDisplayedAudio ? (
             /* Standalone audio waveform */
             <div className="space-y-2">

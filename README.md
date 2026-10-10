@@ -26,7 +26,7 @@
 ### 4. AssetHoard Dark Palette & Modern Web UI
 - **Aesthetic**: Deep dark slate palette (`#141420`, `#1a1a2e`, `#252538`) with high-contrast accent badges.
 - **Inspector Panel**:
-  - **Images**: Zoom controls, checkerboard transparency toggle, Nearest-Neighbor (pixel art) vs Bilinear smooth scaling. Drag-to-pan is not implemented.
+  - **Images**: Zoom from 25% to 400%, drag or use arrow keys to pan, reset zoom and pan, toggle checkerboard transparency, and switch between Nearest-Neighbor (pixel art) and Bilinear smooth scaling. A failed original falls back to its thumbnail with a retry control; TGA previews use converted thumbnails.
   - **Audio**: Interactive waveform visualization powered by `wavesurfer.js`, seeking, looping, volume, and variation tabs.
   - **Metadata**: Dimensions, channels, sample rate, bitrate, format, file size, filesystem path, tags.
 - **Gallery Grid**: Responsive virtualized grid and list with quick copy, audio preview, and animation flipbook on hover. The client loads results 100 at a time with a **Load more** action and a retry for failed pages.

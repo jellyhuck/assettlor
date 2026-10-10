@@ -50,6 +50,21 @@ const renderInspector = (
 describe('inspector request identity', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('resets the integrated image preview on a same-ID revision', async () => {
+    const current = asset('same', 'Same');
+    const view = await mountReact(renderInspector(current));
+    const first = view.container.querySelector<HTMLImageElement>('[role="region"][aria-label="Pan Same preview"] img')!;
+    const firstUrl = first.getAttribute('src');
+    await click(view.container.querySelector('button[aria-label="Zoom in"]')!);
+    expect(view.container.querySelector('[aria-label="Image zoom"]')?.textContent).toContain('125%');
+
+    await view.render(renderInspector(current, 2));
+    expect(view.container.querySelector('[aria-label="Image zoom"]')?.textContent).toContain('100%');
+    const refreshed = view.container.querySelector<HTMLImageElement>('[role="region"][aria-label="Pan Same preview"] img')!;
+    expect(refreshed.getAttribute('src')).not.toBe(firstUrl);
+    await view.unmount();
+  });
+
   it('keeps disjoint stack responses and same-ID revisions in their own view', async () => {
     const pending = createDeferredFetch();
     vi.stubGlobal('fetch', pending.fetcher);
