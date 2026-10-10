@@ -83,6 +83,7 @@ A navigation and reference guide for understanding subsystem implementations and
 ## 4. API Endpoints Reference
 
 - `GET /api/assets` - Paginated and filtered assets. Common query parameters: `category`, `tag`, `format`, `search`, `stackType`, `isStackedView`, `sortBy`, `sortOrder`, `page`, and `limit`; metadata filters also include `resolution`, `bpm`, `sprite`, `pack`, `width`, `height`, and `duration`.
+- In stacked `queryAssets` results, each direct parameter and each `AND` search predicate matches the representative or any member independently, so different predicates may match different members of one stack. Each member subquery stays correlated to its own stack; flat results require every predicate on the same asset.
 - `GET /api/assets/:id` - Detailed asset metadata and assigned tags.
 - `GET /api/assets/:id/thumbnail` - WebP thumbnail image.
 - `GET /api/assets/:id/file` - Raw file stream (supports HTTP 206 Partial Content range requests); returns 404 for missing assets, sources, or archive entries, 422 for corrupt ZIP content, or 500 for filesystem read failures.

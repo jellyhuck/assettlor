@@ -1200,9 +1200,40 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     s_metadata: string | null;
   })[];
 
+  const tagsByAsset = new Map<string, string[]>();
+  if (rows.length > 0) {
+    const assetIds = rows.map((row) => row.id);
+    const placeholders = assetIds.map(() => '?').join(', ');
+    const tagRows = db.prepare(`
+      SELECT DISTINCT asset_id, tag FROM tags WHERE asset_id IN (${placeholders})
+    `).all(...assetIds) as { asset_id: string; tag: string }[];
+    for (const tagRow of tagRows) {
+      const tags = tagsByAsset.get(tagRow.asset_id) || [];
+      tags.push(tagRow.tag);
+      tagsByAsset.set(tagRow.asset_id, tags);
+    }
+  }
+
+  const tagsByStack = new Map<string, string[]>();
+  const stackIds = isStackedView
+    ? rows.flatMap((row) => row.s_id ? [row.s_id] : [])
+    : [];
+  if (stackIds.length > 0) {
+    const placeholders = stackIds.map(() => '?').join(', ');
+    const stackTagRows = db.prepare(`
+      SELECT DISTINCT m.stack_id, t.tag FROM tags t
+      JOIN assets m ON m.id = t.asset_id
+      WHERE m.stack_id IN (${placeholders})
+    `).all(...stackIds) as { stack_id: string; tag: string }[];
+    for (const tagRow of stackTagRows) {
+      const tags = tagsByStack.get(tagRow.stack_id) || [];
+      tags.push(tagRow.tag);
+      tagsByStack.set(tagRow.stack_id, tags);
+    }
+  }
+
   const items = rows.map((r) => {
-    const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(r.id) as { tag: string }[];
-    const asset = rowToAsset(r, tagRows.map((t) => t.tag));
+    const asset = rowToAsset(r, tagsByAsset.get(r.id) || []);
 
     if (isStackedView && r.s_id) {
       // It's a stack representative card
@@ -1213,13 +1244,6 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
         stackMeta = {};
       }
 
-      // Collect unique tags across all stack members
-      const stackTagRows = db.prepare(`
-        SELECT DISTINCT t.tag FROM tags t
-        JOIN assets m ON m.id = t.asset_id
-        WHERE m.stack_id = ?
-      `).all(r.s_id) as { tag: string }[];
-
       const stackItem: AssetStack & { isStack: true } = {
         isStack: true,
         id: r.s_id,
@@ -1229,7 +1253,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
         representativeAssetId: r.id,
         representativeAsset: asset,
         metadata: stackMeta,
-        tags: stackTagRows.map((t) => t.tag),
+        tags: tagsByStack.get(r.s_id) || [],
         createdAt: r.created_at,
       };
       return stackItem;

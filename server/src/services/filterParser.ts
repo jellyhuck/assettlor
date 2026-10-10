@@ -223,36 +223,38 @@ function bpmBucketCondition(alias: 'a' | 'm', bucket: BpmBucket): string {
  */
 function buildFreeTextClause(term: string, isStackedView: boolean): { sql: string; args: any[] } {
   const cleanTerm = term.toLowerCase().trim();
-  const tParam = `%${cleanTerm}%`;
+  // Free text is literal text. SQL LIKE wildcards in a typed term must not
+  // turn an unknown or incomplete search clause into a match-all predicate.
+  const tParam = `%${cleanTerm.replace(/[!%_]/g, (character) => `!${character}`)}%`;
 
   if (isStackedView) {
     return {
       sql: `(
-        LOWER(a.name) LIKE ? OR
-        REPLACE(LOWER(a.name), '_', ' ') LIKE ? OR
-        REPLACE(LOWER(a.name), '-', ' ') LIKE ? OR
-        LOWER(a.path) LIKE ? OR
+        LOWER(a.name) LIKE ? ESCAPE '!' OR
+        REPLACE(LOWER(a.name), '_', ' ') LIKE ? ESCAPE '!' OR
+        REPLACE(LOWER(a.name), '-', ' ') LIKE ? ESCAPE '!' OR
+        LOWER(a.path) LIKE ? ESCAPE '!' OR
         (s.id IS NOT NULL AND (
-          LOWER(s.name) LIKE ? OR
-          REPLACE(LOWER(s.name), '_', ' ') LIKE ?
+          LOWER(s.name) LIKE ? ESCAPE '!' OR
+          REPLACE(LOWER(s.name), '_', ' ') LIKE ? ESCAPE '!'
         )) OR
         EXISTS (
           SELECT 1 FROM tags t
           WHERE t.asset_id = a.id
-            AND (LOWER(t.tag) LIKE ? OR LOWER(t.tag) = ?)
+            AND (LOWER(t.tag) LIKE ? ESCAPE '!' OR LOWER(t.tag) = ?)
         ) OR
         (a.stack_id IS NOT NULL AND EXISTS (
           SELECT 1 FROM assets m
           WHERE m.stack_id = a.stack_id
             AND (
-              LOWER(m.name) LIKE ? OR
-              REPLACE(LOWER(m.name), '_', ' ') LIKE ? OR
-              REPLACE(LOWER(m.name), '-', ' ') LIKE ? OR
-              LOWER(m.path) LIKE ? OR
+              LOWER(m.name) LIKE ? ESCAPE '!' OR
+              REPLACE(LOWER(m.name), '_', ' ') LIKE ? ESCAPE '!' OR
+              REPLACE(LOWER(m.name), '-', ' ') LIKE ? ESCAPE '!' OR
+              LOWER(m.path) LIKE ? ESCAPE '!' OR
               EXISTS (
                 SELECT 1 FROM tags mt
                 WHERE mt.asset_id = m.id
-                  AND (LOWER(mt.tag) LIKE ? OR LOWER(mt.tag) = ?)
+                  AND (LOWER(mt.tag) LIKE ? ESCAPE '!' OR LOWER(mt.tag) = ?)
               )
             )
         ))
@@ -269,15 +271,15 @@ function buildFreeTextClause(term: string, isStackedView: boolean): { sql: strin
 
   return {
     sql: `(
-      LOWER(a.name) LIKE ? OR
-      REPLACE(LOWER(a.name), '_', ' ') LIKE ? OR
-      REPLACE(LOWER(a.name), '-', ' ') LIKE ? OR
-      LOWER(a.path) LIKE ? OR
-      (s.id IS NOT NULL AND LOWER(s.name) LIKE ?) OR
+      LOWER(a.name) LIKE ? ESCAPE '!' OR
+      REPLACE(LOWER(a.name), '_', ' ') LIKE ? ESCAPE '!' OR
+      REPLACE(LOWER(a.name), '-', ' ') LIKE ? ESCAPE '!' OR
+      LOWER(a.path) LIKE ? ESCAPE '!' OR
+      (s.id IS NOT NULL AND LOWER(s.name) LIKE ? ESCAPE '!') OR
       EXISTS (
         SELECT 1 FROM tags t
         WHERE t.asset_id = a.id
-          AND (LOWER(t.tag) LIKE ? OR LOWER(t.tag) = ?)
+          AND (LOWER(t.tag) LIKE ? ESCAPE '!' OR LOWER(t.tag) = ?)
       )
     )`,
     args: [
@@ -293,15 +295,16 @@ function buildFreeTextClause(term: string, isStackedView: boolean): { sql: strin
  */
 function compileAstNode(
   node: any,
-  isStackedView: boolean
+  isStackedView: boolean,
+  source: string
 ): { sql: string; args: any[] } | null {
   if (!node || node.type === 'EmptyExpression') {
     return null;
   }
 
   if (node.type === 'LogicalExpression') {
-    const leftRes = compileAstNode(node.left, isStackedView);
-    const rightRes = compileAstNode(node.right, isStackedView);
+    const leftRes = compileAstNode(node.left, isStackedView, source);
+    const rightRes = compileAstNode(node.right, isStackedView, source);
 
     if (!leftRes && !rightRes) return null;
     if (!leftRes) return rightRes;
@@ -315,7 +318,7 @@ function compileAstNode(
   }
 
   if (node.type === 'ParenthesizedExpression') {
-    const innerRes = compileAstNode(node.expression, isStackedView);
+    const innerRes = compileAstNode(node.expression, isStackedView, source);
     if (!innerRes) return null;
     return {
       sql: `(${innerRes.sql})`,
@@ -324,7 +327,7 @@ function compileAstNode(
   }
 
   if (node.type === 'UnaryOperator') {
-    const operandRes = compileAstNode(node.operand, isStackedView);
+    const operandRes = compileAstNode(node.operand, isStackedView, source);
     if (!operandRes) return null;
     return {
       sql: `NOT (${operandRes.sql})`,
@@ -343,9 +346,28 @@ function compileAstNode(
     const fieldName = (node.field.name || '').toLowerCase();
     const op = node.operator?.operator || ':';
     const expr = node.expression;
+    const unsupported = () => {
+      const start = node.location?.start;
+      const end = node.location?.end;
+      const reconstructedValue = expr?.quoted
+        ? JSON.stringify(String(expr.value ?? ''))
+        : String(expr?.value ?? '');
+      const term = Number.isInteger(start) && Number.isInteger(end) && end > start
+        ? source.slice(start, end)
+        : `${node.field.name}${op}${reconstructedValue}`;
+      return buildFreeTextClause(term, isStackedView);
+    };
 
     if (!expr || expr.type === 'EmptyExpression') {
-      return null;
+      // Known empty fields are temporary while typing. An unknown prefix is
+      // still a literal search term, including its trailing colon.
+      const known = new Set([
+        'tag', 't', 'sprite', 'spritetype', 'pack', 'p', 'size', 's',
+        'ext', 'format', 'cat', 'type', 'category', 'path', 'in', 'dir',
+        'is', 'width', 'w', 'height', 'h', 'dur', 'duration', 'bpm',
+        'tempo', 'res', 'resolution',
+      ]);
+      return known.has(fieldName) ? null : unsupported();
     }
 
     // 2. Tag: tag:coin, t:coin
@@ -387,8 +409,9 @@ function compileAstNode(
     // 3. Size: size:<2MB, size:>500KB, size:>=1MB, size:[100KB TO 2MB]
     if (fieldName === 'size' || fieldName === 's') {
       if (expr.type === 'RangeExpression' && expr.range) {
-        const minVal = expr.range.min;
-        const maxVal = expr.range.max;
+        const minVal = Number(expr.range.min);
+        const maxVal = Number(expr.range.max);
+        if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return unsupported();
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
         return {
@@ -399,7 +422,8 @@ function compileAstNode(
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       const parsedBytes = bytes.parse(rawVal);
-      const byteCount = parsedBytes !== null ? parsedBytes : (Number(rawVal) || 0);
+      const byteCount = parsedBytes !== null ? parsedBytes : Number(rawVal);
+      if (!Number.isFinite(byteCount)) return unsupported();
       const sqlOp = mapComparisonOperator(op);
 
       return {
@@ -479,7 +503,7 @@ function compileAstNode(
             ? { sql: `(a.category = 'audio' OR s.type = 'audio_variation')`, args: [] }
             : { sql: `a.category = 'audio'`, args: [] };
         default:
-          return null;
+          return unsupported();
       }
     }
 
@@ -488,6 +512,7 @@ function compileAstNode(
       if (expr.type === 'RangeExpression' && expr.range) {
         const minVal = Number(expr.range.min);
         const maxVal = Number(expr.range.max);
+        if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return unsupported();
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
         return composeMetadataRangePredicate(
@@ -497,7 +522,7 @@ function compileAstNode(
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       const sqlOp = mapComparisonOperator(op);
-      return parseWidthClause(rawVal, isStackedView, sqlOp);
+      return parseWidthClause(rawVal, isStackedView, sqlOp) ?? unsupported();
     }
 
     // 9. Height: height:>128, h:64, height:[64 TO 512], height:tiny
@@ -505,6 +530,7 @@ function compileAstNode(
       if (expr.type === 'RangeExpression' && expr.range) {
         const minVal = Number(expr.range.min);
         const maxVal = Number(expr.range.max);
+        if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return unsupported();
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
         return composeMetadataRangePredicate(
@@ -514,7 +540,7 @@ function compileAstNode(
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       const sqlOp = mapComparisonOperator(op);
-      return parseHeightClause(rawVal, isStackedView, sqlOp);
+      return parseHeightClause(rawVal, isStackedView, sqlOp) ?? unsupported();
     }
 
     // 10. Duration: dur:>5s, duration:<1m, dur:[5 TO 30], dur:short, dur:music
@@ -522,6 +548,7 @@ function compileAstNode(
       if (expr.type === 'RangeExpression' && expr.range) {
         const minVal = Number(expr.range.min);
         const maxVal = Number(expr.range.max);
+        if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return unsupported();
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
         return composeMetadataRangePredicate(
@@ -531,7 +558,7 @@ function compileAstNode(
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       const sqlOp = mapComparisonOperator(op);
-      return parseDurationClause(rawVal, isStackedView, sqlOp);
+      return parseDurationClause(rawVal, isStackedView, sqlOp) ?? unsupported();
     }
 
     // 11. BPM / Tempo: bpm:120, bpm:>120, bpm:[80 TO 120], bpm:slow, bpm:fast
@@ -539,6 +566,7 @@ function compileAstNode(
       if (expr.type === 'RangeExpression' && expr.range) {
         const minVal = Number(expr.range.min);
         const maxVal = Number(expr.range.max);
+        if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return unsupported();
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
         return composeMetadataRangePredicate(
@@ -548,7 +576,7 @@ function compileAstNode(
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       const sqlOp = mapComparisonOperator(op);
-      return parseBpmClause(rawVal, isStackedView, sqlOp);
+      return parseBpmClause(rawVal, isStackedView, sqlOp) ?? unsupported();
     }
 
     // 12. Image Resolution: res:64x64, resolution:1920x1080, res:>512x512, res:square, res:1080p, res:tiny, etc.
@@ -583,11 +611,11 @@ function compileAstNode(
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       const sqlOp = mapComparisonOperator(op);
-      return parseResolutionClause(rawVal, isStackedView, sqlOp);
+      return parseResolutionClause(rawVal, isStackedView, sqlOp) ?? unsupported();
     }
 
     // Fallback: treat unrecognized field:value as free-text token
-    return buildFreeTextClause(`${fieldName}:${expr.value}`, isStackedView);
+    return unsupported();
   }
 
   return null;
@@ -1256,132 +1284,75 @@ export function parsePackClause(
 }
 
 /**
- * Fallback parser used when Liqe throws an error (e.g. while a user is actively typing).
- * Splits raw query into simple whitespace-separated keywords and applies fuzzy LIKE matching.
+ * Recover an unfinished group or trailing Boolean operator while typing.
+ * Quoted values and ranges are kept intact; an unclosed quote/range is not
+ * repaired because guessing its boundary could change a literal's meaning.
  */
-function compileFallbackQuery(rawQuery: string, isStackedView: boolean): CompiledFilterResult {
-  const tokens = rawQuery.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) {
-    return { sql: '', args: [], isParsed: false };
-  }
+function repairIncompleteSyntax(source: string): string | null {
+  const unmatched = new Set<number>();
+  const opens: number[] = [];
+  let quoted = false;
+  let escaped = false;
+  let bracketDepth = 0;
 
-  const clauses: string[] = [];
-  const args: any[] = [];
-
-  for (const token of tokens) {
-    if (token.startsWith('#')) {
-      const cleanTag = token.slice(1).toLowerCase().trim();
-      const tLikeParam = `%${cleanTag}%`;
-      if (isStackedView) {
-        clauses.push(`(
-          EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) LIKE ?)) OR
-          (a.stack_id IS NOT NULL AND EXISTS (
-            SELECT 1 FROM assets m
-            JOIN tags mt ON mt.asset_id = m.id
-            WHERE m.stack_id = a.stack_id AND (LOWER(mt.tag) = ? OR LOWER(mt.tag) LIKE ?)
-          ))
-        )`);
-        args.push(cleanTag, tLikeParam, cleanTag, tLikeParam);
-      } else {
-        clauses.push(`EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) LIKE ?))`);
-        args.push(cleanTag, tLikeParam);
-      }
-    } else if (token.toLowerCase().startsWith('res:') || token.toLowerCase().startsWith('resolution:')) {
-      const colonIdx = token.indexOf(':');
-      const val = token.slice(colonIdx + 1);
-      const resClause = parseResolutionClause(val, isStackedView);
-      if (resClause) {
-        clauses.push(resClause.sql);
-        args.push(...resClause.args);
-      } else {
-        const freeRes = buildFreeTextClause(token, isStackedView);
-        clauses.push(freeRes.sql);
-        args.push(...freeRes.args);
-      }
-    } else if (token.toLowerCase().startsWith('bpm:') || token.toLowerCase().startsWith('tempo:')) {
-      const colonIdx = token.indexOf(':');
-      const val = token.slice(colonIdx + 1);
-      const bpmClause = parseBpmClause(val, isStackedView);
-      if (bpmClause) {
-        clauses.push(bpmClause.sql);
-        args.push(...bpmClause.args);
-      } else {
-        const freeRes = buildFreeTextClause(token, isStackedView);
-        clauses.push(freeRes.sql);
-        args.push(...freeRes.args);
-      }
-    } else if (token.toLowerCase().startsWith('sprite:') || token.toLowerCase().startsWith('spritetype:')) {
-      const colonIdx = token.indexOf(':');
-      const val = token.slice(colonIdx + 1);
-      const spriteClause = parseSpriteClause(val, isStackedView);
-      if (spriteClause) {
-        clauses.push(spriteClause.sql);
-        args.push(...spriteClause.args);
-      } else {
-        const freeRes = buildFreeTextClause(token, isStackedView);
-        clauses.push(freeRes.sql);
-        args.push(...freeRes.args);
-      }
-    } else if (token.toLowerCase().startsWith('pack:') || token.toLowerCase().startsWith('p:')) {
-      const colonIdx = token.indexOf(':');
-      const val = token.slice(colonIdx + 1);
-      const packClause = parsePackClause(val, isStackedView);
-      if (packClause) {
-        clauses.push(packClause.sql);
-        args.push(...packClause.args);
-      } else {
-        const freeRes = buildFreeTextClause(token, isStackedView);
-        clauses.push(freeRes.sql);
-        args.push(...freeRes.args);
-      }
-    } else if (token.toLowerCase().startsWith('width:') || token.toLowerCase().startsWith('w:')) {
-      const colonIdx = token.indexOf(':');
-      const val = token.slice(colonIdx + 1);
-      const widthClause = parseWidthClause(val, isStackedView);
-      if (widthClause) {
-        clauses.push(widthClause.sql);
-        args.push(...widthClause.args);
-      } else {
-        const freeRes = buildFreeTextClause(token, isStackedView);
-        clauses.push(freeRes.sql);
-        args.push(...freeRes.args);
-      }
-    } else if (token.toLowerCase().startsWith('height:') || token.toLowerCase().startsWith('h:')) {
-      const colonIdx = token.indexOf(':');
-      const val = token.slice(colonIdx + 1);
-      const heightClause = parseHeightClause(val, isStackedView);
-      if (heightClause) {
-        clauses.push(heightClause.sql);
-        args.push(...heightClause.args);
-      } else {
-        const freeRes = buildFreeTextClause(token, isStackedView);
-        clauses.push(freeRes.sql);
-        args.push(...freeRes.args);
-      }
-    } else if (token.toLowerCase().startsWith('dur:') || token.toLowerCase().startsWith('duration:')) {
-      const colonIdx = token.indexOf(':');
-      const val = token.slice(colonIdx + 1);
-      const durClause = parseDurationClause(val, isStackedView);
-      if (durClause) {
-        clauses.push(durClause.sql);
-        args.push(...durClause.args);
-      } else {
-        const freeRes = buildFreeTextClause(token, isStackedView);
-        clauses.push(freeRes.sql);
-        args.push(...freeRes.args);
-      }
-    } else {
-      const freeRes = buildFreeTextClause(token, isStackedView);
-      clauses.push(freeRes.sql);
-      args.push(...freeRes.args);
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '\\') {
+      index++;
+    } else if (character === '"') {
+      quoted = true;
+    } else if (character === '[') {
+      bracketDepth++;
+    } else if (character === ']') {
+      if (bracketDepth === 0) return null;
+      bracketDepth--;
+    } else if (bracketDepth === 0 && character === '(') {
+      opens.push(index);
+    } else if (bracketDepth === 0 && character === ')') {
+      if (opens.length) opens.pop();
+      else unmatched.add(index);
     }
   }
 
-  return {
-    sql: composePredicates(clauses, 'AND'),
-    args,
-    isParsed: false,
-  };
+  if (quoted || bracketDepth !== 0) return null;
+  for (const index of opens) unmatched.add(index);
+  let repaired = source.split('').filter((_, index) => !unmatched.has(index)).join('').trim();
+  while (/(?:^|\s)(?:AND|OR|NOT)\s*$/i.test(repaired)) {
+    repaired = repaired.replace(/(?:^|\s)(?:AND|OR|NOT)\s*$/i, '').trim();
+  }
+  return repaired;
+}
+
+/**
+ * A repaired expression keeps its complete filters and Boolean operators.
+ * If repair is unsafe, the whole input becomes one literal free-text clause:
+ * malformed syntax must never silently remove a restriction or match all.
+ */
+function compileFallbackQuery(rawQuery: string, isStackedView: boolean): CompiledFilterResult {
+  const repaired = repairIncompleteSyntax(rawQuery);
+  if (repaired && repaired !== rawQuery.trim()) {
+    try {
+      const compiled = compileAstNode(parse(repaired), isStackedView, repaired);
+      if (compiled?.sql.trim()) return { ...compiled, isParsed: false };
+    } catch {
+      // A syntax repair may still be insufficient; use literal fallback below.
+    }
+  }
+  // Liqe rejects some otherwise supported unquoted pack wildcard patterns
+  // containing literal SQL wildcard characters. Keep the explicit '*' search
+  // operator available without letting '%' or '_' broaden the match.
+  const packWildcard = /^(?:pack|p):([^\s()"\[\]]*\*[^\s()"\[\]]*)$/i.exec(rawQuery.trim());
+  if (packWildcard) {
+    const compiled = parsePackClause(packWildcard[1], isStackedView);
+    if (compiled) return { ...compiled, isParsed: false };
+  }
+  return { ...buildFreeTextClause(rawQuery, isStackedView), isParsed: false };
 }
 
 /**
@@ -1402,7 +1373,7 @@ export function compileFilterExpression(
 
   try {
     const ast = parse(preprocessed);
-    const compiled = compileAstNode(ast, isStackedView);
+    const compiled = compileAstNode(ast, isStackedView, preprocessed);
 
     if (!compiled || !compiled.sql.trim()) {
       return { sql: '', args: [], isParsed: true };
@@ -1415,6 +1386,6 @@ export function compileFilterExpression(
     };
   } catch (_err) {
     // Graceful fallback for any parse error during typing
-    return compileFallbackQuery(query, isStackedView);
+    return compileFallbackQuery(preprocessed, isStackedView);
   }
 }
