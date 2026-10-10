@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Asset, getImageDisplayUrl } from '../types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { type Asset, getImageDisplayUrl } from '../types';
 import { Play, Pause, SkipBack, SkipForward, Repeat, RotateCcw, Eye } from 'lucide-react';
 
 interface FlipbookPlayerProps {
@@ -14,7 +14,24 @@ interface FlipbookPlayerProps {
   onViewFrameSeparately?: (asset: Asset, index: number) => void;
 }
 
-export function FlipbookPlayer({
+function clampFrameIndex(index: number, frameCount: number): number {
+  if (frameCount === 0 || !Number.isFinite(index)) return 0;
+  return Math.min(Math.max(Math.trunc(index), 0), frameCount - 1);
+}
+
+function clampFps(value: number): number {
+  if (!Number.isFinite(value)) return 12;
+  return Math.min(Math.max(Math.round(value), 1), 60);
+}
+
+export function FlipbookPlayer(props: FlipbookPlayerProps) {
+  // A new set of frame identities starts a new playback session. Changes to
+  // selectedFrameIndex only change the metadata selection in the strip.
+  const frameSetKey = JSON.stringify(props.frames.map((frame) => frame.id));
+  return <FlipbookSession key={frameSetKey} {...props} />;
+}
+
+function FlipbookSession({
   frames,
   pixelated = true,
   checkerboard = true,
@@ -25,29 +42,23 @@ export function FlipbookPlayer({
   onFrameChange,
   onViewFrameSeparately,
 }: FlipbookPlayerProps) {
-  const [currentFrameIndex, setCurrentFrameIndex] = useState(initialFrameIndex);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [fps, setFps] = useState(initialFps);
+  const totalFrames = frames.length;
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(() => clampFrameIndex(initialFrameIndex, totalFrames));
+  const currentFrameIndexRef = useRef(currentFrameIndex);
+  const [isPlaying, setIsPlaying] = useState(totalFrames > 1);
+  const [fpsOverride, setFpsOverride] = useState<number | null>(null);
+  const fps = fpsOverride ?? clampFps(initialFps);
   const [isLooping, setIsLooping] = useState(true);
 
-  // Safety check
-  const totalFrames = frames.length;
-  const currentAsset = frames[currentFrameIndex] || frames[0];
+  const currentAsset = frames[currentFrameIndex];
 
-  useEffect(() => {
-    if (initialFrameIndex >= 0 && initialFrameIndex < frames.length) {
-      setCurrentFrameIndex(initialFrameIndex);
-    } else {
-      setCurrentFrameIndex(0);
-    }
-  }, [frames, initialFrameIndex]);
-
-  const updateFrameIndex = (idx: number) => {
-    setCurrentFrameIndex(idx);
-    if (frames[idx] && onFrameChange) {
-      onFrameChange(idx, frames[idx]);
-    }
-  };
+  const updateFrameIndex = useCallback((index: number) => {
+    if (frames.length === 0) return;
+    const next = clampFrameIndex(index, frames.length);
+    currentFrameIndexRef.current = next;
+    setCurrentFrameIndex(next);
+    onFrameChange?.(next, frames[next]);
+  }, [frames, onFrameChange]);
 
   const handleFrameClick = (idx: number) => {
     if (frames[idx] && onSelectFrame) {
@@ -64,28 +75,43 @@ export function FlipbookPlayer({
 
     const intervalMs = 1000 / fps;
     const timer = setInterval(() => {
-      setCurrentFrameIndex((prev) => {
-        const next = prev + 1 >= totalFrames ? (isLooping ? 0 : prev) : prev + 1;
-        if (frames[next] && onFrameChange) {
-          onFrameChange(next, frames[next]);
-        }
-        return next;
-      });
+      const next = currentFrameIndexRef.current + 1;
+      if (next >= totalFrames) {
+        if (isLooping) updateFrameIndex(0);
+        else setIsPlaying(false);
+        return;
+      }
+      updateFrameIndex(next);
+      if (!isLooping && next === totalFrames - 1) setIsPlaying(false);
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [isPlaying, fps, totalFrames, isLooping, frames, onFrameChange]);
+  }, [isPlaying, fps, totalFrames, isLooping, updateFrameIndex]);
 
   const handleStepBack = () => {
     setIsPlaying(false);
+    if (totalFrames <= 1) return;
     const nextIdx = currentFrameIndex > 0 ? currentFrameIndex - 1 : totalFrames - 1;
     updateFrameIndex(nextIdx);
   };
 
   const handleStepForward = () => {
     setIsPlaying(false);
+    if (totalFrames <= 1) return;
     const nextIdx = currentFrameIndex + 1 < totalFrames ? currentFrameIndex + 1 : 0;
     updateFrameIndex(nextIdx);
+  };
+
+  const handlePlayPause = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+    } else if (totalFrames > 1) {
+      // A completed non-looping animation replays from the first frame.
+      if (!isLooping && currentFrameIndexRef.current === totalFrames - 1) {
+        updateFrameIndex(0);
+      }
+      setIsPlaying(true);
+    }
   };
 
   if (!currentAsset) {
@@ -127,7 +153,7 @@ export function FlipbookPlayer({
         <input
           type="range"
           min="0"
-          max={totalFrames - 1}
+          max={Math.max(0, totalFrames - 1)}
           value={currentFrameIndex}
           onChange={(e) => {
             setIsPlaying(false);
@@ -156,13 +182,15 @@ export function FlipbookPlayer({
           <button
             onClick={handleStepBack}
             title="Previous Frame"
+            disabled={totalFrames <= 1}
             className="p-1.5 rounded hover:bg-[#25253e] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
           >
             <SkipBack className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => setIsPlaying(!isPlaying)}
+            onClick={handlePlayPause}
             title={isPlaying ? 'Pause' : 'Play'}
+            disabled={totalFrames <= 1}
             className="p-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer"
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
@@ -170,12 +198,16 @@ export function FlipbookPlayer({
           <button
             onClick={handleStepForward}
             title="Next Frame"
+            disabled={totalFrames <= 1}
             className="p-1.5 rounded hover:bg-[#25253e] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
           >
             <SkipForward className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => setIsLooping(!isLooping)}
+            onClick={() => {
+              if (isLooping && currentFrameIndexRef.current === totalFrames - 1) setIsPlaying(false);
+              setIsLooping(!isLooping);
+            }}
             title="Toggle Loop"
             className={`p-1.5 rounded transition-colors cursor-pointer ${
               isLooping ? 'text-indigo-400 bg-indigo-950/40' : 'text-slate-500 hover:text-slate-300'
@@ -191,9 +223,9 @@ export function FlipbookPlayer({
           <input
             type="range"
             min="1"
-            max="30"
+            max="60"
             value={fps}
-            onChange={(e) => setFps(Number(e.target.value))}
+            onChange={(e) => setFpsOverride(clampFps(Number(e.target.value)))}
             className="w-16 accent-indigo-500 h-1 bg-[#25253e] rounded appearance-none cursor-pointer"
           />
           <span className="text-[11px] font-mono font-bold text-indigo-400 w-9 text-right">{fps} fps</span>
