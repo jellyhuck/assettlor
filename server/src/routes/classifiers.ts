@@ -7,7 +7,11 @@ import {
   runClassifier,
 } from '../services/classifiers/index.js';
 import type { RunClassifierRequest } from '../../../shared/types.js';
-import { InvalidClassifierScopeError, validateClassifierScope } from '../services/classifiers/scope.js';
+import {
+  InvalidClassifierScopeError,
+  validateClassifierScope,
+} from '../services/classifiers/scope.js';
+import { ClassifierSettingsError } from '../services/classifiers/settings.js';
 
 export async function classifiersRoutes(fastify: FastifyInstance) {
   // GET /api/classifiers - List all available classifiers with metadata and settings
@@ -56,8 +60,9 @@ export async function classifiersRoutes(fastify: FastifyInstance) {
         classifierId: id,
         settings: updatedSettings,
       });
-    } catch (err: any) {
-      return reply.status(500).send({ error: 'Failed to update classifier settings', details: err?.message });
+    } catch (err: unknown) {
+      if (err instanceof ClassifierSettingsError) return reply.status(400).send({ error: err.message });
+      return reply.status(500).send({ error: 'Failed to update classifier settings', details: err instanceof Error ? err.message : undefined });
     }
   });
 
@@ -83,8 +88,9 @@ export async function classifiersRoutes(fastify: FastifyInstance) {
         classifierId: id,
         settings: updatedSettings,
       });
-    } catch (err: any) {
-      return reply.status(500).send({ error: 'Failed to update classifier settings', details: err?.message });
+    } catch (err: unknown) {
+      if (err instanceof ClassifierSettingsError) return reply.status(400).send({ error: err.message });
+      return reply.status(500).send({ error: 'Failed to update classifier settings', details: err instanceof Error ? err.message : undefined });
     }
   });
 
@@ -113,7 +119,7 @@ export async function classifiersRoutes(fastify: FastifyInstance) {
 
       return reply.send(result);
     } catch (err: unknown) {
-      if (err instanceof InvalidClassifierScopeError) {
+      if (err instanceof InvalidClassifierScopeError || err instanceof ClassifierSettingsError) {
         return reply.status(400).send({ error: err.message });
       }
       return reply.status(500).send({

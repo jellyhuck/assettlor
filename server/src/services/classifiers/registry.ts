@@ -4,6 +4,7 @@ import { spriteClassifier } from './spriteClassifier.js';
 import { bpmClassifier } from './bpmClassifier.js';
 import { packClassifier } from './packClassifier.js';
 import { getClassifierSettings, updateClassifierSettings } from '../../db/database.js';
+import { validateClassifierSettings } from './settings.js';
 
 const registry = new Map<string, Classifier>();
 
@@ -32,6 +33,7 @@ export function saveClassifierSettings<T = Record<string, unknown>>(classifierId
   if (!classifier) {
     throw new Error(`Classifier with ID "${classifierId}" not found`);
   }
+  validateClassifierSettings(classifier, getEffectiveClassifierSettings(classifier), settings);
   return updateClassifierSettings(classifierId, settings) as T;
 }
 
