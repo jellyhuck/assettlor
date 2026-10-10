@@ -71,7 +71,7 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
   describe('compileFilterExpression - Tags, Formats & Categories', () => {
     it('should compile tag:coin in flat and stacked views', () => {
       const flat = compileFilterExpression('tag:coin', false);
-      expect(flat.sql).toContain('EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)');
+      expect(flat.sql).toContain('EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE)');
       expect(flat.args).toEqual(['coin']);
 
       const stacked = compileFilterExpression('tag:coin', true);
@@ -142,7 +142,7 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
     it('should compile tag:coin OR tag:gem', () => {
       const res = compileFilterExpression('tag:coin OR tag:gem', false);
       expect(res.sql).toBe(
-        '((EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)) OR (EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)))'
+        '((EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE)) OR (EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE)))'
       );
       expect(res.args).toEqual(['coin', 'gem']);
     });
@@ -160,7 +160,7 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
       expect(notExt.args).toEqual(['.wav']);
 
       const negTag = compileFilterExpression('-tag:ui', false);
-      expect(negTag.sql).toBe('NOT (EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?))');
+      expect(negTag.sql).toBe('NOT (EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE))');
       expect(negTag.args).toEqual(['ui']);
     });
   });
@@ -452,7 +452,7 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
       expect(preprocessSearchQuery('#sprite:character')).toBe('tag:"sprite:character"');
       const res = compileFilterExpression('#sprite:character', false);
       expect(res.isParsed).toBe(true);
-      expect(res.sql).toContain("EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)");
+      expect(res.sql).toContain("EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE)");
       expect(res.args).toEqual(['sprite:character']);
     });
   });
@@ -462,12 +462,12 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
       const res = compileFilterExpression('pack:RetroPack', false);
       expect(res.isParsed).toBe(true);
       expect(res.sql).toContain("json_extract(a.metadata, '$.pack')");
-      expect(res.args).toContain('retropack');
-      expect(res.args).toContain('pack:retropack');
+      expect(res.args).toContain('RetroPack');
+      expect(res.args).toContain('pack:RetroPack');
 
       const pRes = compileFilterExpression('p:Fantasy', false);
       expect(pRes.isParsed).toBe(true);
-      expect(pRes.args).toContain('fantasy');
+      expect(pRes.args).toContain('Fantasy');
     });
 
     it('should compile wildcard pack:retro* and status presets pack:none, pack:any', () => {
@@ -488,14 +488,14 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
       const res = compileFilterExpression('pack:SciFi', true);
       expect(res.isParsed).toBe(true);
       expect(res.sql).toContain('a.stack_id IS NOT NULL');
-      expect(res.args).toContain('scifi');
+      expect(res.args).toContain('SciFi');
     });
 
     it('should extract pack: in fallback query when syntax errors occur', () => {
       const res = compileFilterExpression('pack:RetroPack ( unmatched', false);
       expect(res.isParsed).toBe(false);
       expect(res.sql).toContain("json_extract(a.metadata, '$.pack')");
-      expect(res.args).toContain('retropack');
+      expect(res.args).toContain('RetroPack');
     });
   });
 });

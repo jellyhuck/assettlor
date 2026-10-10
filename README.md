@@ -178,6 +178,14 @@ assettlor/
 | `POST` | `/api/settings` | Update settings (library path, active project, etc.) |
 | `GET` | `/api/fs/browse` | Browse local directories for folder selection modals |
 
+In `search`, `tag:"name"` and `pack:"name"` match exact labels. Quote names
+containing spaces, punctuation, or search operators; escape `"` and `\` inside
+quotes with a backslash. An unquoted `*` is a wildcard only in `pack:` filters
+(for example, `pack:retro*`). `%` and `_` are literal characters, including in
+wildcard searches. Named BPM filters use `slow` (<80), `moderate` (80–<120),
+`fast` (120–<150), and `high`/`very-fast` (≥150); numeric comparisons and
+ranges retain their typed bounds.
+
 For `POST /api/assets/copy`, provide exactly one of `assetId` or `stackId`. A stack request requires `copyStackAll: true`; sending the representative asset's `assetId` copies only that file. `targetPath` explicitly selects the project destination. When omitted, the server uses the first configured project path, then the active project path. `targetSubfolder` selects a relative folder inside that destination. A full stack uses a folder derived from its name when `targetSubfolder` is omitted.
 
 A successful copy returns `{ success, copiedFiles, targetDirectory, copyMode, copiedCount, message }`. `copyMode` is `asset` for a single or representative file and `stack` for a full stack; `targetDirectory` always contains the copied files. Copy errors return `{ error, code, details? }`: `400 INVALID_COPY_REQUEST` for invalid inputs or paths, `404 COPY_SOURCE_MISSING` for missing assets, stacks, or source files, `409 COPY_CONFLICT` for occupied or unsafe destinations, and `500 COPY_IO_ERROR` for other I/O failures. Execution failure details provide `copiedFiles`, `rolledBackFiles`, `remainingFiles`, and, when known, `failedFile` and `targetDirectory` so callers can identify any output left behind.

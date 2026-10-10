@@ -1056,12 +1056,12 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
   }
 
   if (params.tag) {
-    const cleanTag = params.tag.replace(/^#/, '').toLowerCase().trim();
+    const cleanTag = params.tag.replace(/^#/, '').trim();
     if (isStackedView) {
-      conditions.push('(EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?) OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m JOIN tags mt ON mt.asset_id = m.id WHERE m.stack_id = a.stack_id AND (LOWER(mt.tag) = ?))))');
+      conditions.push('(EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE) OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m JOIN tags mt ON mt.asset_id = m.id WHERE m.stack_id = a.stack_id AND (mt.tag = ? COLLATE NOCASE))))');
       args.push(cleanTag, cleanTag);
     } else {
-      conditions.push('EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)');
+      conditions.push('EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE)');
       args.push(cleanTag);
     }
   }

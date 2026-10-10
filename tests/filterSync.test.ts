@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { parse } from 'liqe';
 import {
   formatFilterToken,
-  getFilterPattern,
   parseFiltersFromQuery,
   updateSearchFilter,
 } from '../shared/filterSync.js';
@@ -62,6 +62,52 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
     it('should format pack tokens', () => {
       expect(formatFilterToken('pack', 'RetroPack')).toBe('pack:RetroPack');
       expect(formatFilterToken('pack', 'Fantasy Pack')).toBe('pack:"Fantasy Pack"');
+    });
+
+    it('quotes literal labels with syntax, wildcard characters, and pack preset names', () => {
+      const examples = [
+        ['tag', 'a  b', 'tag:"a  b"'],
+        ['tag', '100%_star*', 'tag:"100%_star*"'],
+        ['tag', 'Bob\'s "hero"', String.raw`tag:"Bob's \"hero\""`],
+        ['tag', String.raw`C:\Sprites`, String.raw`tag:"C:\\Sprites"`],
+        ['tag', 'ext:.png', 'tag:"ext:.png"'],
+        ['tag', 'dur:5m', 'tag:"dur:5m"'],
+        ['tag', 'OR', 'tag:"OR"'],
+        ['tag', 'a(b)', 'tag:"a(b)"'],
+        ['tag', 'Étoile', 'tag:"Étoile"'],
+        ['tag', '魔法素材', 'tag:"魔法素材"'],
+        ['pack', '100%_star*', 'pack:"100%_star*"'],
+        ['pack', 'retro*', 'pack:"retro*"'],
+        ['pack', 'Bob\'s "hero"', String.raw`pack:"Bob's \"hero\""`],
+        ['pack', String.raw`C:\Sprites`, String.raw`pack:"C:\\Sprites"`],
+        ['pack', 'any', 'pack:"any"'],
+        ['pack', 'none', 'pack:"none"'],
+        ['pack', 'classified', 'pack:"classified"'],
+        ['pack', 'unanalyzed', 'pack:"unanalyzed"'],
+        ['pack', 'AND', 'pack:"AND"'],
+        ['pack', 'Retro:Pack', 'pack:"Retro:Pack"'],
+        ['pack', 'ext:.png', 'pack:"ext:.png"'],
+        ['pack', 'dur:5m', 'pack:"dur:5m"'],
+        ['pack', 'Retro (Pack)', 'pack:"Retro (Pack)"'],
+        ['pack', 'Étoile', 'pack:"Étoile"'],
+        ['pack', '魔法素材', 'pack:"魔法素材"'],
+      ] as const;
+
+      for (const [type, label, expectedToken] of examples) {
+        const token = formatFilterToken(type, label);
+        expect(token).toBe(expectedToken);
+        expect(parse(token!)).toMatchObject({
+          type: 'Tag',
+          expression: { value: label, quoted: true },
+        });
+        expect(parseFiltersFromQuery(token!)[type]).toBe(label);
+      }
+
+      // The search language reserves unquoted pack:* for explicit wildcards.
+      expect(parse('pack:retro*')).toMatchObject({
+        type: 'Tag',
+        expression: { value: 'retro*', quoted: false },
+      });
     });
   });
 
@@ -163,7 +209,7 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
 
     it('should parse pack tokens', () => {
       expect(parseFiltersFromQuery('pack:RetroPack').pack).toBe('retropack');
-      expect(parseFiltersFromQuery('pack:"Fantasy Pack"').pack).toBe('fantasy pack');
+      expect(parseFiltersFromQuery('pack:"Fantasy Pack"').pack).toBe('Fantasy Pack');
       expect(parseFiltersFromQuery('p:SciFi').pack).toBe('scifi');
     });
 
@@ -299,10 +345,24 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
 
     it('keeps literal whitespace and quoted operator text byte-for-byte', () => {
       const query = 'tag:"a  b OR ext:png"    pack:"Retro (Pack)"';
-      expect(parseFiltersFromQuery(query).tag).toBe('a  b or ext:png');
-      expect(parseFiltersFromQuery(query).pack).toBe('retro (pack)');
+      expect(parseFiltersFromQuery(query).tag).toBe('a  b OR ext:png');
+      expect(parseFiltersFromQuery(query).pack).toBe('Retro (Pack)');
       expect(updateSearchFilter(query, 'format', '.png')).toBe(`${query} ext:png`);
       expect(updateSearchFilter(`${query}    width:[64 TO 512]`, 'width', null)).toBe(query);
+    });
+
+    it('round-trips escaped literal labels through edits without touching other quoted filters', () => {
+      const original = 'hero   tag:"a  b"   pack:"Retro (Pack)"';
+      const edited = updateSearchFilter(original, 'tag', 'Bob\'s "hero"');
+      expect(edited).toBe(String.raw`hero   tag:"Bob's \"hero\""   pack:"Retro (Pack)"`);
+      expect(parseFiltersFromQuery(edited).tag).toBe('Bob\'s "hero"');
+      expect(parseFiltersFromQuery(edited).pack).toBe('Retro (Pack)');
+      expect(updateSearchFilter(edited, 'tag', null)).toBe('hero   pack:"Retro (Pack)"');
+
+      const wildcardLabel = updateSearchFilter('ext:png', 'pack', '100%_star*');
+      expect(wildcardLabel).toBe('ext:png pack:"100%_star*"');
+      expect(parseFiltersFromQuery(wildcardLabel).pack).toBe('100%_star*');
+      expect(parseFiltersFromQuery(wildcardLabel).format).toBe('.png');
     });
 
     it('does not rewrite an incomplete expression while the user is typing', () => {

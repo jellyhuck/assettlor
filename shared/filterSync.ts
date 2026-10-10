@@ -75,6 +75,7 @@ interface FilterOccurrence {
   atom: AtomExpression;
   type: FilterType;
   value: string;
+  quoted: boolean;
   editable: boolean;
 }
 
@@ -206,18 +207,19 @@ function decodeValue(raw: string): string {
   return value;
 }
 
-function filterInAtom(atom: AtomExpression): { type: FilterType; value: string; negated: boolean } | null {
+function filterInAtom(atom: AtomExpression): { type: FilterType; value: string; quoted: boolean; negated: boolean } | null {
   const raw = atom.token.text;
   const negated = raw.startsWith('-');
   const text = negated ? raw.slice(1) : raw;
   if (/^#[\p{L}\p{N}_-]+$/u.test(text)) {
-    return { type: 'tag', value: text.slice(1), negated };
+    return { type: 'tag', value: text.slice(1), quoted: false, negated };
   }
   const match = /^([a-zA-Z][a-zA-Z0-9]*):(.*)$/s.exec(text);
   if (!match || !match[2]) return null;
   const type = FILTER_PREFIXES[match[1].toLowerCase()];
   if (!type) return null;
-  return { type, value: decodeValue(match[2]), negated };
+  const quoted = match[2].startsWith('"') && match[2].endsWith('"');
+  return { type, value: decodeValue(match[2]), quoted, negated };
 }
 
 function collectOccurrences(root: Expression): FilterOccurrence[] {
@@ -231,6 +233,7 @@ function collectOccurrences(root: Expression): FilterOccurrence[] {
           atom: node,
           type: filter.type,
           value: filter.value,
+          quoted: filter.quoted,
           editable: !protectedByBoolean && !filter.negated,
         });
       }
@@ -278,7 +281,10 @@ function removeAtom(query: string, atom: AtomExpression): string {
   return (query.slice(0, start) + query.slice(end)).trim();
 }
 
-function normalizedFilterValue(type: FilterType, value: string): string {
+function normalizedFilterValue(type: FilterType, value: string, quoted: boolean): string {
+  // A quoted label is a literal name. Retain its exact spelling so selecting
+  // or displaying it again does not alter Unicode or embedded punctuation.
+  if (quoted && (type === 'tag' || type === 'pack')) return value;
   const v = value.toLowerCase();
   if (type === 'format') return `.${v.replace(/^\./, '')}`;
   if (type === 'resolution') {
@@ -311,6 +317,20 @@ function normalizedFilterValue(type: FilterType, value: string): string {
   return v;
 }
 
+/**
+ * Sidebar labels are exact names. In search text, an unquoted pack `*` is a
+ * wildcard operator and unquoted pack status names are presets; the quoted
+ * forms are literal labels. Quote all syntax or SQL wildcard characters so
+ * the server can distinguish those meanings without guessing.
+ */
+function formatLiteralLabel(type: 'tag' | 'pack', value: string): string {
+  const simple = /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(value);
+  const booleanWord = /^(?:AND|OR|NOT)$/i.test(value);
+  const packPreset = type === 'pack' && /^(?:any|none|classified|unanalyzed)$/i.test(value);
+  if (simple && !booleanWord && !packPreset) return value;
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
 /** Normalizes and formats a filter value into its search bar token. */
 export function formatFilterToken(filterType: FilterType, value: string | null): string | null {
   if (!value) return null;
@@ -332,12 +352,12 @@ export function formatFilterToken(filterType: FilterType, value: string | null):
       return `bpm:${v.toLowerCase()}`;
     case 'tag': {
       const clean = v.replace(/^#/, '').trim();
-      return clean.includes(' ') ? `tag:"${clean}"` : `tag:${clean}`;
+      return clean ? `tag:${formatLiteralLabel('tag', clean)}` : null;
     }
     case 'sprite':
       return `sprite:${v.toLowerCase()}`;
     case 'pack':
-      return v.includes(' ') ? `pack:"${v}"` : `pack:${v}`;
+      return `pack:${formatLiteralLabel('pack', v)}`;
   }
 }
 
@@ -371,7 +391,7 @@ export function parseFiltersFromQuery(query: string): ParsedFilters {
   for (const type of Object.keys(result) as FilterType[]) {
     const matching = occurrences.filter((item) => item.type === type);
     if (!matching.length || matching.some((item) => !item.editable)) continue;
-    const values = matching.map((item) => normalizedFilterValue(type, item.value));
+    const values = matching.map((item) => normalizedFilterValue(type, item.value, item.quoted));
     if (values.every((value) => value === values[0])) result[type] = values[0];
   }
   return result;

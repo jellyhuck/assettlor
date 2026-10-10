@@ -16,8 +16,10 @@ export interface CompiledFilterResult {
  * - Suffix operator 'size:2MB-' -> 'size:<=2MB'
  * - Human units in range 'size:[100KB TO 2MB]' -> 'size:[102400 TO 2097152]'
  */
-export function preprocessSearchQuery(query: string): string {
-  let q = query.trim();
+function preprocessUnquotedChunk(chunk: string, startsQuery: boolean): string {
+  // A noninitial chunk follows a quoted value. Keep a nonword sentinel so
+  // start-of-query shorthands such as #tag do not fire at that boundary.
+  let q = startsQuery ? chunk : `"${chunk}`;
 
   // Convert shorthand #tag to tag:tag (when preceded by start of string or whitespace)
   q = q.replace(/(^|\s)#([a-zA-Z0-9_\-]+(?::[a-zA-Z0-9_\-]+)?)/g, (match, prefix, tag) => {
@@ -84,7 +86,46 @@ export function preprocessSearchQuery(query: string): string {
     return `${f}:${op || ''}${s}`;
   });
 
-  return q;
+  return startsQuery ? q : q.slice(1);
+}
+
+export function preprocessSearchQuery(query: string): string {
+  const source = query.trim();
+  let result = '';
+  let chunkStart = 0;
+  let quoteStart = -1;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (quoteStart >= 0) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        result += source.slice(quoteStart, index + 1);
+        quoteStart = -1;
+        chunkStart = index + 1;
+      }
+      continue;
+    }
+
+    if (character === '\\') {
+      index++;
+    } else if (character === '"') {
+      result += preprocessUnquotedChunk(source.slice(chunkStart, index), chunkStart === 0);
+      quoteStart = index;
+    }
+  }
+
+  if (quoteStart >= 0) {
+    // Incomplete quoted input is left intact for graceful fallback parsing.
+    result += source.slice(quoteStart);
+  } else {
+    result += preprocessUnquotedChunk(source.slice(chunkStart), chunkStart === 0);
+  }
+  return result;
 }
 
 /**
@@ -309,16 +350,16 @@ function compileAstNode(
 
     // 2. Tag: tag:coin, t:coin
     if (fieldName === 'tag' || fieldName === 't') {
-      const cleanTag = String(expr.value || '').toLowerCase().trim();
+      const cleanTag = String(expr.value || '').trim();
       if (!cleanTag) return null;
 
       if (isStackedView) {
         return {
           sql: `(
-            EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?) OR
+            EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE) OR
             (a.stack_id IS NOT NULL AND EXISTS (
               SELECT 1 FROM assets m JOIN tags mt ON mt.asset_id = m.id
-              WHERE m.stack_id = a.stack_id AND (LOWER(mt.tag) = ?)
+              WHERE m.stack_id = a.stack_id AND (mt.tag = ? COLLATE NOCASE)
             ))
           )`,
           args: [cleanTag, cleanTag],
@@ -326,7 +367,7 @@ function compileAstNode(
       }
 
       return {
-        sql: `EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)`,
+        sql: `EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND t.tag = ? COLLATE NOCASE)`,
         args: [cleanTag],
       };
     }
@@ -340,7 +381,7 @@ function compileAstNode(
     // 2c. Pack: pack:RetroPack, p:RetroPack
     if (fieldName === 'pack' || fieldName === 'p') {
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
-      return parsePackClause(rawVal, isStackedView);
+      return parsePackClause(rawVal, isStackedView, expr.quoted === true);
     }
 
     // 3. Size: size:<2MB, size:>500KB, size:>=1MB, size:[100KB TO 2MB]
@@ -1143,10 +1184,12 @@ export function parseSpriteClause(
  */
 export function parsePackClause(
   rawVal: string,
-  isStackedView: boolean
+  isStackedView: boolean,
+  literal = false
 ): { sql: string; args: any[] } | null {
-  const packVal = rawVal.toLowerCase().trim();
+  const packVal = rawVal.trim();
   if (!packVal) return null;
+  const lowerPackVal = packVal.toLowerCase();
 
   const buildFinalSql = (
     flatCondition: string,
@@ -1159,7 +1202,7 @@ export function parsePackClause(
   );
 
   // Status presets: pack:none / pack:unanalyzed
-  if (packVal === 'none' || packVal === 'unanalyzed') {
+  if (!literal && (lowerPackVal === 'none' || lowerPackVal === 'unanalyzed')) {
     return buildFinalSql(
       `json_extract(a.metadata, '$.pack') IS NULL`,
       `json_extract(m.metadata, '$.pack') IS NULL`,
@@ -1169,7 +1212,7 @@ export function parsePackClause(
   }
 
   // Status presets: pack:any / pack:classified
-  if (packVal === 'any' || packVal === 'classified') {
+  if (!literal && (lowerPackVal === 'any' || lowerPackVal === 'classified')) {
     return buildFinalSql(
       `json_extract(a.metadata, '$.pack') IS NOT NULL`,
       `json_extract(m.metadata, '$.pack') IS NOT NULL`,
@@ -1178,23 +1221,37 @@ export function parsePackClause(
     );
   }
 
-  const isWildcard = packVal.includes('*') || packVal.includes('%');
-  const sqlPattern = isWildcard ? packVal.replace(/\*/g, '%') : `%${packVal}%`;
+  // Only an unquoted '*' is a wildcard. SQL LIKE's '%' and '_' remain literal.
+  const isWildcard = !literal && packVal.includes('*');
   const packTag = `pack:${packVal}`;
 
+  if (isWildcard) {
+    const sqlPattern = [...lowerPackVal].map((character) => {
+      if (character === '*') return '%';
+      if (character === '%' || character === '_' || character === '!') return `!${character}`;
+      return character;
+    }).join('');
+    const prefixedPattern = `pack:${sqlPattern}`;
+    const condition = (assetAlias: 'a' | 'm', tagAlias: 't' | 'mt') => `(
+      LOWER(json_extract(${assetAlias}.metadata, '$.pack')) LIKE ? ESCAPE '!' OR
+      EXISTS (SELECT 1 FROM tags ${tagAlias} WHERE ${tagAlias}.asset_id = ${assetAlias}.id AND
+        (LOWER(${tagAlias}.tag) LIKE ? ESCAPE '!' OR LOWER(${tagAlias}.tag) LIKE ? ESCAPE '!'))
+    )`;
+    const patternArgs = [sqlPattern, prefixedPattern, sqlPattern];
+    return buildFinalSql(
+      condition('a', 't'), condition('m', 'mt'), patternArgs, patternArgs
+    );
+  }
+
+  const condition = (assetAlias: 'a' | 'm', tagAlias: 't' | 'mt') => `(
+    json_extract(${assetAlias}.metadata, '$.pack') = ? COLLATE NOCASE OR
+    EXISTS (SELECT 1 FROM tags ${tagAlias} WHERE ${tagAlias}.asset_id = ${assetAlias}.id AND
+      (${tagAlias}.tag = ? COLLATE NOCASE OR ${tagAlias}.tag = ? COLLATE NOCASE))
+  )`;
+  const exactArgs = [packVal, packTag, packVal];
+
   return buildFinalSql(
-    `(
-      LOWER(json_extract(a.metadata, '$.pack')) LIKE ? OR
-      LOWER(json_extract(a.metadata, '$.pack')) = ? OR
-      EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND (LOWER(t.tag) = ? OR LOWER(t.tag) = ? OR LOWER(t.tag) LIKE ?))
-    )`,
-    `(
-      LOWER(json_extract(m.metadata, '$.pack')) LIKE ? OR
-      LOWER(json_extract(m.metadata, '$.pack')) = ? OR
-      EXISTS (SELECT 1 FROM tags mt WHERE mt.asset_id = m.id AND (LOWER(mt.tag) = ? OR LOWER(mt.tag) = ? OR LOWER(mt.tag) LIKE ?))
-    )`,
-    [sqlPattern, packVal, packTag, packVal, sqlPattern],
-    [sqlPattern, packVal, packTag, packVal, sqlPattern]
+    condition('a', 't'), condition('m', 'mt'), exactArgs, exactArgs
   );
 }
 
