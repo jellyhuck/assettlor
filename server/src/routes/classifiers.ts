@@ -6,7 +6,8 @@ import {
   saveClassifierSettings,
   runClassifier,
 } from '../services/classifiers/index.js';
-import type { RunClassifierRequest, ClassifierTargetType } from '../../../shared/types.js';
+import type { RunClassifierRequest } from '../../../shared/types.js';
+import { InvalidClassifierScopeError, validateClassifierScope } from '../services/classifiers/scope.js';
 
 export async function classifiersRoutes(fastify: FastifyInstance) {
   // GET /api/classifiers - List all available classifiers with metadata and settings
@@ -100,23 +101,25 @@ export async function classifiersRoutes(fastify: FastifyInstance) {
       }
 
       const body = req.body || ({} as RunClassifierRequest);
-      const targetType: ClassifierTargetType = body.targetType || 'all';
-
-      if (!['all', 'asset', 'directory', 'archive'].includes(targetType)) {
-        return reply.status(400).send({
-          error: `Invalid targetType: "${targetType}". Must be one of: all, asset, directory, archive`,
-        });
-      }
+      const target = validateClassifierScope({
+        targetType: body.targetType,
+        targetValue: body.targetValue,
+      });
 
       const result = await runClassifier(classifier, {
-        targetType,
-        targetValue: body.targetValue,
+        ...target,
         settingsOverride: body.settingsOverride,
       });
 
       return reply.send(result);
-    } catch (err: any) {
-      return reply.status(500).send({ error: 'Failed to run classifier', details: err?.message });
+    } catch (err: unknown) {
+      if (err instanceof InvalidClassifierScopeError) {
+        return reply.status(400).send({ error: err.message });
+      }
+      return reply.status(500).send({
+        error: 'Failed to run classifier',
+        details: err instanceof Error ? err.message : undefined,
+      });
     }
   });
 }

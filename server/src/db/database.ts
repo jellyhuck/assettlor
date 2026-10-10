@@ -38,6 +38,12 @@ import {
 } from '../services/filterParser.js';
 import { canonicalAssetId } from '../services/assetIdentity.js';
 import { requireAssetQuery } from '../services/assetQueryValidation.js';
+import {
+  InvalidClassifierScopeError,
+  isAbsoluteClassifierPath,
+  normalizeClassifierPath,
+  validateClassifierScope,
+} from '../services/classifiers/scope.js';
 
 let dbInstance: Database.Database | null = null;
 let currentDataDir: string = '';
@@ -1515,40 +1521,56 @@ export function findAssetsByScope(scope: {
   targetValue?: string | string[];
   category?: AssetCategory;
 }): Asset[] {
+  // This check is also the service-side guard for direct runClassifier calls.
+  const target = validateClassifierScope(scope);
   const db = getDatabase();
-  const conditions: string[] = [];
-  const args: any[] = [];
+  let rows: AssetRow[];
 
-  if (scope.category) {
-    conditions.push('category = ?');
-    args.push(scope.category);
-  }
-
-  if (scope.targetType === 'asset') {
-    const rawVal = scope.targetValue;
-    const ids: string[] = Array.isArray(rawVal) ? rawVal : (rawVal ? [rawVal] : []);
-    if (ids.length === 0) return [];
+  if (target.targetType === 'asset') {
+    const ids = Array.isArray(target.targetValue) ? target.targetValue : [target.targetValue];
     const placeholders = ids.map(() => '?').join(',');
-    conditions.push(`id IN (${placeholders})`);
-    args.push(...ids);
-  } else if (scope.targetType === 'directory') {
-    const dir = typeof scope.targetValue === 'string' ? scope.targetValue.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
-    if (dir) {
-      conditions.push("(path = ? OR path LIKE ? || '/%' OR (is_archive_entry = 1 AND (path LIKE ? || '#%' OR path LIKE '%/' || ? || '#%')))");
-      args.push(dir, dir, dir, dir);
+    rows = db.prepare(`SELECT * FROM assets WHERE id IN (${placeholders}) ORDER BY name ASC`)
+      .all(...ids) as AssetRow[];
+  } else if (target.targetType === 'archive') {
+    const archiveRows = db.prepare('SELECT * FROM assets WHERE is_archive_entry = 1 ORDER BY name ASC')
+      .all() as AssetRow[];
+    const archives = new Map<string, Set<string>>();
+    for (const row of archiveRows) {
+      const source = normalizeClassifierPath(row.archive_path || row.absolute_path);
+      const display = normalizeClassifierPath(row.path.split('#/')[0]);
+      const displays = archives.get(source) || new Set<string>();
+      displays.add(display);
+      archives.set(source, displays);
     }
-  } else if (scope.targetType === 'archive') {
-    const archive = typeof scope.targetValue === 'string' ? path.basename(scope.targetValue.trim()) : '';
-    if (archive) {
-      conditions.push("(is_archive_entry = 1 AND (archive_path LIKE '%' || ? OR path LIKE ? || '#%' OR path LIKE '%' || ? || '#%'))");
-      args.push(archive, archive, archive);
-    } else {
-      conditions.push('is_archive_entry = 1');
+
+    const selector = target.targetValue;
+    const isBareName = !selector.includes('/') && !isAbsoluteClassifierPath(selector);
+    const matches = [...archives.entries()]
+      .filter(([source, displays]) => isBareName
+        ? path.posix.basename(source) === selector || [...displays].some((display) => path.posix.basename(display) === selector)
+        : source === selector || displays.has(selector))
+      .map(([source]) => source);
+    if (matches.length > 1) {
+      throw new InvalidClassifierScopeError(`Archive target "${selector}" is ambiguous; select its full path`);
     }
+    rows = matches.length === 0 ? [] : archiveRows.filter((row) =>
+      normalizeClassifierPath(row.archive_path || row.absolute_path) === matches[0]);
+  } else if (target.targetType === 'directory') {
+    const directory = target.targetValue;
+    const absolute = isAbsoluteClassifierPath(directory);
+    // Component comparisons keep % and _ literal and avoid SQL LIKE wildcard behavior.
+    rows = (db.prepare('SELECT * FROM assets ORDER BY name ASC').all() as AssetRow[])
+      .filter((row) => {
+        const candidate = absolute
+          ? normalizeClassifierPath(row.is_archive_entry ? row.archive_path || row.absolute_path : row.absolute_path)
+          : normalizeClassifierPath(row.path);
+        return candidate === directory || candidate.startsWith(directory.endsWith('/') ? directory : `${directory}/`);
+      });
+  } else {
+    rows = db.prepare('SELECT * FROM assets ORDER BY name ASC').all() as AssetRow[];
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const rows = db.prepare(`SELECT * FROM assets ${whereClause} ORDER BY name ASC`).all(...args) as AssetRow[];
+  if (scope.category) rows = rows.filter((row) => row.category === scope.category);
 
   return rows.map((r) => {
     const tagRows = db.prepare('SELECT DISTINCT tag FROM tags WHERE asset_id = ?').all(r.id) as { tag: string }[];
