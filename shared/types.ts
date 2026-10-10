@@ -10,6 +10,7 @@ export interface ImageMetadata {
   channels?: number;
   hasAlpha?: boolean;
   density?: number;
+  orientation?: number; // Original EXIF orientation, applied to the thumbnail
   // Sprite classification fields
   spriteType?: SpriteCategory;
   spriteConfidence?: number;

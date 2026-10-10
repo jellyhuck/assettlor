@@ -221,11 +221,18 @@ export async function processImageBuffer(
     };
   }
 
-  // Standard sharp pipeline for PNG, JPG, WEBP, GIF, SVG
-  const image = sharp(buffer);
+  // Sharp reads the first page of animated images. Apply EXIF orientation
+  // before resizing so the thumbnail and its reported dimensions agree.
+  const image = sharp(buffer, {
+    page: 0,
+    pages: 1,
+    limitInputPixels: MAX_SOURCE_PIXELS,
+  });
   const sharpMeta = await image.metadata();
+  const swapsAxes = [5, 6, 7, 8].includes(sharpMeta.orientation ?? 1);
 
   const thumbnailBuffer = await image
+    .autoOrient()
     .resize(targetWidth, targetHeight, {
       fit: IMAGE_THUMBNAIL_SPEC.fit,
       withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
@@ -234,13 +241,14 @@ export async function processImageBuffer(
     .toBuffer();
 
   const metadata: ImageMetadata = {
-    width: sharpMeta.width,
-    height: sharpMeta.height,
+    width: swapsAxes ? sharpMeta.height : sharpMeta.width,
+    height: swapsAxes ? sharpMeta.width : sharpMeta.height,
     format: sharpMeta.format || ext.replace('.', ''),
     colorSpace: sharpMeta.space,
     channels: sharpMeta.channels,
     hasAlpha: sharpMeta.hasAlpha,
     density: sharpMeta.density,
+    orientation: sharpMeta.orientation,
   };
 
   return {

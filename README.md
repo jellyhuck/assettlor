@@ -51,8 +51,11 @@
 
 TGA preview supports uncompressed or RLE true-color (24/32-bit) and grayscale
 (8/16-bit) images, including all four origin orientations. Color-mapped and
-interleaved TGA variants are rejected. Image decoding limits source dimensions
-to 16 million pixels before allocating a TGA or BMP raster.
+interleaved TGA variants are rejected. Image decoding limits sources to
+16 million pixels; TGA and BMP headers are checked before raster allocation.
+Thumbnails apply EXIF orientation, preserve transparency, and use the first
+frame of animated images as their still preview. SVG viewBox dimensions are
+used as the intrinsic size when no width or height is specified.
 
 ---
 
