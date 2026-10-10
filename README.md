@@ -49,6 +49,11 @@
 | **Audio** | `.wav`, `.mp3`, `.ogg`, `.flac` |
 | **Archives** | `.zip` (Virtual in-memory inspection) |
 
+TGA preview supports uncompressed or RLE true-color (24/32-bit) and grayscale
+(8/16-bit) images, including all four origin orientations. Color-mapped and
+interleaved TGA variants are rejected. Image decoding limits source dimensions
+to 16 million pixels before allocating a TGA or BMP raster.
+
 ---
 
 ## 🚀 Quick Start

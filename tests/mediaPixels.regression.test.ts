@@ -80,6 +80,26 @@ function makeTga(
   return Buffer.concat([header, data]);
 }
 
+function makeRleTga(
+  uncompressed: Buffer,
+  packets: { kind: 'raw' | 'run'; count: number }[]
+): Buffer {
+  const header = Buffer.from(uncompressed.subarray(0, 18));
+  header[2] = header[2] === 2 ? 10 : 11;
+  const bytesPerPixel = header[16] / 8;
+  const chunks: Buffer[] = [header];
+  let pixelIndex = 0;
+  for (const { kind, count } of packets) {
+    if (count < 1 || count > 128) throw new Error('Invalid test packet');
+    chunks.push(Buffer.from([(kind === 'run' ? 0x80 : 0) | (count - 1)]));
+    const start = 18 + pixelIndex * bytesPerPixel;
+    const end = start + (kind === 'run' ? 1 : count) * bytesPerPixel;
+    chunks.push(uncompressed.subarray(start, end));
+    pixelIndex += count;
+  }
+  return Buffer.concat(chunks);
+}
+
 describe('BMP pixel normalization', () => {
   it.each([
     ['red', [255, 0, 0, 255]],
@@ -187,5 +207,71 @@ describe('TGA header and pixel normalization', () => {
       expect(() => decodeTgaBuffer(input)).toThrow(message);
       await expect(processImageBuffer(input, '.tga')).rejects.toThrow(message);
     }
+  });
+});
+
+describe('TGA RLE decoding', () => {
+  it('matches uncompressed true-color pixels across raw and run packets', async () => {
+    const pixels: Pixel[] = [
+      [255, 0, 0, 255], [255, 0, 0, 255], [255, 0, 0, 255],
+      [0, 255, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255],
+    ];
+    const uncompressed = makeTga(6, 1, pixels, 24, true);
+    const compressed = makeRleTga(uncompressed, [
+      { kind: 'run', count: 3 }, { kind: 'raw', count: 2 }, { kind: 'run', count: 1 },
+    ]);
+    expect(decodeTgaBuffer(compressed)).toEqual(decodeTgaBuffer(uncompressed));
+    const rawPreview = await processImageBuffer(uncompressed, '.tga');
+    const rlePreview = await processImageBuffer(compressed, '.tga');
+    expect(rlePreview.metadata).toEqual(rawPreview.metadata);
+    expect(rlePreview.thumbnailBuffer.equals(rawPreview.thumbnailBuffer)).toBe(true);
+    expect(compressed[2]).toBe(10);
+  });
+
+  it('decodes 128-pixel packet boundaries and right-to-left origins', () => {
+    const pixels: Pixel[] = Array.from({ length: 130 }, (_, index) =>
+      [index, 255 - index, (index * 7) % 256, 255]
+    );
+    const uncompressed = makeTga(130, 1, pixels, 24, true, true);
+    const compressed = makeRleTga(uncompressed, [
+      { kind: 'raw', count: 128 }, { kind: 'raw', count: 2 },
+    ]);
+    expect(decodeTgaBuffer(compressed)).toEqual(decodeTgaBuffer(uncompressed));
+
+    const repeated = makeTga(129, 1, Array(129).fill([90, 30, 210, 255]), 24, true);
+    expect(decodeTgaBuffer(makeRleTga(repeated, [
+      { kind: 'run', count: 128 }, { kind: 'run', count: 1 },
+    ]))).toEqual(decodeTgaBuffer(repeated));
+  });
+
+  it('decodes grayscale raw/run packets', async () => {
+    const header = Buffer.alloc(18);
+    header[2] = 3;
+    header.writeUInt16LE(4, 12);
+    header.writeUInt16LE(1, 14);
+    header[16] = 8;
+    header[17] = 0x20;
+    const uncompressed = Buffer.concat([header, Buffer.from([20, 40, 100, 100])]);
+    const compressed = makeRleTga(uncompressed, [
+      { kind: 'raw', count: 2 }, { kind: 'run', count: 2 },
+    ]);
+    expect(compressed[2]).toBe(11);
+    expect(decodeTgaBuffer(compressed)).toEqual(decodeTgaBuffer(uncompressed));
+    const result = await processImageBuffer(compressed, '.tga');
+    expect(result.metadata).toMatchObject({ format: 'tga', channels: 1, hasAlpha: false });
+    expect((await sharp(result.thumbnailBuffer).metadata()).format).toBe('webp');
+  });
+
+  it('rejects packet overruns and truncated headers or pixels', () => {
+    const pixels: Pixel[] = Array(3).fill([10, 20, 30, 255]);
+    const source = makeTga(3, 1, pixels, 24, true);
+    const compressed = makeRleTga(source, [{ kind: 'run', count: 3 }]);
+    const overrun = Buffer.from(compressed);
+    overrun[18] = 0x83;
+    expect(() => decodeTgaBuffer(overrun)).toThrow(/RLE packet exceeds/);
+    expect(() => decodeTgaBuffer(compressed.subarray(0, 18))).toThrow(/truncated RLE packet header/);
+    expect(() => decodeTgaBuffer(compressed.subarray(0, 20))).toThrow(/truncated RLE packet pixels/);
+    const raw = makeRleTga(source, [{ kind: 'raw', count: 3 }]);
+    expect(() => decodeTgaBuffer(raw.subarray(0, raw.length - 1))).toThrow(/truncated RLE packet pixels/);
   });
 });

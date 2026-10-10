@@ -70,13 +70,15 @@ export function decodeBmpBuffer(buffer: Buffer): DecodedRaster {
   return { width: decoded.width, height: decoded.height, data, hasAlpha, channels: hasAlpha ? 4 : 3 };
 }
 
-// Decode the supported uncompressed TGA subset before passing normalized RGBA
-// pixels to Sharp. Both origin flags affect where each source pixel is placed.
+// Decode supported TGA pixels before passing normalized RGBA to Sharp. Both
+// origin flags affect where each source pixel is placed.
 export function decodeTgaBuffer(buffer: Buffer): DecodedRaster {
   if (buffer.length < 18) throw new Error('Invalid TGA: truncated header');
   const idLength = buffer[0];
   const colorMapType = buffer[1];
   const imageType = buffer[2];
+  const isRle = imageType === 10 || imageType === 11;
+  const isGray = imageType === 3 || imageType === 11;
   const colorMapLength = buffer.readUInt16LE(5);
   const width = buffer.readUInt16LE(12);
   const height = buffer.readUInt16LE(14);
@@ -90,14 +92,13 @@ export function decodeTgaBuffer(buffer: Buffer): DecodedRaster {
     throw new Error('Unsupported TGA color map');
   }
   if (descriptor & 0xc0) throw new Error('Unsupported TGA interleaving');
-  if (imageType !== 2 && imageType !== 3) {
+  if (![2, 3, 10, 11].includes(imageType)) {
     throw new Error(`Unsupported TGA image type: ${imageType}`);
   }
   if (width < 1 || height < 1 || width * height > MAX_SOURCE_PIXELS) {
     throw new Error('Invalid TGA dimensions or pixel limit exceeded');
   }
 
-  const isGray = imageType === 3;
   const validTrueColor = !isGray && (pixelDepth === 24 || pixelDepth === 32) &&
     (alphaBits === 0 || (pixelDepth === 32 && alphaBits === 8));
   const validGray = isGray && (pixelDepth === 8 || pixelDepth === 16) &&
@@ -109,7 +110,7 @@ export function decodeTgaBuffer(buffer: Buffer): DecodedRaster {
   const bytesPerPixel = pixelDepth / 8;
   const offset = 18 + idLength;
   const pixelCount = width * height;
-  const requiredBytes = offset + pixelCount * bytesPerPixel;
+  const requiredBytes = offset + (isRle ? 0 : pixelCount * bytesPerPixel);
   if (buffer.length < requiredBytes) {
     throw new Error(`Invalid TGA: truncated pixel data (need ${requiredBytes} bytes)`);
   }
@@ -117,8 +118,7 @@ export function decodeTgaBuffer(buffer: Buffer): DecodedRaster {
   const hasAlpha = alphaBits === 8;
   const channels = isGray ? (hasAlpha ? 2 : 1) : (hasAlpha ? 4 : 3);
   const rgba = Buffer.alloc(pixelCount * 4);
-  for (let i = 0; i < pixelCount; i++) {
-    const srcIdx = offset + i * bytesPerPixel;
+  const placePixel = (i: number, srcIdx: number): void => {
     const row = Math.floor(i / width);
     const column = i % width;
     const x = isRightToLeft ? width - column - 1 : column;
@@ -134,6 +134,32 @@ export function decodeTgaBuffer(buffer: Buffer): DecodedRaster {
       rgba[destIdx + 1] = buffer[srcIdx + 1];
       rgba[destIdx + 2] = buffer[srcIdx];
       rgba[destIdx + 3] = hasAlpha ? buffer[srcIdx + 3] : 255;
+    }
+  };
+
+  if (isRle) {
+    let srcIdx = offset;
+    let pixelIndex = 0;
+    while (pixelIndex < pixelCount) {
+      if (srcIdx >= buffer.length) throw new Error('Invalid TGA: truncated RLE packet header');
+      const packet = buffer[srcIdx++];
+      const count = (packet & 0x7f) + 1;
+      if (pixelIndex + count > pixelCount) {
+        throw new Error('Invalid TGA: RLE packet exceeds image bounds');
+      }
+      const isRun = (packet & 0x80) !== 0;
+      const byteCount = (isRun ? 1 : count) * bytesPerPixel;
+      if (srcIdx + byteCount > buffer.length) {
+        throw new Error('Invalid TGA: truncated RLE packet pixels');
+      }
+      for (let i = 0; i < count; i++) {
+        placePixel(pixelIndex++, srcIdx + (isRun ? 0 : i * bytesPerPixel));
+      }
+      srcIdx += byteCount;
+    }
+  } else {
+    for (let i = 0; i < pixelCount; i++) {
+      placePixel(i, offset + i * bytesPerPixel);
     }
   }
 
