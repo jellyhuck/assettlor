@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Asset, AssetListResponse, AssetStack } from '../shared/types.js';
+import type { AppSettings, Asset, AssetListResponse, AssetStack } from '../shared/types.js';
 import { FakeEventSource, createDeferredFetch, type PendingFetch } from '../client/tests/asyncFixtures.js';
 import { act, click, mountReact } from '../client/tests/reactDomHarness.js';
 import App from '../client/src/App.js';
@@ -9,23 +9,30 @@ import App from '../client/src/App.js';
 const inspectorCallbacks = vi.hoisted(() => ({
   updateAsset: null as null | ((asset: unknown, updateSelection?: boolean) => void),
 }));
+const settingsCallbacks = vi.hoisted(() => ({
+  onSettingsSaved: null as null | ((settings: AppSettings) => void),
+}));
 
 vi.mock('../client/src/components/Sidebar.tsx', () => ({
-  Sidebar: ({ onSelectCategory, onTriggerScan, onCancelScan, scanActionPending,
-    scanStatus, tags }: {
+  Sidebar: ({ onSelectCategory, onTriggerScan, onCancelScan, onOpenSettings,
+    scanActionPending, scanStatus, tags, settings: appSettings }: {
     onSelectCategory: (category: string) => void;
     onTriggerScan: () => void;
     onCancelScan: () => void;
+    onOpenSettings: () => void;
     scanActionPending: 'start' | 'cancel' | null;
     scanStatus: { status: string };
     tags: { name: string }[];
+    settings: AppSettings;
   }) => <aside>
     <button onClick={() => onSelectCategory('all')}>All category</button>
     <button onClick={() => onSelectCategory('audio')}>Audio category</button>
     <button onClick={onTriggerScan}>Start scan</button>
     <button onClick={onCancelScan}>Cancel scan</button>
+    <button onClick={onOpenSettings}>Open settings</button>
     <output data-testid="scan-state">{scanStatus.status}:{scanActionPending ?? 'ready'}</output>
     <output data-testid="tags">{tags.map((tag) => tag.name).join(',')}</output>
+    <output data-testid="settings-paths">{appSettings.libraryPaths.join(',')}</output>
   </aside>,
 }));
 
@@ -72,7 +79,18 @@ vi.mock('../client/src/components/Inspector.tsx', () => ({
   },
 }));
 
-vi.mock('../client/src/components/SettingsModal.tsx', () => ({ SettingsModal: () => null }));
+vi.mock('../client/src/components/SettingsModal.tsx', () => ({
+  SettingsModal: ({ isOpen, onClose, onSettingsSaved }: {
+    isOpen: boolean;
+    onClose: () => void;
+    onSettingsSaved: (settings: AppSettings) => void;
+  }) => {
+    settingsCallbacks.onSettingsSaved = onSettingsSaved;
+    return isOpen ? <div data-testid="settings-modal">
+      <button onClick={onClose}>Close settings</button>
+    </div> : null;
+  },
+}));
 vi.mock('../client/src/components/ClassifierModal.tsx', () => ({ ClassifierModal: () => null }));
 vi.mock('../client/src/components/CopyModal.tsx', () => ({ CopyModal: () => null }));
 
@@ -166,10 +184,19 @@ describe('App catalog and live request lifecycle', () => {
     });
   }
 
+  async function saveSettings(paths: string[]) {
+    const callback = settingsCallbacks.onSettingsSaved;
+    if (!callback) throw new Error('Settings save callback missing');
+    await act(async () => {
+      callback({ ...settings, libraryPath: paths[0] ?? '', libraryPaths: paths });
+    });
+  }
+
   beforeEach(() => {
     fetchDouble = createDeferredFetch();
     view = null;
     inspectorCallbacks.updateAsset = null;
+    settingsCallbacks.onSettingsSaved = null;
     FakeEventSource.reset();
     vi.stubGlobal('fetch', fetchDouble.fetcher);
     vi.stubGlobal('EventSource', FakeEventSource);
@@ -346,6 +373,123 @@ describe('App catalog and live request lifecycle', () => {
     expect(catalogRequests()).toHaveLength(catalogCount + 1);
     await act(async () => { source.emit({ ...scanEvent('idle', 31), message: 'Scan cancelled' }); });
     expect(catalogRequests()).toHaveLength(catalogCount + 1);
+  });
+
+  it('reloads persisted app settings when Settings closes after a partial save', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    await click(button('Open settings'));
+    expect(view!.container.querySelector('[data-testid="settings-modal"]')).not.toBeNull();
+    await click(button('Close settings'));
+    expect(requests('/api/settings')).toHaveLength(2);
+    const persisted = { ...settings,
+      libraryPath: '/tmp/persisted', libraryPaths: ['/tmp/persisted'],
+    };
+    await act(async () => { requests('/api/settings')[1].resolveJson(persisted); });
+    expect(view!.container.querySelector('[data-testid="settings-paths"]')?.textContent)
+      .toBe('/tmp/persisted');
+
+    await click(button('Start scan'));
+    expect(JSON.parse(String(requests('/api/scan/start')[0].init?.body))).toEqual({
+      libraryPath: '/tmp/persisted', libraryPaths: ['/tmp/persisted'],
+    });
+  });
+
+  it.each([
+    { status: 'completed' as const, message: 'Scan finished' },
+    { status: 'error' as const, message: 'Scan failed' },
+    { status: 'idle' as const, message: 'Scan cancelled' },
+  ])('starts one latest saved-settings scan after a $status event', async ({ status, message }) => {
+    await mount();
+    await resolveBootstrap([], 0);
+    const source = FakeEventSource.instances[0];
+    await act(async () => { source.emit(scanEvent('scanning', 41)); });
+    await click(button('Open settings'));
+    await saveSettings(['/tmp/earlier']);
+    await click(button('Close settings'));
+    await act(async () => { requests('/api/settings').at(-1)!.resolveJson({
+      ...settings, libraryPath: '/tmp/earlier', libraryPaths: ['/tmp/earlier'],
+    }); });
+    await click(button('Open settings'));
+    await saveSettings(['/tmp/latest-a', '/tmp/latest-b']);
+    await click(button('Close settings'));
+    await act(async () => { requests('/api/settings').at(-1)!.resolveJson({
+      ...settings, libraryPath: '/tmp/latest-a', libraryPaths: ['/tmp/latest-a', '/tmp/latest-b'],
+    }); });
+    expect(requests('/api/scan/start')).toHaveLength(0);
+
+    await act(async () => { source.emit({ ...scanEvent(status, 41), message }); });
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    expect(JSON.parse(String(requests('/api/scan/start')[0].init?.body))).toEqual({
+      libraryPath: '/tmp/latest-a', libraryPaths: ['/tmp/latest-a', '/tmp/latest-b'],
+    });
+    expect(view!.container.querySelector('[data-testid="scan-state"]')?.textContent)
+      .toBe(`${status}:start`);
+    await act(async () => { source.emit({ ...scanEvent(status, 41), message }); });
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    expect(view!.container.querySelector('[data-testid="scan-state"]')?.textContent)
+      .toBe(`${status}:start`);
+  });
+
+  it('clears a queued scan when the latest saved settings remove every library', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    const source = FakeEventSource.instances[0];
+    await act(async () => { source.emit(scanEvent('scanning', 51)); });
+    await click(button('Open settings'));
+    await saveSettings(['/tmp/earlier']);
+    await click(button('Close settings'));
+    await act(async () => { requests('/api/settings').at(-1)!.resolveJson({
+      ...settings, libraryPath: '/tmp/earlier', libraryPaths: ['/tmp/earlier'],
+    }); });
+    await click(button('Open settings'));
+    await saveSettings([]);
+    await click(button('Close settings'));
+    await act(async () => { requests('/api/settings').at(-1)!.resolveJson({
+      ...settings, libraryPath: '', libraryPaths: [],
+    }); });
+    await act(async () => { source.emit(scanEvent('completed', 51)); });
+    expect(requests('/api/scan/start')).toHaveLength(0);
+  });
+
+  it('retries queued settings paths once after a failed pending start is confirmed idle', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    await click(button('Start scan'));
+    await click(button('Open settings'));
+    await saveSettings(['/tmp/saved']);
+    expect(requests('/api/scan/start')).toHaveLength(1);
+
+    await act(async () => { requests('/api/scan/start')[0].resolveJson({ error: 'Start failed' }, 500); });
+    expect(requests('/api/scan/status')).toHaveLength(1);
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    await act(async () => { requests('/api/scan/status')[0].resolveJson(scanEvent('idle', 60)); });
+    expect(requests('/api/scan/start')).toHaveLength(2);
+    expect(JSON.parse(String(requests('/api/scan/start')[1].init?.body))).toEqual({
+      libraryPath: '/tmp/saved', libraryPaths: ['/tmp/saved'],
+    });
+
+    await act(async () => { requests('/api/scan/start')[1].resolveJson({ error: 'Retry failed' }, 500); });
+    expect(requests('/api/scan/start')).toHaveLength(2);
+    expect(requests('/api/scan/status')).toHaveLength(1);
+  });
+
+  it('waits for terminal status when a failed start response hides a running scan', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    await click(button('Start scan'));
+    await click(button('Open settings'));
+    await saveSettings(['/tmp/saved']);
+
+    await act(async () => { requests('/api/scan/start')[0].resolveJson({ error: 'Response lost' }, 503); });
+    await act(async () => { requests('/api/scan/status')[0].resolveJson(scanEvent('scanning', 61)); });
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    const source = FakeEventSource.instances[0];
+    await act(async () => { source.emit(scanEvent('completed', 61)); });
+    expect(requests('/api/scan/start')).toHaveLength(2);
+    expect(JSON.parse(String(requests('/api/scan/start')[1].init?.body))).toEqual({
+      libraryPath: '/tmp/saved', libraryPaths: ['/tmp/saved'],
+    });
   });
 
   it('shows catalog HTTP, JSON, and item-shape failures with a retry path', async () => {

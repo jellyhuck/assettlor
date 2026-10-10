@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppSettings, BpmClassifierSettings, SpriteClassifierSettings, PackClassifierSettings, ClassifierInfo } from '../types';
 import {
   Settings,
@@ -19,6 +19,10 @@ import {
 } from 'lucide-react';
 import { useToast } from './Toast';
 import { FolderBrowserModal } from './FolderBrowserModal';
+import { createRequestGate, errorMessage, expectRecord, readJson, requestJson } from '../lib/requestLifecycle';
+import { bindDialogFocus } from '../lib/dialogFocus';
+import { directoryKey, validateSettingsDraft } from '../lib/settingsDraft';
+import { useScanStatus } from '../lib/useScanStatus';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -26,7 +30,52 @@ interface SettingsModalProps {
   onSettingsSaved: (settings: AppSettings) => void;
 }
 
+type SettingsSection = 'app' | 'bpm' | 'sprite' | 'pack';
+type LoadState = 'loading' | 'ready' | 'error';
+const sections: SettingsSection[] = ['app', 'bpm', 'sprite', 'pack'];
+
+function parseAppSettings(value: unknown): AppSettings {
+  const data = expectRecord(value, 'app settings');
+  if (typeof data.libraryPath !== 'string' || typeof data.activeProjectPath !== 'string'
+    || !Array.isArray(data.libraryPaths) || !data.libraryPaths.every((path) => typeof path === 'string')
+    || !Array.isArray(data.projectPaths) || !data.projectPaths.every((path) => typeof path === 'string')
+    || typeof data.thumbnailQuality !== 'number' || typeof data.defaultFps !== 'number'
+    || typeof data.autoStackAnimations !== 'boolean' || typeof data.autoStackAudio !== 'boolean') {
+    throw new Error('The app settings response has an unexpected shape');
+  }
+  return data as unknown as AppSettings;
+}
+
+function parseClassifierInfo(value: unknown, id: string): ClassifierInfo {
+  const data = expectRecord(value, `${id} classifier`);
+  const settings = expectRecord(data.settings, `${id} classifier settings`);
+  const required: Record<string, Record<string, 'boolean' | 'number' | 'string'>> = {
+    bpm: { enabled: 'boolean', minBpm: 'number', maxBpm: 'number',
+      minDurationSeconds: 'number', maxAnalysisSeconds: 'number' },
+    sprite: { enabled: 'boolean', minConfidence: 'number', enableVisualAnalysis: 'boolean',
+      enablePathAnalysis: 'boolean', enableStackAnalysis: 'boolean' },
+    pack: { enabled: 'boolean', inferFromArchive: 'boolean', inferFromDirectory: 'boolean',
+      directoryStrategy: 'string', directoryDepth: 'number', cleanSeparators: 'boolean',
+      stripVersionSuffix: 'boolean', stripAffixes: 'boolean', caseConvention: 'string', applyTag: 'boolean' },
+  };
+  if (data.id !== id || !Array.isArray(data.steps)
+    || !data.steps.every((step) => {
+      const entry = step !== null && typeof step === 'object' ? step as Record<string, unknown> : null;
+      return entry && typeof entry.id === 'string' && typeof entry.name === 'string'
+        && typeof entry.description === 'string';
+    }) || Object.entries(required[id] ?? {}).some(([key, type]) => typeof settings[key] !== type
+      || type === 'number' && !Number.isFinite(settings[key]))) {
+    throw new Error(`The ${id} classifier response has an unexpected shape`);
+  }
+  return { ...data, settings } as unknown as ClassifierInfo;
+}
+
 export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModalProps) {
+  if (!isOpen) return null;
+  return <OpenSettingsModal onClose={onClose} onSettingsSaved={onSettingsSaved} />;
+}
+
+function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps, 'isOpen'>) {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<'general' | 'classifiers'>('general');
   const [settings, setSettings] = useState<AppSettings>({
@@ -39,8 +88,13 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     autoStackAudio: true,
     defaultFps: 12,
   });
+  const [persistedSettings, setPersistedSettings] = useState<AppSettings | null>(null);
   const [newProjectPath, setNewProjectPath] = useState('');
   const [newLibraryPath, setNewLibraryPath] = useState('');
+  const [pathError, setPathError] = useState<{ library?: string; project?: string }>({});
+  const [validatingPath, setValidatingPath] = useState({ library: false, project: false });
+  const [projectCandidate, setProjectCandidate] = useState<string | null>(null);
+  const pathGates = useRef({ library: createRequestGate(), project: createRequestGate() });
 
   const [bpmSettings, setBpmSettings] = useState<BpmClassifierSettings>({
     enabled: true,
@@ -49,6 +103,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     minDurationSeconds: 1.0,
     maxAnalysisSeconds: 45.0,
   });
+  const [persistedBpmSettings, setPersistedBpmSettings] = useState<BpmClassifierSettings | null>(null);
   const [bpmClassifierInfo, setBpmClassifierInfo] = useState<ClassifierInfo | null>(null);
 
   const [spriteSettings, setSpriteSettings] = useState<SpriteClassifierSettings>({
@@ -58,6 +113,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     enablePathAnalysis: true,
     enableStackAnalysis: true,
   });
+  const [persistedSpriteSettings, setPersistedSpriteSettings] = useState<SpriteClassifierSettings | null>(null);
   const [spriteClassifierInfo, setSpriteClassifierInfo] = useState<ClassifierInfo | null>(null);
 
   const [packSettings, setPackSettings] = useState<PackClassifierSettings>({
@@ -75,10 +131,43 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     targetArchives: [],
     targetDirectories: [],
   });
+  const [persistedPackSettings, setPersistedPackSettings] = useState<PackClassifierSettings | null>(null);
   const [packClassifierInfo, setPackClassifierInfo] = useState<ClassifierInfo | null>(null);
 
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [browserMode, setBrowserMode] = useState<'add_library' | 'add_project' | null>(null);
+  const [loadState, setLoadState] = useState<Record<SettingsSection, LoadState>>({
+    app: 'loading', bpm: 'loading', sprite: 'loading', pack: 'loading',
+  });
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<SettingsSection, string>>>({});
+  const loadGates = useRef({
+    app: createRequestGate(), bpm: createRequestGate(),
+    sprite: createRequestGate(), pack: createRequestGate(),
+  });
+  const activeRef = useRef(true);
+  const openSessionRef = useRef(0);
+  const savingRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  const [validationAttempted, setValidationAttempted] = useState(false);
+  const ready = sections.every((section) => loadState[section] === 'ready');
+  const draftErrors = ready ? validateSettingsDraft(settings, bpmSettings, spriteSettings, packSettings) : [];
+  const dirty = ready && (JSON.stringify(settings) !== JSON.stringify(persistedSettings)
+    || JSON.stringify(bpmSettings) !== JSON.stringify(persistedBpmSettings)
+    || JSON.stringify(spriteSettings) !== JSON.stringify(persistedSpriteSettings)
+    || JSON.stringify(packSettings) !== JSON.stringify(persistedPackSettings));
+
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  const handleClose = useCallback(() => {
+    if (!savingRef.current) onCloseRef.current();
+  }, []);
+  useEffect(() => {
+    if (!dialogRef.current) return;
+    return bindDialogFocus(dialogRef.current, closeButtonRef.current, handleClose,
+      { labelledBy: 'settings-dialog-title' });
+  }, [handleClose]);
 
   const moveProject = (index: number, direction: 'up' | 'down') => {
     setSettings((prev) => {
@@ -109,17 +198,21 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     });
   };
 
-  const addProject = (pathToAdd: string) => {
+  const appendProject = (pathToAdd: string) => {
     const trimmed = pathToAdd.trim();
     if (!trimmed) return;
+    if (settings.projectPaths.some((path) => directoryKey(path) === directoryKey(trimmed))) {
+      setPathError((prev) => ({ ...prev, project: 'This project destination is already in the list' }));
+      return;
+    }
     setSettings((prev) => {
       const list = [...(prev.projectPaths || [])];
-      if (!list.includes(trimmed)) {
-        list.push(trimmed);
-      }
+      list.push(trimmed);
       return { ...prev, projectPaths: list, activeProjectPath: list[0] || '' };
     });
     setNewProjectPath('');
+    setProjectCandidate(null);
+    setPathError((prev) => ({ ...prev, project: undefined }));
   };
 
   const moveLibrary = (index: number, direction: 'up' | 'down') => {
@@ -142,169 +235,254 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
     });
   };
 
-  const addLibrary = (pathToAdd: string) => {
+  const appendLibrary = (pathToAdd: string) => {
     const trimmed = pathToAdd.trim();
     if (!trimmed) return;
+    if (settings.libraryPaths.some((path) => directoryKey(path) === directoryKey(trimmed))) {
+      setPathError((prev) => ({ ...prev, library: 'This asset library is already in the list' }));
+      return;
+    }
     setSettings((prev) => {
       const list = [...(prev.libraryPaths || [])];
-      if (!list.includes(trimmed)) {
-        list.push(trimmed);
-      }
+      list.push(trimmed);
       return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
     });
     setNewLibraryPath('');
+    setPathError((prev) => ({ ...prev, library: undefined }));
+  };
+
+  const addPath = async (kind: 'library' | 'project', rawPath: string) => {
+    const trimmed = rawPath.trim();
+    setPathError((prev) => ({ ...prev, [kind]: undefined }));
+    setProjectCandidate(null);
+    if (!trimmed) {
+      setPathError((prev) => ({ ...prev, [kind]: 'Enter a directory path first' }));
+      return;
+    }
+    const request = pathGates.current[kind].begin();
+    setValidatingPath((current) => ({ ...current, [kind]: true }));
+    try {
+      const result = await requestJson('/api/fs/validate', (value) => {
+        const data = expectRecord(value, 'directory validation');
+        if (typeof data.exists !== 'boolean' || typeof data.isDirectory !== 'boolean'
+          || typeof data.resolvedPath !== 'string' || !data.resolvedPath.trim()) {
+          throw new Error('The directory validation response has an unexpected shape');
+        }
+        return data as { exists: boolean; isDirectory: boolean; resolvedPath: string };
+      }, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: trimmed }), signal: request.signal,
+      });
+      if (!request.isCurrent()) return;
+      if (kind === 'library') {
+        if (!result.exists || !result.isDirectory) throw new Error('Asset libraries must be existing directories');
+        appendLibrary(result.resolvedPath);
+      } else if (result.exists && result.isDirectory) {
+        appendProject(result.resolvedPath);
+      } else if (!result.exists) {
+        setProjectCandidate(result.resolvedPath);
+      } else {
+        throw new Error('Project destination must be a directory');
+      }
+    } catch (error) {
+      if (request.isCurrent()) setPathError((prev) => ({ ...prev, [kind]: errorMessage(error) }));
+    } finally {
+      if (request.isCurrent()) setValidatingPath((current) => ({ ...current, [kind]: false }));
+    }
   };
 
   const [rescanningLibrary, setRescanningLibrary] = useState<string | null>(null);
+  const [rescanStartedAt, setRescanStartedAt] = useState<number | null>(null);
+  const [rescanError, setRescanError] = useState('');
+  const rescanStartRef = useRef(false);
+  const { status: scanStatus, error: scanStatusError, refresh: refreshScanStatus } = useScanStatus(true);
+  const awaitingStartedJob = rescanStartedAt !== null
+    && (!scanStatus?.startTime || scanStatus.startTime < rescanStartedAt);
+  const scanBusy = Boolean(rescanningLibrary || scanStatus?.status === 'scanning' || awaitingStartedJob);
 
   const handleFullRescan = async (libPath: string) => {
+    if (rescanStartRef.current || scanBusy || !scanStatus || scanStatusError
+      || !persistedSettings?.libraryPaths.some((path) => directoryKey(path) === directoryKey(libPath))) {
+      setRescanError('Save this library and wait for the current scan status before rescanning');
+      return;
+    }
+    rescanStartRef.current = true;
     setRescanningLibrary(libPath);
+    setRescanError('');
     try {
+      const startedAt = Date.now();
       const res = await fetch('/api/scan/rescan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ libraryPath: libPath }),
       });
-      if (!res.ok) throw new Error('Failed to start full rescan');
+      try {
+        await readJson(res);
+      } catch (error) {
+        const reason = errorMessage(error);
+        if (res.status === 409) throw new Error(`A scan is already running: ${reason}`);
+        if (res.status === 400) throw new Error(`Cannot rescan this directory: ${reason}`);
+        throw error;
+      }
+      if (!activeRef.current) return;
+      setRescanStartedAt(startedAt);
+      await refreshScanStatus();
+      if (!activeRef.current) return;
       const folderName = libPath.split('/').filter(Boolean).pop() || libPath;
-      showToast('info', 'Full Rescan Started', `Removing cached data and re-indexing ${folderName} from scratch...`);
-    } catch (err: any) {
-      showToast('error', 'Rescan Error', err?.message || 'Failed to start full rescan');
+      showToast('info', 'Full Rescan Started', `Reprocessing ${folderName} and regenerating derived previews. Saved curation is retained.`);
+    } catch (error: unknown) {
+      await refreshScanStatus();
+      if (!activeRef.current) return;
+      const message = errorMessage(error);
+      setRescanError(message);
+      showToast('error', 'Rescan Error', message);
     } finally {
-      setRescanningLibrary(null);
+      if (activeRef.current) setRescanningLibrary(null);
+      rescanStartRef.current = false;
     }
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      fetch('/api/settings')
-        .then((res) => res.json())
-        .then((data) => {
-          setSettings({
-            ...data,
-            libraryPaths: data.libraryPaths || (data.libraryPath ? [data.libraryPath] : []),
-            projectPaths: data.projectPaths || (data.activeProjectPath ? [data.activeProjectPath] : []),
-          });
-        })
-        .catch(() => {});
-
-      fetch('/api/classifiers/bpm')
-        .then((res) => res.json())
-        .then((info: ClassifierInfo) => {
+  const loadSection = useCallback(async (section: SettingsSection) => {
+    const request = loadGates.current[section].begin();
+    setLoadState((prev) => ({ ...prev, [section]: 'loading' }));
+    setLoadErrors((prev) => ({ ...prev, [section]: undefined }));
+    try {
+      if (section === 'app') {
+        const data = await requestJson('/api/settings', parseAppSettings, { signal: request.signal });
+        if (!request.isCurrent()) return;
+        setSettings(data);
+        setPersistedSettings(data);
+      } else {
+        const info = await requestJson(`/api/classifiers/${section}`,
+          (value) => parseClassifierInfo(value, section), { signal: request.signal });
+        if (!request.isCurrent()) return;
+        if (section === 'bpm') {
           setBpmClassifierInfo(info);
-          if (info.settings) {
-            setBpmSettings((prev) => ({
-              ...prev,
-              ...(info.settings as unknown as Partial<BpmClassifierSettings>),
-            }));
-          }
-        })
-        .catch(() => {});
-
-      fetch('/api/classifiers/sprite')
-        .then((res) => res.json())
-        .then((info: ClassifierInfo) => {
+          setBpmSettings(info.settings as unknown as BpmClassifierSettings);
+          setPersistedBpmSettings(info.settings as unknown as BpmClassifierSettings);
+        } else if (section === 'sprite') {
           setSpriteClassifierInfo(info);
-          if (info.settings) {
-            setSpriteSettings((prev) => ({
-              ...prev,
-              ...(info.settings as unknown as Partial<SpriteClassifierSettings>),
-            }));
-          }
-        })
-        .catch(() => {});
-
-      fetch('/api/classifiers/pack')
-        .then((res) => res.json())
-        .then((info: ClassifierInfo) => {
+          setSpriteSettings(info.settings as unknown as SpriteClassifierSettings);
+          setPersistedSpriteSettings(info.settings as unknown as SpriteClassifierSettings);
+        } else {
           setPackClassifierInfo(info);
-          if (info.settings) {
-            setPackSettings((prev) => ({
-              ...prev,
-              ...(info.settings as unknown as Partial<PackClassifierSettings>),
-            }));
-          }
-        })
-        .catch(() => {});
+          setPackSettings(info.settings as unknown as PackClassifierSettings);
+          setPersistedPackSettings(info.settings as unknown as PackClassifierSettings);
+        }
+      }
+      setLoadState((prev) => ({ ...prev, [section]: 'ready' }));
+    } catch (error) {
+      if (!request.isCurrent()) return;
+      setLoadErrors((prev) => ({ ...prev, [section]: errorMessage(error) }));
+      setLoadState((prev) => ({ ...prev, [section]: 'error' }));
     }
-  }, [isOpen]);
+  }, []);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    const gates = {
+      app: createRequestGate(), bpm: createRequestGate(),
+      sprite: createRequestGate(), pack: createRequestGate(),
+    };
+    const directoryGates = { library: createRequestGate(), project: createRequestGate() };
+    loadGates.current = gates;
+    pathGates.current = directoryGates;
+    activeRef.current = true;
+    const session = ++openSessionRef.current;
+    queueMicrotask(() => {
+      if (activeRef.current && openSessionRef.current === session) {
+        for (const section of sections) void loadSection(section);
+      }
+    });
+    return () => {
+      activeRef.current = false;
+      for (const section of sections) gates[section].dispose();
+      directoryGates.library.dispose();
+      directoryGates.project.dispose();
+    };
+  }, [loadSection]);
 
   const handleSave = async () => {
+    if (!ready || savingRef.current || validatingPath.library || validatingPath.project
+      || projectCandidate) return;
+    setValidationAttempted(true);
+    if (draftErrors.length > 0) return;
+    savingRef.current = true;
     setSaving(true);
+    setSaveError('');
+    let savedSections = 0;
     try {
-      const currentProjects = settings.projectPaths && settings.projectPaths.length > 0
-        ? settings.projectPaths
-        : (settings.activeProjectPath ? [settings.activeProjectPath] : []);
-      const currentLibraries = settings.libraryPaths && settings.libraryPaths.length > 0
-        ? settings.libraryPaths
-        : (settings.libraryPath ? [settings.libraryPath] : []);
-
       const payload = {
         ...settings,
-        projectPaths: currentProjects,
-        activeProjectPath: currentProjects[0] || '',
-        libraryPaths: currentLibraries,
-        libraryPath: currentLibraries[0] || '',
+        activeProjectPath: settings.projectPaths[0] || '',
+        libraryPath: settings.libraryPaths[0] || '',
       };
 
       // 1. Save general settings
-      const res = await fetch('/api/settings', {
+      const updated = await requestJson('/api/settings', parseAppSettings, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error('Failed to update app settings');
-      const updated = await res.json();
-      setSettings(updated);
-      onSettingsSaved(updated);
-
+      savedSections++;
       // 2. Save BPM classifier settings
-      const bpmRes = await fetch('/api/classifiers/bpm/settings', {
+      await requestJson('/api/classifiers/bpm/settings', expectRecord, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bpmSettings),
       });
-      if (!bpmRes.ok) throw new Error('Failed to update BPM classifier settings');
+      savedSections++;
 
       // 3. Save Sprite classifier settings
-      const spriteRes = await fetch('/api/classifiers/sprite/settings', {
+      await requestJson('/api/classifiers/sprite/settings', expectRecord, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(spriteSettings),
       });
-      if (!spriteRes.ok) throw new Error('Failed to update Sprite classifier settings');
+      savedSections++;
 
       // 4. Save Pack classifier settings
-      const packRes = await fetch('/api/classifiers/pack/settings', {
+      await requestJson('/api/classifiers/pack/settings', expectRecord, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(packSettings),
       });
-      if (!packRes.ok) throw new Error('Failed to update Pack classifier settings');
+      savedSections++;
 
+      if (!activeRef.current) return;
+      setSettings(updated);
+      onSettingsSaved(updated);
       showToast('success', 'Settings Saved', 'App and classifier preferences updated');
-      onClose();
-    } catch (err: any) {
-      showToast('error', 'Error Saving Settings', err.message);
+      savingRef.current = false;
+      onCloseRef.current();
+    } catch (err: unknown) {
+      if (!activeRef.current) return;
+      const detail = err instanceof Error ? err.message : 'Failed to save settings';
+      const message = savedSections > 0
+        ? `${detail}. ${savedSections} section${savedSections === 1 ? '' : 's'} confirmed saved. Other requests may have persisted; review and retry. No scan started.`
+        : `${detail}. No sections confirmed saved. The request may have persisted; review and retry. No scan started.`;
+      setSaveError(message);
+      showToast('error', 'Error Saving Settings', message);
     } finally {
-      setSaving(false);
+      savingRef.current = false;
+      if (activeRef.current) setSaving(false);
     }
   };
 
   return (
     <>
-      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-        <div className="bg-[#171727] border border-[#2b2b42] rounded-xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden text-slate-200">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
+        <div ref={dialogRef} className="bg-[#171727] border border-[#2b2b42] rounded-xl shadow-2xl w-full max-w-xl max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden text-slate-200">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-[#25253c] bg-[#131320]">
             <div className="flex items-center gap-2.5">
               <Settings className="w-5 h-5 text-indigo-400" />
-              <h2 className="text-base font-semibold text-slate-100">Assettlor Settings</h2>
+              <h2 id="settings-dialog-title" className="text-base font-semibold text-slate-100">Assettlor Settings</h2>
             </div>
             <button
-              onClick={onClose}
+              ref={closeButtonRef}
+              onClick={handleClose}
+              disabled={saving}
+              aria-label="Close settings"
               className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-[#252538] transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -339,7 +517,27 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
           </div>
 
           {/* Form */}
-          <div className="p-6 space-y-5 overflow-y-auto max-h-[65vh]">
+          <div className="min-h-0 p-6 space-y-5 overflow-y-auto">
+            {!ready ? (
+              <div className="space-y-3 text-sm" aria-live="polite">
+                <p className="text-slate-300">Loading settings before editing…</p>
+                {sections.map((section) => (
+                  <div key={section} className="flex items-center justify-between gap-3">
+                    <span className="capitalize text-slate-400">{section === 'app' ? 'General' : section} settings</span>
+                    {loadState[section] === 'error' ? (
+                      <span className="flex items-center gap-2">
+                        <span role="alert" className="text-rose-300">{loadErrors[section]}</span>
+                        <button type="button" onClick={() => void loadSection(section)}
+                          className="rounded bg-indigo-600 px-2 py-1 text-xs text-white">
+                          Retry {section}
+                        </button>
+                      </span>
+                    ) : <span>{loadState[section] === 'ready' ? 'Ready' : 'Loading…'}</span>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+            <fieldset disabled={saving} className="min-w-0 w-full space-y-5">
             {activeTab === 'general' ? (
               <>
                 {/* Game Project Destinations */}
@@ -449,16 +647,23 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                   <div className="flex items-center gap-2 pt-1">
                     <input
                       type="text"
+                      aria-label="Add game project path"
                       value={newProjectPath}
-                      onChange={(e) => setNewProjectPath(e.target.value)}
+                      onChange={(e) => {
+                        pathGates.current.project.invalidate();
+                        setValidatingPath((current) => ({ ...current, project: false }));
+                        setNewProjectPath(e.target.value);
+                        setProjectCandidate(null);
+                        setPathError((prev) => ({ ...prev, project: undefined }));
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          addProject(newProjectPath);
+                          void addPath('project', newProjectPath);
                         }
                       }}
                       placeholder="Add game project path..."
-                      className="flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
+                      className="min-w-0 flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
                     />
                     <button
                       type="button"
@@ -470,14 +675,24 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                     </button>
                     <button
                       type="button"
-                      onClick={() => addProject(newProjectPath)}
-                      disabled={!newProjectPath.trim()}
+                      onClick={() => void addPath('project', newProjectPath)}
+                      disabled={!newProjectPath.trim() || validatingPath.project}
                       className="flex items-center gap-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Add
                     </button>
                   </div>
+                  {pathError.project && <p role="alert" className="text-xs text-rose-300">{pathError.project}</p>}
+                  {projectCandidate && (
+                    <div className="rounded border border-amber-700/60 p-2 text-xs text-amber-200">
+                      <p>{projectCandidate} does not exist. Copying can create this destination. Confirm it before saving.</p>
+                      <button type="button" onClick={() => appendProject(projectCandidate)}
+                        className="mt-2 rounded bg-amber-700 px-2 py-1 text-white">
+                        Add new destination
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Asset Library Source Directories */}
@@ -490,6 +705,21 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       Source directories scanned and indexed by Assettlor. All assets across all configured sources are included in the viewer.
                     </p>
                   </div>
+                  <div role="status" className="text-xs text-cyan-200">
+                    {!scanStatus ? 'Loading scan status…' : scanStatus.status === 'scanning'
+                      ? `Scan running: ${scanStatus.message || scanStatus.libraryPath}`
+                      : awaitingStartedJob ? 'Waiting for the new scan status…'
+                        : scanStatus.message || `Scan status: ${scanStatus.status}`}
+                  </div>
+                  {scanStatusError && (
+                    <p role="alert" className="text-xs text-rose-300">
+                      Cannot read scan status: {scanStatusError}{' '}
+                      <button type="button" onClick={() => void refreshScanStatus()}
+                        className="underline text-rose-100">Retry status</button>
+                    </p>
+                  )}
+                  {rescanError && <p role="alert" className="text-xs text-rose-300">{rescanError}</p>}
+                  {dirty && <p className="text-xs text-amber-200">Rescan uses saved paths and settings. Save these changes first if you want them included.</p>}
 
                   {/* Libraries List */}
                   <div className="space-y-1.5 mt-2">
@@ -497,6 +727,9 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       const isFirst = idx === 0;
                       const isLast = idx === settings.libraryPaths.length - 1;
                       const folderName = lib.split('/').filter(Boolean).pop() || lib;
+                      const persisted = persistedSettings?.libraryPaths.some((path) => directoryKey(path) === directoryKey(lib));
+                      const scanningThisLibrary = scanStatus?.status === 'scanning'
+                        && (scanStatus.libraryPaths ?? [scanStatus.libraryPath]).some((path) => directoryKey(path) === directoryKey(lib));
 
                       return (
                         <div
@@ -521,12 +754,13 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                             <button
                               type="button"
                               onClick={() => handleFullRescan(lib)}
-                              disabled={rescanningLibrary === lib}
-                              title="Completely rescan (remove and full reindex) this library"
+                              disabled={!persisted || !scanStatus || Boolean(scanStatusError) || scanBusy}
+                              title={persisted ? 'Reprocess this saved library and regenerate derived previews'
+                                : 'Save this library before rescanning'}
                               className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-cyan-300 hover:text-cyan-200 bg-cyan-950/40 hover:bg-cyan-900/60 rounded border border-cyan-800/50 transition-colors cursor-pointer disabled:opacity-40"
                             >
-                              <RefreshCw className={`w-3 h-3 ${rescanningLibrary === lib ? 'animate-spin' : ''}`} />
-                              <span>Rescan</span>
+                              <RefreshCw className={`w-3 h-3 ${scanningThisLibrary || rescanningLibrary === lib ? 'animate-spin' : ''}`} />
+                              <span>{rescanningLibrary === lib ? 'Starting…' : scanningThisLibrary ? 'Scanning…' : 'Rescan'}</span>
                             </button>
                             <button
                               type="button"
@@ -570,16 +804,22 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                   <div className="flex items-center gap-2 pt-1">
                     <input
                       type="text"
+                      aria-label="Add asset library path"
                       value={newLibraryPath}
-                      onChange={(e) => setNewLibraryPath(e.target.value)}
+                      onChange={(e) => {
+                        pathGates.current.library.invalidate();
+                        setValidatingPath((current) => ({ ...current, library: false }));
+                        setNewLibraryPath(e.target.value);
+                        setPathError((prev) => ({ ...prev, library: undefined }));
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          addLibrary(newLibraryPath);
+                          void addPath('library', newLibraryPath);
                         }
                       }}
                       placeholder="Add asset library path..."
-                      className="flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
+                      className="min-w-0 flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
                     />
                     <button
                       type="button"
@@ -591,14 +831,15 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                     </button>
                     <button
                       type="button"
-                      onClick={() => addLibrary(newLibraryPath)}
-                      disabled={!newLibraryPath.trim()}
+                      onClick={() => void addPath('library', newLibraryPath)}
+                      disabled={!newLibraryPath.trim() || validatingPath.library}
                       className="flex items-center gap-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Add
                     </button>
                   </div>
+                  {pathError.library && <p role="alert" className="text-xs text-rose-300">{pathError.library}</p>}
                 </div>
 
                 {/* Stacking Options */}
@@ -613,6 +854,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                     </div>
                     <input
                       type="checkbox"
+                      aria-label="Stack animation sequences"
                       checked={settings.autoStackAnimations}
                       onChange={(e) => setSettings({ ...settings, autoStackAnimations: e.target.checked })}
                       className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
@@ -626,6 +868,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                     </div>
                     <input
                       type="checkbox"
+                      aria-label="Stack audio variations"
                       checked={settings.autoStackAudio}
                       onChange={(e) => setSettings({ ...settings, autoStackAudio: e.target.checked })}
                       className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
@@ -643,6 +886,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                   </div>
                   <input
                     type="range"
+                    aria-label="Default animation playback FPS"
                     min="1"
                     max="60"
                     value={settings.defaultFps}
@@ -672,6 +916,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       <span className="text-xs font-medium text-slate-300">Auto-scan</span>
                       <input
                         type="checkbox"
+                        aria-label="Auto-scan BPM classifier"
                         checked={bpmSettings.enabled}
                         onChange={(e) => setBpmSettings({ ...bpmSettings, enabled: e.target.checked })}
                         className="w-4 h-4 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
@@ -705,6 +950,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         <label className="block text-slate-400 mb-1">Min BPM Threshold</label>
                         <input
                           type="number"
+                          aria-label="Min BPM threshold"
                           value={bpmSettings.minBpm}
                           onChange={(e) => setBpmSettings({ ...bpmSettings, minBpm: Number(e.target.value) })}
                           min={30}
@@ -716,6 +962,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         <label className="block text-slate-400 mb-1">Max BPM Threshold</label>
                         <input
                           type="number"
+                          aria-label="Max BPM threshold"
                           value={bpmSettings.maxBpm}
                           onChange={(e) => setBpmSettings({ ...bpmSettings, maxBpm: Number(e.target.value) })}
                           min={100}
@@ -730,6 +977,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         <label className="block text-slate-400 mb-1">Min Audio Duration (sec)</label>
                         <input
                           type="number"
+                          aria-label="Min audio duration in seconds"
                           step="0.5"
                           value={bpmSettings.minDurationSeconds}
                           onChange={(e) =>
@@ -745,6 +993,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         <label className="block text-slate-400 mb-1">Max Analysis Window (sec)</label>
                         <input
                           type="number"
+                          aria-label="Max analysis window in seconds"
                           value={bpmSettings.maxAnalysisSeconds}
                           onChange={(e) =>
                             setBpmSettings({ ...bpmSettings, maxAnalysisSeconds: Number(e.target.value) })
@@ -783,6 +1032,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       <span className="text-xs font-medium text-slate-300">Auto-scan</span>
                       <input
                         type="checkbox"
+                        aria-label="Auto-scan sprite classifier"
                         checked={spriteSettings.enabled}
                         onChange={(e) => setSpriteSettings({ ...spriteSettings, enabled: e.target.checked })}
                         className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
@@ -817,6 +1067,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       </label>
                       <input
                         type="range"
+                        aria-label="Min sprite confidence"
                         min={0.3}
                         max={0.9}
                         step={0.05}
@@ -835,6 +1086,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Enable visual pixel analysis"
                           checked={spriteSettings.enableVisualAnalysis}
                           onChange={(e) => setSpriteSettings({ ...spriteSettings, enableVisualAnalysis: e.target.checked })}
                           className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
@@ -848,6 +1100,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Enable path and filename keywords"
                           checked={spriteSettings.enablePathAnalysis}
                           onChange={(e) => setSpriteSettings({ ...spriteSettings, enablePathAnalysis: e.target.checked })}
                           className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
@@ -861,6 +1114,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Enable animation stack analysis"
                           checked={spriteSettings.enableStackAnalysis}
                           onChange={(e) => setSpriteSettings({ ...spriteSettings, enableStackAnalysis: e.target.checked })}
                           className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
@@ -894,6 +1148,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       <span className="text-xs font-medium text-slate-300">Auto-scan</span>
                       <input
                         type="checkbox"
+                        aria-label="Auto-scan pack classifier"
                         checked={packSettings.enabled}
                         onChange={(e) => setPackSettings({ ...packSettings, enabled: e.target.checked })}
                         className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
@@ -930,6 +1185,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Infer from archives"
                           checked={packSettings.inferFromArchive}
                           onChange={(e) => setPackSettings({ ...packSettings, inferFromArchive: e.target.checked })}
                           className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
@@ -943,6 +1199,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Infer from directories"
                           checked={packSettings.inferFromDirectory}
                           onChange={(e) => setPackSettings({ ...packSettings, inferFromDirectory: e.target.checked })}
                           className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
@@ -954,6 +1211,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       <div>
                         <label className="block text-slate-400 mb-1">Directory Strategy</label>
                         <select
+                          aria-label="Directory strategy"
                           value={packSettings.directoryStrategy}
                           onChange={(e) =>
                             setPackSettings({
@@ -972,6 +1230,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                       <div>
                         <label className="block text-slate-400 mb-1">Case Convention</label>
                         <select
+                          aria-label="Case convention"
                           value={packSettings.caseConvention}
                           onChange={(e) =>
                             setPackSettings({
@@ -997,6 +1256,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Clean separators"
                           checked={packSettings.cleanSeparators}
                           onChange={(e) => setPackSettings({ ...packSettings, cleanSeparators: e.target.checked })}
                           className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
@@ -1010,6 +1270,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Strip version suffixes"
                           checked={packSettings.stripVersionSuffix}
                           onChange={(e) => setPackSettings({ ...packSettings, stripVersionSuffix: e.target.checked })}
                           className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
@@ -1025,6 +1286,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         </div>
                         <input
                           type="checkbox"
+                          aria-label="Apply database tag"
                           checked={packSettings.applyTag}
                           onChange={(e) => setPackSettings({ ...packSettings, applyTag: e.target.checked })}
                           className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
@@ -1035,6 +1297,7 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                         <label className="block text-slate-400 mb-1">Tag Prefix</label>
                         <input
                           type="text"
+                          aria-label="Tag prefix"
                           value={packSettings.tagPrefix || ''}
                           onChange={(e) => setPackSettings({ ...packSettings, tagPrefix: e.target.value })}
                           placeholder="e.g. pack: (leave blank for raw name)"
@@ -1052,19 +1315,32 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
                 </div>
               </div>
             )}
+            </fieldset>
+            )}
           </div>
 
           {/* Footer */}
+          {ready && <p role="status" className="px-6 pt-2 text-xs text-slate-400">
+            {dirty ? 'Unsaved changes' : 'Settings loaded'}
+          </p>}
+          {validationAttempted && draftErrors.length > 0 && (
+            <ul role="alert" className="px-6 pt-3 text-xs text-rose-300 list-disc list-inside">
+              {draftErrors.map((error) => <li key={error}>{error}</li>)}
+            </ul>
+          )}
+          {saveError && <p role="alert" className="px-6 pt-3 text-xs text-rose-300">{saveError}</p>}
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#25253c] bg-[#131320]">
             <button
-              onClick={onClose}
+              onClick={handleClose}
+              disabled={saving}
               className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-[#202033] hover:bg-[#2a2a44] rounded-lg transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || !ready || validatingPath.library || validatingPath.project
+                || Boolean(projectCandidate)}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors shadow-md disabled:opacity-50 cursor-pointer"
             >
               <Check className="w-4 h-4" />
@@ -1083,9 +1359,9 @@ export function SettingsModal({ isOpen, onClose, onSettingsSaved }: SettingsModa
           initialPath={browserMode === 'add_library' ? (settings.libraryPaths[0] || settings.libraryPath) : (settings.projectPaths[0] || settings.activeProjectPath)}
           onSelect={(selectedPath) => {
             if (browserMode === 'add_library') {
-              addLibrary(selectedPath);
+              void addPath('library', selectedPath);
             } else {
-              addProject(selectedPath);
+              void addPath('project', selectedPath);
             }
             setBrowserMode(null);
           }}

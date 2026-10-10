@@ -24,6 +24,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { CopyModal } from './components/CopyModal';
 import { ClassifierModal } from './components/ClassifierModal';
 import { createRequestGate, errorMessage, isAbortError, requestJson } from './lib/requestLifecycle';
+import { parseScanStatus } from './lib/useScanStatus';
 
 type CatalogItem = Asset | (AssetStack & { isStack: true });
 type CatalogPhase = 'loading' | 'ready' | 'error';
@@ -221,6 +222,10 @@ function MainApp() {
   const scanActionRef = useRef<'start' | 'cancel' | null>(null);
   const observedScansRef = useRef(new Set<number>());
   const notifiedScansRef = useRef(new Set<number>());
+  const queuedSettingsScanRef = useRef<string[] | null>(null);
+  const startQueuedScanRef = useRef<(paths: string[]) => void>(() => {});
+  const supersededTerminalStartRef = useRef<number | null>(null);
+  const scanEventRevisionRef = useRef(0);
 
   const queryKey = useMemo(() => JSON.stringify({
     selectedCategory, debouncedSearch: debouncedSearch.trim(),
@@ -515,7 +520,12 @@ function MainApp() {
       } catch {
         return;
       }
+      if (payload.status !== 'scanning' && typeof payload.startTime === 'number'
+        && payload.startTime === supersededTerminalStartRef.current) return;
+      if (payload.status === 'scanning') supersededTerminalStartRef.current = null;
+      scanEventRevisionRef.current += 1;
       setScanConnection('connected');
+      scanStatusRef.current = payload;
       setScanStatus(payload);
       if (payload.status === 'scanning') {
         if (typeof payload.startTime === 'number') observedScansRef.current.add(payload.startTime);
@@ -528,23 +538,30 @@ function MainApp() {
       scanActionRef.current = null;
       setScanActionPending(null);
       const start = payload.startTime;
-      if (typeof start !== 'number' || !observedScansRef.current.has(start)
-        || notifiedScansRef.current.has(start)) return;
-      notifiedScansRef.current.add(start);
-      if (payload.status === 'completed') {
-        const partial = Boolean(payload.failedScopes?.length);
-        liveCallbacks.current.showToast(partial ? 'warning' : 'success',
-          partial ? 'Library Scan Partially Completed' : 'Library Scan Completed', payload.message);
-        liveCallbacks.current.refreshCatalog();
-        liveCallbacks.current.refreshFilters();
-      } else if (payload.status === 'error') {
-        liveCallbacks.current.showToast('error', 'Library Scan Error', payload.error || payload.message);
-        liveCallbacks.current.refreshCatalog();
-        liveCallbacks.current.refreshFilters();
-      } else if (payload.status === 'idle' && payload.message?.toLowerCase().includes('cancel')) {
-        liveCallbacks.current.showToast('info', 'Library Scan Cancelled', payload.message);
-        liveCallbacks.current.refreshCatalog();
-        liveCallbacks.current.refreshFilters();
+      if (typeof start === 'number' && observedScansRef.current.has(start)
+        && !notifiedScansRef.current.has(start)) {
+        notifiedScansRef.current.add(start);
+        if (payload.status === 'completed') {
+          const partial = Boolean(payload.failedScopes?.length);
+          liveCallbacks.current.showToast(partial ? 'warning' : 'success',
+            partial ? 'Library Scan Partially Completed' : 'Library Scan Completed', payload.message);
+          liveCallbacks.current.refreshCatalog();
+          liveCallbacks.current.refreshFilters();
+        } else if (payload.status === 'error') {
+          liveCallbacks.current.showToast('error', 'Library Scan Error', payload.error || payload.message);
+          liveCallbacks.current.refreshCatalog();
+          liveCallbacks.current.refreshFilters();
+        } else if (payload.status === 'idle' && payload.message?.toLowerCase().includes('cancel')) {
+          liveCallbacks.current.showToast('info', 'Library Scan Cancelled', payload.message);
+          liveCallbacks.current.refreshCatalog();
+          liveCallbacks.current.refreshFilters();
+        }
+      }
+      const queuedPaths = queuedSettingsScanRef.current;
+      if (queuedPaths) {
+        queuedSettingsScanRef.current = null;
+        supersededTerminalStartRef.current = typeof start === 'number' ? start : null;
+        startQueuedScanRef.current(queuedPaths);
       }
     };
     return () => source.close();
@@ -565,6 +582,7 @@ function MainApp() {
     }
     scanActionRef.current = 'start';
     setScanActionPending('start');
+    let queuedRetry: string[] | null = null;
     try {
       await requestJson('/api/scan/start', (value) => {
         if (!isRecord(value) || typeof value.message !== 'string') {
@@ -594,13 +612,35 @@ function MainApp() {
       }
     } catch (error: unknown) {
       showToast('error', 'Scan Failed', errorMessage(error));
+      if (queuedSettingsScanRef.current && scanStatusRef.current.status !== 'scanning') {
+        const eventRevision = scanEventRevisionRef.current;
+        try {
+          const serverStatus = await requestJson('/api/scan/status', parseScanStatus);
+          if (eventRevision === scanEventRevisionRef.current) {
+            scanStatusRef.current = serverStatus;
+            setScanStatus(serverStatus);
+            if (serverStatus.status !== 'scanning') {
+              queuedRetry = queuedSettingsScanRef.current;
+              queuedSettingsScanRef.current = null;
+            }
+          }
+        } catch (statusError: unknown) {
+          showToast('error', 'Scan Status Unavailable', errorMessage(statusError));
+        }
+      }
     } finally {
       if (scanActionRef.current === 'start') {
         scanActionRef.current = null;
         setScanActionPending(null);
       }
+      if (queuedRetry) startQueuedScanRef.current(queuedRetry);
     }
   }, [settings.libraryPath, settings.libraryPaths, showToast]);
+
+  useEffect(() => {
+    startQueuedScanRef.current = (paths) => { void handleTriggerScan(paths); };
+    return () => { startQueuedScanRef.current = () => {}; };
+  }, [handleTriggerScan]);
 
   const handleCancelScan = useCallback(async () => {
     if (scanActionRef.current || scanStatusRef.current.status !== 'scanning') return;
@@ -823,11 +863,19 @@ function MainApp() {
       {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={() => {
+          setIsSettingsOpen(false);
+          setSettingsRefresh((value) => value + 1);
+        }}
         onSettingsSaved={(newSettings) => {
           setSettings(newSettings);
-          if (newSettings.libraryPaths && newSettings.libraryPaths.length > 0) {
-            void handleTriggerScan(newSettings.libraryPaths);
+          const paths = newSettings.libraryPaths.filter((path) => path.trim());
+          if (paths.length === 0) {
+            queuedSettingsScanRef.current = null;
+          } else if (scanStatusRef.current.status === 'scanning' || scanActionRef.current) {
+            queuedSettingsScanRef.current = paths;
+          } else {
+            void handleTriggerScan(paths);
           }
           refreshCatalog();
         }}
