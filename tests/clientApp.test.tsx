@@ -309,5 +309,55 @@ describe('App catalog and live request lifecycle', () => {
     expect(FakeEventSource.instances[1].closed).toBe(false);
   });
 
+  it('shows catalog HTTP, JSON, and item-shape failures with a retry path', async () => {
+    await mount();
+    await act(async () => {
+      requests('/api/settings')[0].resolveJson(settings);
+      requests('/api/tags')[0].resolveJson([]);
+      requests('/api/formats')[0].resolveJson([]);
+      requests('/api/resolutions')[0].resolveJson([]);
+      requests('/api/bpms')[0].resolveJson([]);
+      latestCatalog().resolveJson({ error: 'Catalog unavailable' }, 503);
+    });
+    expect(view!.container.textContent).toContain('Catalog unavailable');
+    await click(button('Retry'));
+    await act(async () => { latestCatalog().resolveText('not json'); });
+    expect(view!.container.textContent).toContain('invalid JSON');
+    await click(button('Retry'));
+    await act(async () => { latestCatalog().resolveJson({
+      ...catalogPage([asset(1)], 1, 1),
+      items: [{ id: 'broken', name: 'Incomplete', category: 'image', tags: [] }],
+    }); });
+    expect(view!.container.textContent).toContain('invalid asset catalog');
+    await click(button('Retry'));
+    await act(async () => { latestCatalog().resolveJson(catalogPage([asset(1)], 1, 1)); });
+    expect(itemIds()).toEqual(['asset-1']);
+  });
+
+  it('keeps settings and facets failures out of typed Sidebar state', async () => {
+    await mount();
+    await act(async () => {
+      requests('/api/settings')[0].resolveJson({ error: 'Settings unavailable' }, 503);
+      requests('/api/tags')[0].resolveJson({ error: 'bad shape' });
+      requests('/api/formats')[0].resolveJson([]);
+      requests('/api/resolutions')[0].resolveJson([]);
+      requests('/api/bpms')[0].resolveJson([]);
+      latestCatalog().resolveJson(catalogPage([], 1, 0));
+    });
+    expect(view!.container.querySelector('[data-testid="tags"]')?.textContent).toBe('');
+    expect(view!.container.textContent).toContain('Settings unavailable');
+    expect(view!.container.textContent).toContain('invalid tags');
+    await click(button('Retry settings'));
+    await click(button('Retry filters'));
+    await act(async () => {
+      requests('/api/settings').at(-1)!.resolveJson(settings);
+      requests('/api/tags').at(-1)!.resolveJson([{ name: 'gem', count: 1 }]);
+      requests('/api/formats').at(-1)!.resolveJson([]);
+      requests('/api/resolutions').at(-1)!.resolveJson([]);
+      requests('/api/bpms').at(-1)!.resolveJson([]);
+    });
+    expect(view!.container.querySelector('[data-testid="tags"]')?.textContent).toBe('gem');
+  });
+
 
 });
