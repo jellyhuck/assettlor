@@ -359,5 +359,41 @@ describe('App catalog and live request lifecycle', () => {
     expect(view!.container.querySelector('[data-testid="tags"]')?.textContent).toBe('gem');
   });
 
+  it('keeps selection by identity through delayed detail and a scan refresh', async () => {
+    await mount();
+    await resolveBootstrap([asset(1, 'Before A'), asset(2, 'Before B')], 2);
+    await click(button('Search gem'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 220)); });
+    expect(query(latestCatalog(), 'search')).toBe('gem');
+    await act(async () => { latestCatalog().resolveJson(catalogPage([
+      asset(1, 'Before A'), asset(2, 'Before B'),
+    ], 1, 2)); });
+    await click(view!.container.querySelector<HTMLElement>('[data-item-id="asset-1"]')!);
+    const oldDetail = requests('/api/assets/asset-1').at(-1)!;
+    const staleUpdate = inspectorCallbacks.updateAsset;
+    await click(view!.container.querySelector<HTMLElement>('[data-item-id="asset-2"]')!);
+    const newDetail = requests('/api/assets/asset-2').at(-1)!;
+    expect(oldDetail.init?.signal?.aborted).toBe(true);
+    await act(async () => { newDetail.resolveJson(asset(2, 'Fresh B')); });
+    await act(async () => { oldDetail.resolveJson(asset(1, 'Late A')); });
+    expect(view!.container.querySelector('[data-testid="selected-item"]')?.textContent).toBe('asset-2:Fresh B');
 
+    if (!staleUpdate) throw new Error('Inspector update callback missing');
+    await act(async () => { staleUpdate(asset(1, 'Stale callback A')); });
+    expect(view!.container.querySelector('[data-testid="selected-item"]')?.textContent).toBe('asset-2:Fresh B');
+
+    const source = FakeEventSource.instances[0];
+    await act(async () => { source.emit(scanEvent('scanning', 20)); });
+    await act(async () => { source.emit(scanEvent('completed', 20)); });
+    await act(async () => { latestCatalog().resolveJson(catalogPage([asset(1, 'Only A on page')], 1, 101)); });
+    const refreshedDetail = requests('/api/assets/asset-2').at(-1)!;
+    await act(async () => { refreshedDetail.resolveJson(asset(2, 'After scan B')); });
+    expect(view!.container.querySelector('[data-testid="selected-item"]')?.textContent).toBe('asset-2:After scan B');
+
+    await act(async () => { source.emit(scanEvent('scanning', 21)); });
+    await act(async () => { source.emit(scanEvent('completed', 21)); });
+    await act(async () => { latestCatalog().resolveJson(catalogPage([], 1, 0)); });
+    await act(async () => { requests('/api/assets/asset-2').at(-1)!.resolveJson({ error: 'Asset not found' }, 404); });
+    expect(view!.container.querySelector('[data-testid="inspector"]')).toBeNull();
+  });
 });
