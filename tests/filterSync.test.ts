@@ -129,13 +129,24 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
 
     it('should parse BPM presets and values', () => {
       expect(parseFiltersFromQuery('bpm:slow').bpm).toBe('slow');
-      expect(parseFiltersFromQuery('bpm:<90').bpm).toBe('slow');
+      expect(parseFiltersFromQuery('bpm:slow-tempo').bpm).toBe('slow');
       expect(parseFiltersFromQuery('bpm:moderate').bpm).toBe('moderate');
-      expect(parseFiltersFromQuery('tempo:90-120').bpm).toBe('moderate');
+      expect(parseFiltersFromQuery('tempo:mid').bpm).toBe('moderate');
       expect(parseFiltersFromQuery('bpm:fast').bpm).toBe('fast');
       expect(parseFiltersFromQuery('bpm:very-fast').bpm).toBe('very-fast');
+      expect(parseFiltersFromQuery('bpm:high').bpm).toBe('very-fast');
+      expect(parseFiltersFromQuery('tempo:uptempo').bpm).toBe('very-fast');
       expect(parseFiltersFromQuery('bpm:120').bpm).toBe('120');
       expect(parseFiltersFromQuery('bpm:144').bpm).toBe('144');
+    });
+
+    it('keeps numeric BPM comparisons and ranges literal at bucket boundaries', () => {
+      for (const value of ['<80', '<90', '>=80', '<120', '>=120', '<150', '>=150', '>150', '>160', '90-120']) {
+        expect(parseFiltersFromQuery(`bpm:${value}`).bpm).toBe(value);
+      }
+      expect(parseFiltersFromQuery('tempo:[80 TO 120]').bpm).toBe('[80 to 120]');
+      expect(parseFiltersFromQuery('bpm:[120 TO 150]').bpm).toBe('[120 to 150]');
+      expect(parseFiltersFromQuery('bpm:slow OR bpm:fast').bpm).toBeNull();
     });
 
     it('should parse tags and shorthand #tag', () => {

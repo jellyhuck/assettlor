@@ -155,6 +155,27 @@ function composeMetadataRangePredicate(
   );
 }
 
+// These boundaries match getTempoDescription in bpmClassifier.ts.
+const BPM_BUCKETS = {
+  slow: { min: 0, max: 80, description: 'slow-tempo' },
+  moderate: { min: 80, max: 120, description: 'moderate-tempo' },
+  fast: { min: 120, max: 150, description: 'fast-tempo' },
+  high: { min: 150, max: null, description: 'uptempo' },
+} as const;
+
+type BpmBucket = keyof typeof BPM_BUCKETS;
+
+function bpmBucketCondition(alias: 'a' | 'm', bucket: BpmBucket): string {
+  const { min, max, description } = BPM_BUCKETS[bucket];
+  const rawBpm = `json_extract(${alias}.metadata, '$.bpm')`;
+  const bpm = `CAST(${rawBpm} AS NUMERIC)`;
+  const lowerBound = min === 0 ? `${bpm} > 0` : `${bpm} >= ${min}`;
+  const numericCondition = max === null ? lowerBound : `${lowerBound} AND ${bpm} < ${max}`;
+  const legacyDescription = `COALESCE(LOWER(json_extract(${alias}.metadata, '$.tempoDescription')), '')`;
+  // A description is only authoritative for legacy records without numeric BPM.
+  return `((${numericCondition}) OR (${rawBpm} IS NULL AND ${legacyDescription} = '${description}'))`;
+}
+
 /**
  * Builds free-text search SQL fragment for a single token/phrase,
  * matching asset name, path, and tags (in stacked and unstacked views).
@@ -986,37 +1007,15 @@ export function parseBpmClause(
     isStackedView, 'audio_variation'
   );
 
-  // Presets
-  if (str === 'slow' || str === 'slow-tempo' || str === '<90' || str === '<80') {
+  // Only named aliases expand to buckets. Numeric comparisons and ranges stay literal.
+  let bucket: BpmBucket | null = null;
+  if (str === 'slow' || str === 'slow-tempo') bucket = 'slow';
+  else if (str === 'moderate' || str === 'moderate-tempo' || str === 'mid') bucket = 'moderate';
+  else if (str === 'fast' || str === 'fast-tempo') bucket = 'fast';
+  else if (str === 'high' || str === 'high-tempo' || str === 'very-fast' || str === 'veryfast' || str === 'uptempo') bucket = 'high';
+  if (bucket) {
     return buildFinalSql(
-      `(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 0 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) < 90) OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'slow-tempo'`,
-      `(CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 0 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) < 90) OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'slow-tempo'`,
-      [],
-      []
-    );
-  }
-  if (str === 'moderate' || str === 'moderate-tempo' || str === 'mid' || str === '90-120') {
-    return buildFinalSql(
-      `(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) >= 90 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) <= 120) OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'moderate-tempo'`,
-      `(CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) >= 90 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) <= 120) OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'moderate-tempo'`,
-      [],
-      []
-    );
-  }
-  if (str === 'fast' || str === 'fast-tempo' || str === '120-160') {
-    return buildFinalSql(
-      `(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 120 AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) <= 160) OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'fast-tempo'`,
-      `(CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 120 AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) <= 160) OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'fast-tempo'`,
-      [],
-      []
-    );
-  }
-  if (str === 'very-fast' || str === 'veryfast' || str === '>160' || str === 'uptempo' || str === '>150') {
-    return buildFinalSql(
-      `CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) > 160 OR LOWER(json_extract(a.metadata, '$.tempoDescription')) = 'uptempo'`,
-      `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) > 160 OR LOWER(json_extract(m.metadata, '$.tempoDescription')) = 'uptempo'`,
-      [],
-      []
+      bpmBucketCondition('a', bucket), bpmBucketCondition('m', bucket), [], []
     );
   }
   if (str === 'none' || str === 'unclassified' || str === 'unanalyzed') {
@@ -1057,8 +1056,8 @@ export function parseBpmClause(
     val = leadingOpMatch[2].trim();
   }
 
-  const num = parseFloat(val);
-  if (isNaN(num)) {
+  const numericMatch = val.match(/^(\d+(?:\.\d+)?)(?:bpm)?$/);
+  if (!numericMatch) {
     // If not a number, allow direct match on tempoDescription
     return buildFinalSql(
       `LOWER(json_extract(a.metadata, '$.tempoDescription')) = ?`,
@@ -1068,12 +1067,14 @@ export function parseBpmClause(
     );
   }
 
+  const num = Number(numericMatch[1]);
+
   if (operator === '=') {
     return buildFinalSql(
-      `ROUND(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC)) = ?`,
-      `ROUND(CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC)) = ?`,
-      [Math.round(num)],
-      [Math.round(num)]
+      `CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) = ?`,
+      `CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) = ?`,
+      [num],
+      [num]
     );
   }
 

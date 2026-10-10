@@ -301,10 +301,12 @@ function normalizedFilterValue(type: FilterType, value: string): string {
     if (['>120', '>2m', 'music'].includes(v)) return '>120';
   }
   if (type === 'bpm') {
-    if (['slow', 'slow-tempo', '<90', '<80'].includes(v)) return 'slow';
-    if (['moderate', 'moderate-tempo', 'mid', '90-120', '[90 to 120]'].includes(v)) return 'moderate';
-    if (['fast', 'fast-tempo', '120-160', '[120 to 160]'].includes(v)) return 'fast';
-    if (['very-fast', 'veryfast', '>160', 'uptempo', '>150'].includes(v)) return 'very-fast';
+    // Only names represent the sidebar's tempo buckets. Numeric comparisons
+    // and ranges must keep their exact bounds instead of becoming presets.
+    if (['slow', 'slow-tempo'].includes(v)) return 'slow';
+    if (['moderate', 'moderate-tempo', 'mid'].includes(v)) return 'moderate';
+    if (['fast', 'fast-tempo'].includes(v)) return 'fast';
+    if (['very-fast', 'veryfast', 'high', 'high-tempo', 'uptempo'].includes(v)) return 'very-fast';
   }
   return v;
 }

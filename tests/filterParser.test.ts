@@ -271,7 +271,7 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
     it('should compile bpm:120 exact filter', () => {
       const flat = compileFilterExpression('bpm:120', false);
       expect(flat.isParsed).toBe(true);
-      expect(flat.sql).toContain("ROUND(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC)) = ?");
+      expect(flat.sql).toContain("CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) = ?");
       expect(flat.args).toEqual([120]);
 
       const stacked = compileFilterExpression('bpm:120', true);
@@ -315,21 +315,21 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
     it('should compile bpm tempo presets: bpm:slow, bpm:moderate, bpm:fast, bpm:very-fast', () => {
       const slow = compileFilterExpression('bpm:slow', false);
       expect(slow.isParsed).toBe(true);
-      expect(slow.sql).toContain('< 90');
+      expect(slow.sql).toContain('< 80');
 
       const mod = compileFilterExpression('bpm:moderate', false);
       expect(mod.isParsed).toBe(true);
-      expect(mod.sql).toContain('>= 90 AND');
-      expect(mod.sql).toContain('<= 120');
+      expect(mod.sql).toContain('>= 80 AND');
+      expect(mod.sql).toContain('< 120');
 
       const fast = compileFilterExpression('bpm:fast', false);
       expect(fast.isParsed).toBe(true);
-      expect(fast.sql).toContain('> 120 AND');
-      expect(fast.sql).toContain('<= 160');
+      expect(fast.sql).toContain('>= 120 AND');
+      expect(fast.sql).toContain('< 150');
 
       const veryFast = compileFilterExpression('bpm:very-fast', false);
       expect(veryFast.isParsed).toBe(true);
-      expect(veryFast.sql).toContain('> 160');
+      expect(veryFast.sql).toContain('>= 150');
     });
 
     it('should compile bpm status presets: bpm:none, bpm:detected', () => {
@@ -409,7 +409,7 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
     it('should extract bpm:, width:, height:, dur: from fallback token queries', () => {
       const fallback = compileFilterExpression('bpm:120 unmatched(', false);
       expect(fallback.isParsed).toBe(false);
-      expect(fallback.sql).toContain("ROUND(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC)) = ?");
+      expect(fallback.sql).toContain("CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) = ?");
       expect(fallback.args).toContain(120);
 
       const dimFallback = compileFilterExpression('width:64 height:128 unmatched(', false);
