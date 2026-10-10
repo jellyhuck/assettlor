@@ -7,7 +7,7 @@ import { act, click, mountReact } from '../client/tests/reactDomHarness.js';
 import App from '../client/src/App.js';
 
 const inspectorCallbacks = vi.hoisted(() => ({
-  updateAsset: null as null | ((asset: unknown) => void),
+  updateAsset: null as null | ((asset: unknown, updateSelection?: boolean) => void),
 }));
 
 vi.mock('../client/src/components/Sidebar.tsx', () => ({
@@ -62,7 +62,7 @@ vi.mock('../client/src/components/Inspector.tsx', () => ({
   Inspector: ({ item, onClose, onAssetUpdated }: {
     item: { id: string; name: string };
     onClose: () => void;
-    onAssetUpdated: (asset: unknown) => void;
+    onAssetUpdated: (asset: unknown, updateSelection?: boolean) => void;
   }) => {
     inspectorCallbacks.updateAsset = onAssetUpdated;
     return <aside data-testid="inspector">
@@ -434,6 +434,8 @@ describe('App catalog and live request lifecycle', () => {
 
     if (!staleUpdate) throw new Error('Inspector update callback missing');
     await act(async () => { staleUpdate(asset(1, 'Stale callback A')); });
+    expect(view!.container.querySelector('[data-testid="selected-item"]')?.textContent).toBe('asset-2:Fresh B');
+    await act(async () => { staleUpdate(asset(2, 'Stale callback for B'), false); });
     expect(view!.container.querySelector('[data-testid="selected-item"]')?.textContent).toBe('asset-2:Fresh B');
 
     const source = FakeEventSource.instances[0];

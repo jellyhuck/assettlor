@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Asset, AssetStack, AppSettings, TagInfo, getImageDisplayUrl } from '../types';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Asset, AssetStack, AppSettings, TagInfo, type ClassifierRunResult, getImageDisplayUrl } from '../types';
 import {
   X,
   Copy,
@@ -53,6 +53,26 @@ function parseStack(value: unknown): StackItem {
   return { ...data, isStack: true } as unknown as StackItem;
 }
 
+function parseTaggedAsset(value: unknown): Asset {
+  const data = expectRecord(value, 'tag update');
+  if (!isAsset(data.asset)) throw new Error('The tag update response has an unexpected shape');
+  return data.asset;
+}
+
+function parseTaggedStack(value: unknown): StackItem {
+  const data = expectRecord(value, 'stack tag update');
+  return parseStack(data.stack);
+}
+
+function parseClassifierRun(value: unknown): ClassifierRunResult {
+  const data = expectRecord(value, 'classifier');
+  if (!Array.isArray(data.details) || !data.details.every((detail: unknown) =>
+    detail !== null && typeof detail === 'object' && typeof (detail as { success?: unknown }).success === 'boolean')) {
+    throw new Error('The classifier response has an unexpected shape');
+  }
+  return data as unknown as ClassifierRunResult;
+}
+
 interface InspectorProps {
   item: Asset | (AssetStack & { isStack: true }) | null;
   onClose: () => void;
@@ -67,8 +87,8 @@ interface InspectorProps {
   onSelectDuration?: (duration: string | null) => void;
   onSelectBpm?: (bpm: string | null) => void;
   onSelectSprite?: (sprite: string | null) => void;
-  onAssetUpdated?: (updatedAsset: Asset) => void;
-  onStackUpdated?: (updatedStack: AssetStack & { isStack: true }) => void;
+  onAssetUpdated?: (updatedAsset: Asset, updateSelection?: boolean) => void;
+  onStackUpdated?: (updatedStack: AssetStack & { isStack: true }, updateSelection?: boolean) => void;
   availableTags?: TagInfo[];
   revision?: number;
 }
@@ -104,14 +124,12 @@ export function Inspector({
   } | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [parentState, setParentState] = useState<ParentState | null>(null);
-  const [analyzingBpm, setAnalyzingBpm] = useState(false);
-  const [classifyingSprite, setClassifyingSprite] = useState(false);
-  const [classifyingPack, setClassifyingPack] = useState(false);
+  const [pendingOperations, setPendingOperations] = useState<Array<{
+    scope: { key: string }; action: string;
+  }>>([]);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
-  const [isTagSubmitting, setIsTagSubmitting] = useState(false);
-  const [deletingTag, setDeletingTag] = useState<string | null>(null);
-  const [applyTagsToStack, setApplyTagsToStack] = useState(false);
+  const [stackTagChoice, setStackTagChoice] = useState<{ stackId: string; enabled: boolean } | null>(null);
   const [tagSuggestionsOpen, setTagSuggestionsOpen] = useState(false);
   const [localAvailableTags, setLocalAvailableTags] = useState<TagInfo[]>([]);
   const [failedImageIds, setFailedImageIds] = useState<Set<string>>(() => new Set());
@@ -151,6 +169,23 @@ export function Inspector({
       ? selectedMember.id : stack?.representativeAssetId));
   const currentFrameIndex = selectedFrameIndex >= 0 ? selectedFrameIndex : 0;
   const selectedVariant = stackAssets[currentFrameIndex] ?? null;
+  const currentAssetId = !isStack ? item?.id ?? '' : selectedVariant?.id ?? representative?.id ?? '';
+  const mutationKey = `${itemKey}|${currentAssetId}|${revision ?? ''}`;
+  const mutationScopeRef = useRef<{ key: string }>({ key: '' });
+  useLayoutEffect(() => { mutationScopeRef.current = { key: mutationKey }; }, [mutationKey]);
+  const isCurrentScope = (scope: { key: string }) => mutationScopeRef.current === scope;
+  const isPending = (action: string) => pendingOperations.some((entry) =>
+    entry.scope.key === mutationKey && entry.action === action);
+  const setPending = (scope: { key: string }, action: string, pending: boolean) => {
+    setPendingOperations((previous) => pending
+      ? [...previous, { scope, action }]
+      : previous.filter((entry) => entry.scope !== scope || entry.action !== action));
+  };
+  const analyzingBpm = isPending('bpm');
+  const classifyingSprite = isPending('sprite');
+  const classifyingPack = isPending('pack');
+  const isTagSubmitting = isPending('tag-add');
+  const applyTagsToStack = Boolean(stack && stackTagChoice?.stackId === stack.id && stackTagChoice.enabled);
   const parentStack = parentState?.key === parentKey ? parentState.parent : null;
   const parentError = parentState?.key === parentKey ? parentState.error : null;
 
@@ -282,138 +317,52 @@ export function Inspector({
     showToast('success', 'File Name Copied', name);
   };
 
-  const handleAnalyzeBpm = async () => {
-    if (!displayedAsset || displayedAsset.category !== 'audio') return;
-    setAnalyzingBpm(true);
+  const handleRunClassifier = async (kind: 'bpm' | 'sprite' | 'pack') => {
+    const target = displayedAsset;
+    if ((kind === 'bpm' && target.category !== 'audio')
+      || (kind === 'sprite' && target.category !== 'image') || isPending(kind)) return;
+    const scope = mutationScopeRef.current;
+    const title = kind === 'bpm' ? 'BPM Analysis' : kind === 'sprite' ? 'Sprite Classification' : 'Pack Classification';
+    setPending(scope, kind, true);
     try {
-      const res = await fetch('/api/classifiers/bpm/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetType: 'asset',
-          targetValue: displayedAsset.id,
-        }),
+      const run = await requestJson(`/api/classifiers/${kind}/run`, parseClassifierRun, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetType: 'asset', targetValue: target.id }),
       });
-      if (!res.ok) throw new Error('Failed to run BPM classifier');
-      const runRes = await res.json();
-      const detail = runRes.details?.[0];
-      if (detail && detail.success && detail.result?.bpm) {
-        showToast(
-          'success',
-          'BPM Detected',
-          `${displayedAsset.name}: ${detail.result.bpm} BPM (${detail.result.tempoDescription || 'classified'})`
-        );
-        const updatedAsset: Asset = {
-          ...displayedAsset,
-          metadata: {
-            ...displayedAsset.metadata,
-            bpm: detail.result.bpm,
-            tempoDescription: detail.result.tempoDescription,
-          },
-          tags: displayedAsset.tags.filter(
-            (t) => !t.startsWith('bpm:') && t !== displayedAsset.metadata.tempoDescription && t !== detail.result.tempoDescription
-          ),
-        };
-        updateMember(updatedAsset);
-        onAssetUpdated?.(updatedAsset);
-      } else {
-        showToast('info', 'No Rhythmic Beats', detail?.error || 'Could not detect rhythmic tempo');
+      const detail = run.details.find((entry) => entry.assetId === target.id) ?? run.details[0];
+      if (!detail) throw new Error('The classifier returned no result for this asset');
+      // Classification can also clear obsolete metadata/tags on a no-result run.
+      // Read the persisted asset instead of synthesizing a partial result here.
+      const updated = await requestJson(`/api/assets/${encodeURIComponent(target.id)}`,
+        (value) => {
+          if (!isAsset(value)) throw new Error('The asset response has an unexpected shape');
+          return value;
+        });
+      const current = isCurrentScope(scope);
+      if (current) updateMember(updated);
+      onAssetUpdated?.(updated, current);
+      if (detail.success && current) {
+        const description = kind === 'bpm'
+          ? `${target.name}: ${detail.result?.bpm ?? 'detected'} BPM`
+          : kind === 'sprite'
+            ? `${target.name}: ${detail.result?.spriteType ?? 'classified'}`
+            : `${target.name}: ${detail.result?.pack ?? 'classified'}`;
+        showToast('success', title, description);
+      } else if (detail.outcome === 'error') {
+        showToast('error', `${title} Error`, `${target.name}: ${detail.error || 'Classification failed'}`);
+      } else if (current) {
+        showToast('info', title, `${target.name}: ${detail.error || 'No result found'}`);
       }
-    } catch (err: any) {
-      showToast('error', 'BPM Analysis Error', err?.message || 'Failed to detect BPM');
+    } catch (error: unknown) {
+      showToast('error', `${title} Error`, `${target.name}: ${errorMessage(error)}`);
     } finally {
-      setAnalyzingBpm(false);
+      setPending(scope, kind, false);
     }
   };
 
-  const handleClassifySprite = async () => {
-    if (!displayedAsset || displayedAsset.category !== 'image') return;
-    setClassifyingSprite(true);
-    try {
-      const res = await fetch('/api/classifiers/sprite/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetType: 'asset',
-          targetValue: displayedAsset.id,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to run Sprite classifier');
-      const runRes = await res.json();
-      const detail = runRes.details?.[0];
-      if (detail && detail.success && detail.result?.spriteType) {
-        const typeStr = String(detail.result.spriteType);
-        const confStr = detail.result.confidence !== undefined ? ` (${Math.round(Number(detail.result.confidence) * 100)}%)` : '';
-        showToast(
-          'success',
-          'Sprite Classified',
-          `${displayedAsset.name}: ${typeStr}${confStr}`
-        );
-        const updatedAsset: Asset = {
-          ...displayedAsset,
-          metadata: {
-            ...displayedAsset.metadata,
-            spriteType: detail.result.spriteType,
-            spriteConfidence: detail.result.confidence,
-          },
-          tags: displayedAsset.tags.filter((t) => !t.startsWith('sprite:')),
-        };
-        updateMember(updatedAsset);
-        onAssetUpdated?.(updatedAsset);
-      } else {
-        showToast('info', 'Sprite Classification', detail?.error || 'Could not classify sprite');
-      }
-    } catch (err: any) {
-      showToast('error', 'Sprite Classification Error', err?.message || 'Failed to classify sprite');
-    } finally {
-      setClassifyingSprite(false);
-    }
-  };
-
-  const handleClassifyPack = async () => {
-    if (!displayedAsset) return;
-    setClassifyingPack(true);
-    try {
-      const res = await fetch('/api/classifiers/pack/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetType: 'asset',
-          targetValue: displayedAsset.id,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to run Pack classifier');
-      const runRes = await res.json();
-      const detail = runRes.details?.[0];
-      if (detail && detail.success && detail.result?.pack) {
-        const packName = String(detail.result.pack);
-        showToast(
-          'success',
-          'Pack Classified',
-          `${displayedAsset.name}: ${packName}`
-        );
-        const updatedAsset: Asset = {
-          ...displayedAsset,
-          metadata: {
-            ...displayedAsset.metadata,
-            pack: packName,
-          },
-          tags: [
-            ...displayedAsset.tags.filter((t) => !t.startsWith('pack:')),
-            ...(detail.tagsAdded || []),
-          ],
-        };
-        updateMember(updatedAsset);
-        onAssetUpdated?.(updatedAsset);
-      } else {
-        showToast('info', 'Pack Classification', detail?.error || 'Could not classify pack');
-      }
-    } catch (err: any) {
-      showToast('error', 'Pack Classification Error', err?.message || 'Failed to classify pack');
-    } finally {
-      setClassifyingPack(false);
-    }
-  };
+  const handleAnalyzeBpm = () => { void handleRunClassifier('bpm'); };
+  const handleClassifySprite = () => { void handleRunClassifier('sprite'); };
+  const handleClassifyPack = () => { void handleRunClassifier('pack'); };
 
   const tagsList = availableTags && availableTags.length > 0 ? availableTags : localAvailableTags;
 
@@ -433,199 +382,99 @@ export function Inspector({
     .filter((t) => !existingTagsLower.has(t.name.toLowerCase()))
     .slice(0, 4);
 
-  const handleAddSpecificTag = async (tagName: string) => {
-    const clean = tagName.replace(/^#/, '').trim();
-    if (!clean || !displayedAsset) return;
-
-    const currentTags = displayedAsset.tags || [];
-    if (currentTags.some((t) => t.replace(/^#/, '').toLowerCase() === clean.toLowerCase())) {
-      showToast('info', 'Tag Exists', `#${clean} is already assigned to this asset`);
-      return;
-    }
-
-    setIsTagSubmitting(true);
-    try {
-      if (applyTagsToStack && isStack && stack) {
-        const res = await fetch(`/api/stacks/${stack.id}/tags`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag: clean }),
-        });
-        if (!res.ok) throw new Error('Failed to add tag to stack');
-        const data = await res.json();
-        showToast('success', 'Tag Added', `Added #${clean} to stack`);
-
-        const updatedTags = Array.from(new Set([...currentTags, clean]));
-        const updatedAsset = { ...displayedAsset, tags: updatedTags };
-        setMemberState((previous) => previous?.key === memberKey ? { ...previous,
-          assets: previous.assets.map((a) => ({
-            ...a,
-            tags: Array.from(new Set([...(a.tags || []), clean])),
-          })),
-        } : previous);
-        if (data.stack) {
-          onStackUpdated?.({ ...data.stack, isStack: true });
-        }
-        onAssetUpdated?.(updatedAsset);
-      } else {
-        const res = await fetch(`/api/assets/${displayedAsset.id}/tags`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag: clean }),
-        });
-        if (!res.ok) throw new Error('Failed to add tag to asset');
-        const data = await res.json();
-        showToast('success', 'Tag Added', `Added #${clean}`);
-
-        const updatedAsset: Asset = data.asset || {
-          ...displayedAsset,
-          tags: Array.from(new Set([...currentTags, clean])),
-        };
-        updateMember(updatedAsset);
-        if (isStack) {
-          updateMember(updatedAsset);
-        }
-        onAssetUpdated?.(updatedAsset);
-      }
-
-      setNewTagInput('');
-      setIsAddingTag(false);
-      setTagSuggestionsOpen(false);
-    } catch (err: any) {
-      showToast('error', 'Tag Error', err?.message || 'Could not add tag');
-    } finally {
-      setIsTagSubmitting(false);
-    }
-  };
-
-  const handleAddTag = async () => {
-    if (!newTagInput.trim() || !displayedAsset) return;
-
-    const tagsToAdd = newTagInput
-      .split(',')
-      .map((t) => t.replace(/^#/, '').trim())
-      .filter((t) => t.length > 0);
-
-    if (tagsToAdd.length === 0) return;
-
-    const currentTags = displayedAsset.tags || [];
-    const currentLower = new Set(currentTags.map((t) => t.replace(/^#/, '').toLowerCase()));
-    const uniqueToAdd = tagsToAdd.filter((t) => !currentLower.has(t.toLowerCase()));
-
+  const addTags = async (rawTags: string[]) => {
+    const target = displayedAsset;
+    const scope = mutationScopeRef.current;
+    if (isPending('tag-add')) return;
+    const currentTags = target.tags || [];
+    const existing = new Set(currentTags.map((tag) => tag.replace(/^#/, '').toLowerCase()));
+    const uniqueToAdd = Array.from(new Set(rawTags.map((tag) => tag.replace(/^#/, '').trim())
+      .filter((tag) => tag.length > 0 && !existing.has(tag.toLowerCase()))));
     if (uniqueToAdd.length === 0) {
       showToast('info', 'Tags Exist', 'All entered tags are already assigned');
       return;
     }
-
-    setIsTagSubmitting(true);
+    const stackTarget = applyTagsToStack ? stack : null;
+    setPending(scope, 'tag-add', true);
     try {
-      if (applyTagsToStack && isStack && stack) {
-        const res = await fetch(`/api/stacks/${stack.id}/tags`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: uniqueToAdd }),
-        });
-        if (!res.ok) throw new Error('Failed to add tags to stack');
-        const data = await res.json();
-        showToast('success', 'Tags Added', `Added ${uniqueToAdd.map((t) => `#${t}`).join(', ')} to stack`);
-
-        const updatedTags = Array.from(new Set([...currentTags, ...uniqueToAdd]));
-        const updatedAsset = { ...displayedAsset, tags: updatedTags };
-        setMemberState((previous) => previous?.key === memberKey ? { ...previous,
-          assets: previous.assets.map((a) => ({
-            ...a,
-            tags: Array.from(new Set([...(a.tags || []), ...uniqueToAdd])),
-          })),
-        } : previous);
-        if (data.stack) {
-          onStackUpdated?.({ ...data.stack, isStack: true });
+      if (stackTarget) {
+        const updatedStack = await requestJson(`/api/stacks/${encodeURIComponent(stackTarget.id)}/tags`,
+          parseTaggedStack, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags: uniqueToAdd }),
+          });
+        const current = isCurrentScope(scope);
+        if (current) {
+          setMemberState((previous) => previous?.key === memberKey ? { ...previous,
+            assets: previous.assets.map((member) => ({ ...member,
+              tags: Array.from(new Set([...(member.tags || []), ...uniqueToAdd])) })),
+          } : previous);
         }
-        onAssetUpdated?.(updatedAsset);
+        onStackUpdated?.(updatedStack, current);
       } else {
-        const res = await fetch(`/api/assets/${displayedAsset.id}/tags`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: uniqueToAdd }),
-        });
-        if (!res.ok) throw new Error('Failed to add tags to asset');
-        const data = await res.json();
-        showToast('success', 'Tags Added', `Added ${uniqueToAdd.map((t) => `#${t}`).join(', ')}`);
-
-        const updatedAsset: Asset = data.asset || {
-          ...displayedAsset,
-          tags: Array.from(new Set([...currentTags, ...uniqueToAdd])),
-        };
-        updateMember(updatedAsset);
-        if (isStack) {
-          updateMember(updatedAsset);
-        }
-        onAssetUpdated?.(updatedAsset);
+        const updatedAsset = await requestJson(`/api/assets/${encodeURIComponent(target.id)}/tags`,
+          parseTaggedAsset, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags: uniqueToAdd }),
+          });
+        const current = isCurrentScope(scope);
+        if (current) updateMember(updatedAsset);
+        onAssetUpdated?.(updatedAsset, current);
       }
-
-      setNewTagInput('');
-      setIsAddingTag(false);
-      setTagSuggestionsOpen(false);
-    } catch (err: any) {
-      showToast('error', 'Tag Error', err?.message || 'Could not add tags');
+      if (isCurrentScope(scope)) {
+        setNewTagInput('');
+        setIsAddingTag(false);
+        setTagSuggestionsOpen(false);
+      }
+      if (isCurrentScope(scope)) {
+        showToast('success', uniqueToAdd.length === 1 ? 'Tag Added' : 'Tags Added',
+          `${target.name}: ${uniqueToAdd.map((tag) => `#${tag}`).join(', ')}`);
+      }
+    } catch (error: unknown) {
+      showToast('error', 'Tag Error', `${target.name}: ${errorMessage(error)}`);
     } finally {
-      setIsTagSubmitting(false);
+      setPending(scope, 'tag-add', false);
     }
   };
 
+  const handleAddSpecificTag = (tagName: string) => { void addTags([tagName]); };
+  const handleAddTag = () => { void addTags(newTagInput.split(',')); };
+
   const handleRemoveTag = async (tagToRemove: string) => {
-    if (!displayedAsset) return;
+    const target = displayedAsset;
     const cleanTag = tagToRemove.replace(/^#/, '').trim();
-    setDeletingTag(tagToRemove);
-
+    const action = `tag-remove:${cleanTag.toLowerCase()}`;
+    if (!cleanTag || isPending(action)) return;
+    const scope = mutationScopeRef.current;
+    const stackTarget = applyTagsToStack ? stack : null;
+    setPending(scope, action, true);
     try {
-      if (applyTagsToStack && isStack && stack) {
-        const res = await fetch(`/api/stacks/${stack.id}/tags/${encodeURIComponent(cleanTag)}`, {
-          method: 'DELETE',
-        });
-        if (!res.ok) throw new Error('Failed to remove tag from stack');
-        const data = await res.json();
-        showToast('success', 'Tag Removed', `Removed #${cleanTag} from stack`);
-
-        const updatedTags = (displayedAsset.tags || []).filter(
-          (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
-        );
-        const updatedAsset = { ...displayedAsset, tags: updatedTags };
-        setMemberState((previous) => previous?.key === memberKey ? { ...previous,
-          assets: previous.assets.map((a) => ({
-            ...a,
-            tags: (a.tags || []).filter(
-              (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
-            ),
-          })),
-        } : previous);
-        if (data.stack) {
-          onStackUpdated?.({ ...data.stack, isStack: true });
+      if (stackTarget) {
+        const updatedStack = await requestJson(
+          `/api/stacks/${encodeURIComponent(stackTarget.id)}/tags/${encodeURIComponent(cleanTag)}`,
+          parseTaggedStack, { method: 'DELETE' });
+        const current = isCurrentScope(scope);
+        if (current) {
+          setMemberState((previous) => previous?.key === memberKey ? { ...previous,
+            assets: previous.assets.map((member) => ({ ...member,
+              tags: (member.tags || []).filter((tag) =>
+                tag.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()) })),
+          } : previous);
         }
-        onAssetUpdated?.(updatedAsset);
+        onStackUpdated?.(updatedStack, current);
       } else {
-        const res = await fetch(`/api/assets/${displayedAsset.id}/tags/${encodeURIComponent(cleanTag)}`, {
-          method: 'DELETE',
-        });
-        if (!res.ok) throw new Error('Failed to remove tag from asset');
-        const data = await res.json();
-        showToast('success', 'Tag Removed', `Removed #${cleanTag}`);
-
-        const updatedAsset: Asset = data.asset || {
-          ...displayedAsset,
-          tags: (displayedAsset.tags || []).filter(
-            (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
-          ),
-        };
-        updateMember(updatedAsset);
-        if (isStack) {
-          updateMember(updatedAsset);
-        }
-        onAssetUpdated?.(updatedAsset);
+        const updatedAsset = await requestJson(
+          `/api/assets/${encodeURIComponent(target.id)}/tags/${encodeURIComponent(cleanTag)}`,
+          parseTaggedAsset, { method: 'DELETE' });
+        const current = isCurrentScope(scope);
+        if (current) updateMember(updatedAsset);
+        onAssetUpdated?.(updatedAsset, current);
       }
-    } catch (err: any) {
-      showToast('error', 'Tag Removal Error', err?.message || 'Could not remove tag');
+      if (isCurrentScope(scope)) showToast('success', 'Tag Removed', `${target.name}: #${cleanTag}`);
+    } catch (error: unknown) {
+      showToast('error', 'Tag Removal Error', `${target.name}: ${errorMessage(error)}`);
     } finally {
-      setDeletingTag(null);
+      setPending(scope, action, false);
     }
   };
 
@@ -1382,7 +1231,7 @@ export function Inspector({
                     <input
                       type="checkbox"
                       checked={applyTagsToStack}
-                      onChange={(e) => setApplyTagsToStack(e.target.checked)}
+                      onChange={(e) => stack && setStackTagChoice({ stackId: stack.id, enabled: e.target.checked })}
                       className="w-3 h-3 rounded bg-[#161625] border-[#2e2e48] text-indigo-600 focus:ring-0 cursor-pointer"
                     />
                     <span className="text-[10px] font-mono tracking-tight text-indigo-300">Stack</span>
@@ -1411,7 +1260,7 @@ export function Inspector({
                 {displayedAsset.tags.map((tag) => {
                   const cleanTag = tag.replace(/^#/, '');
                   const isSelected = selectedTag === cleanTag || selectedTag === `#${cleanTag}`;
-                  const isDeleting = deletingTag === tag;
+                  const isDeleting = isPending(`tag-remove:${cleanTag.toLowerCase()}`);
                   return (
                     <div
                       key={tag}

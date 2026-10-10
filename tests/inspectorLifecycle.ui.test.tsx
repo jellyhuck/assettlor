@@ -6,16 +6,20 @@ import { act, click, mountReact } from '../client/tests/reactDomHarness.js';
 import { Inspector } from '../client/src/components/Inspector.js';
 import { ToastProvider } from '../client/src/components/ToastProvider.js';
 
+vi.mock('../client/src/components/AudioWaveformPlayer.tsx', () => ({
+  AudioWaveformPlayer: () => <div>Audio preview</div>,
+}));
+
 const settings: AppSettings = {
   libraryPath: '/tmp/library', libraryPaths: ['/tmp/library'], activeProjectPath: '',
   projectPaths: [], thumbnailQuality: 80, autoStackAnimations: true,
   autoStackAudio: true, defaultFps: 12,
 };
 
-function asset(id: string, name = id, stackId?: string): Asset {
+function asset(id: string, name = id, stackId?: string, category: 'image' | 'audio' = 'image'): Asset {
   return {
     id, name, stackId, path: `${name}.png`, absolutePath: `/tmp/library/${name}.png`,
-    extension: '.png', category: 'image', size: 10, mtime: 1, hash: id,
+    extension: category === 'audio' ? '.wav' : '.png', category, size: 10, mtime: 1, hash: id,
     isArchiveEntry: false, thumbnailUrl: `/thumb/${id}`, fileUrl: `/file/${id}`,
     metadata: { width: 32, height: 32 }, tags: [], createdAt: 1, updatedAt: 1,
   };
@@ -29,10 +33,17 @@ function stack(id: string, representative: Asset): AssetStack & { isStack: true 
   };
 }
 
-const renderInspector = (item: Asset | (AssetStack & { isStack: true }), revision = 1) => (
+const renderInspector = (
+  item: Asset | (AssetStack & { isStack: true }), revision = 1,
+  callbacks: {
+    onAssetUpdated?: (updated: Asset, updateSelection?: boolean) => void;
+    onStackUpdated?: (updated: AssetStack & { isStack: true }, updateSelection?: boolean) => void;
+  } = {},
+) => (
   <ToastProvider>
     <Inspector item={item} revision={revision} settings={settings} onClose={() => {}}
-      initialViewMode="assets" availableTags={[{ name: 'known', count: 1 }]} />
+      initialViewMode="assets" availableTags={[{ name: 'known', count: 1 }]}
+      onAssetUpdated={callbacks.onAssetUpdated} onStackUpdated={callbacks.onStackUpdated} />
   </ToastProvider>
 );
 
@@ -102,6 +113,127 @@ describe('inspector request identity', () => {
     await act(async () => pending.requests[0].resolveJson(stack('parent-a', asset('a', 'A'))));
     expect(view.container.textContent).toContain('Stack parent-b');
     expect(view.container.textContent).not.toContain('Stack parent-a');
+    await view.unmount();
+  });
+
+  it('keeps tag add and remove completions scoped after navigation', async () => {
+    const pending = createDeferredFetch();
+    vi.stubGlobal('fetch', pending.fetcher);
+    const onAssetUpdated = vi.fn();
+    const callbacks = { onAssetUpdated };
+    const first = asset('a', 'A');
+    const second = asset('b', 'B');
+    const view = await mountReact(renderInspector(first, 1, callbacks));
+    await click(view.container.querySelector('button[title="Click to add #known"]')!);
+    expect(pending.requests[0].url).toBe('/api/assets/a/tags');
+    await view.render(renderInspector(second, 1, callbacks));
+    await click(view.container.querySelector('button[title="Click to add #known"]')!);
+    expect(pending.requests[1].url).toBe('/api/assets/b/tags');
+    await act(async () => pending.requests[0].resolveJson({ asset: { ...first, tags: ['known'] } }));
+    expect(onAssetUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), false);
+    await act(async () => pending.requests[1].resolveJson({ asset: { ...second, tags: ['known'] } }));
+    expect(onAssetUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }), true);
+    expect(view.container.textContent).toContain('B');
+    expect(view.container.textContent).not.toContain('A one');
+
+    await view.render(renderInspector({ ...first, tags: ['known'] }, 2, callbacks));
+    await click(view.container.querySelector('button[title="Remove tag #known"]')!);
+    expect(pending.requests[2].url).toBe('/api/assets/a/tags/known');
+    await view.render(renderInspector(second, 2, callbacks));
+    await act(async () => pending.requests[2].resolveJson({ asset: first }));
+    expect(onAssetUpdated).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }), false);
+    await view.unmount();
+  });
+
+  it('keeps stack-wide tag completion on its original stack', async () => {
+    const pending = createDeferredFetch();
+    vi.stubGlobal('fetch', pending.fetcher);
+    const onStackUpdated = vi.fn();
+    const callbacks = { onStackUpdated };
+    const first = stack('A', asset('a1', 'A one'));
+    const second = stack('B', asset('b1', 'B one'));
+    const view = await mountReact(renderInspector(first, 1, callbacks));
+    await act(async () => pending.requests[0].resolveJson([asset('a1', 'A one')]));
+    await click(view.container.querySelector('input[type="checkbox"]')!);
+    await click(view.container.querySelector('button[title="Click to add #known"]')!);
+    expect(pending.requests[1].url).toBe('/api/stacks/A/tags');
+    await view.render(renderInspector(second, 1, callbacks));
+    await act(async () => pending.requests[1].resolveJson({ stack: { ...first, tags: ['known'] } }));
+    expect(onStackUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 'A' }), false);
+    expect(view.container.textContent).not.toContain('A one');
+    await view.unmount();
+  });
+
+  it('scopes stack-wide tag removal after switching stacks', async () => {
+    const pending = createDeferredFetch();
+    vi.stubGlobal('fetch', pending.fetcher);
+    const onStackUpdated = vi.fn();
+    const firstMember = { ...asset('a1', 'A one'), tags: ['known'] };
+    const first = stack('A', firstMember);
+    const second = stack('B', asset('b1', 'B one'));
+    const view = await mountReact(renderInspector(first, 1, { onStackUpdated }));
+    await act(async () => pending.requests[0].resolveJson([firstMember]));
+    await click(view.container.querySelector('input[type="checkbox"]')!);
+    await click(view.container.querySelector('button[title="Remove tag #known"]')!);
+    expect(pending.requests[1].url).toBe('/api/stacks/A/tags/known');
+    await view.render(renderInspector(second, 1, { onStackUpdated }));
+    await act(async () => pending.requests[1].resolveJson({ stack: first }));
+    expect(onStackUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 'A' }), false);
+    expect(view.container.textContent).not.toContain('A one');
+    await view.unmount();
+  });
+
+  it('reports a failed old mutation without carrying its busy state to the new item', async () => {
+    const pending = createDeferredFetch();
+    vi.stubGlobal('fetch', pending.fetcher);
+    const onAssetUpdated = vi.fn();
+    const view = await mountReact(renderInspector(asset('a', 'A'), 1, { onAssetUpdated }));
+    await click(view.container.querySelector('button[title="Click to add #known"]')!);
+    await view.render(renderInspector(asset('b', 'B'), 1, { onAssetUpdated }));
+    expect(view.container.querySelector('button[title="Click to add #known"]')).not.toBeNull();
+    await act(async () => pending.requests[0].resolveJson({ error: 'Permission denied' }, 403));
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain('A: Permission denied');
+    expect(onAssetUpdated).not.toHaveBeenCalled();
+    await view.unmount();
+  });
+
+  it.each([
+    ['bpm', 'audio', 'Run BPM Classifier on this audio file', { bpm: 123 }],
+    ['sprite', 'image', 'Run Sprite Classifier on this image asset', { spriteType: 'object' }],
+    ['pack', 'image', 'Run Pack Classifier on this asset', { pack: 'kit' }],
+  ] as const)('does not apply a late %s result to another item', async (kind, category, title, result) => {
+    const pending = createDeferredFetch();
+    vi.stubGlobal('fetch', pending.fetcher);
+    const onAssetUpdated = vi.fn();
+    const callbacks = { onAssetUpdated };
+    const first = asset('a', 'A', undefined, category);
+    const second = asset('b', 'B');
+    const view = await mountReact(renderInspector(first, 1, callbacks));
+    await click(view.container.querySelector(`button[title="${title}"]`)!);
+    expect(pending.requests[0].url).toBe(`/api/classifiers/${kind}/run`);
+    await view.render(renderInspector(second, 1, callbacks));
+    await act(async () => pending.requests[0].resolveJson({
+      details: [{ assetId: 'a', success: true, outcome: 'classified', result }],
+    }));
+    expect(pending.requests[1].url).toBe('/api/assets/a');
+    await act(async () => pending.requests[1].resolveJson({ ...first, metadata: result }));
+    expect(onAssetUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), false);
+    expect(view.container.textContent).toContain('B');
+    await view.unmount();
+  });
+
+  it('uses persisted no-result classifier state to clear obsolete metadata', async () => {
+    const pending = createDeferredFetch();
+    vi.stubGlobal('fetch', pending.fetcher);
+    const onAssetUpdated = vi.fn();
+    const original = { ...asset('a', 'A'), metadata: { spriteType: 'object' }, tags: ['sprite:object'] };
+    const view = await mountReact(renderInspector(original, 1, { onAssetUpdated }));
+    await click(view.container.querySelector('button[title="Run Sprite Classifier on this image asset"]')!);
+    await act(async () => pending.requests[0].resolveJson({
+      details: [{ assetId: 'a', success: false, outcome: 'no-result' }],
+    }));
+    await act(async () => pending.requests[1].resolveJson({ ...original, metadata: {}, tags: [] }));
+    expect(onAssetUpdated).toHaveBeenCalledWith(expect.objectContaining({ metadata: {}, tags: [] }), true);
     await view.unmount();
   });
 });

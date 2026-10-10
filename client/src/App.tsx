@@ -800,16 +800,16 @@ function MainApp() {
           onSelectBpm={(bpm) => toggleOrSetFilter('bpm', bpm)}
           onSelectSprite={(sprite) => toggleOrSetFilter('sprite', sprite)}
           availableTags={tags}
-          onAssetUpdated={(updatedAsset) => {
-            if (selectedIdentityRef.current === `asset:${updatedAsset.id}`) {
+          onAssetUpdated={(updatedAsset, updateSelection = true) => {
+            if (updateSelection && selectedIdentityRef.current === `asset:${updatedAsset.id}`) {
               setSelectedItem(updatedAsset);
               setDetailError(null);
             }
             refreshCatalog();
             refreshFilters();
           }}
-          onStackUpdated={(updatedStack) => {
-            if (selectedIdentityRef.current === `stack:${updatedStack.id}`) {
+          onStackUpdated={(updatedStack, updateSelection = true) => {
+            if (updateSelection && selectedIdentityRef.current === `stack:${updatedStack.id}`) {
               setSelectedItem({ ...updatedStack, isStack: true });
               setDetailError(null);
             }
