@@ -30,6 +30,46 @@ export interface ImageProcessingResult {
   thumbnailBuffer: Buffer;
 }
 
+export interface DecodedRaster {
+  width: number;
+  height: number;
+  data: Buffer;
+  hasAlpha: boolean;
+  channels: number;
+}
+
+const MAX_SOURCE_PIXELS = 64_000_000;
+
+export function decodeBmpBuffer(buffer: Buffer): DecodedRaster {
+  // bmp-js allocates its output while parsing. Check the dimensions first so a
+  // small, corrupt header cannot make it allocate an unbounded raw image.
+  if (buffer.length < 54 || buffer.toString('ascii', 0, 2) !== 'BM') {
+    throw new Error('Invalid BMP header');
+  }
+  const width = buffer.readInt32LE(18);
+  const signedHeight = buffer.readInt32LE(22);
+  const height = Math.abs(signedHeight);
+  if (width < 1 || height < 1 || width * height > MAX_SOURCE_PIXELS) {
+    throw new Error('Invalid BMP dimensions');
+  }
+
+  const decoded = bmp.decode(buffer);
+  // bmp-js returns ABGR, including a reserved zero byte for opaque BMPs.
+  // A 32-bit BMP with only zero alpha bytes is commonly opaque BI_RGB.
+  const hasAlpha = decoded.bitPP === 32 && decoded.data.some((value: number, index: number) =>
+    index % 4 === 0 && value !== 0
+  );
+  const data = Buffer.alloc(decoded.data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = decoded.data[i + 3];
+    data[i + 1] = decoded.data[i + 2];
+    data[i + 2] = decoded.data[i + 1];
+    data[i + 3] = hasAlpha ? decoded.data[i] : 255;
+  }
+
+  return { width: decoded.width, height: decoded.height, data, hasAlpha, channels: hasAlpha ? 4 : 3 };
+}
+
 // Pure Node.js TGA decoder without browser canvas dependency
 function decodeTgaBuffer(buffer: Buffer): { width: number; height: number; data: Buffer } {
   const idLength = buffer[0];
@@ -136,46 +176,33 @@ export async function processImageBuffer(
   }
 
   if (ext === '.bmp') {
-    try {
-      const bmpData = bmp.decode(buffer);
-      // bmp-js exposes ABGR bytes, while Sharp's four-channel raw input is RGBA.
-      const rawBuf = Buffer.alloc(bmpData.data.length);
-      for (let i = 0; i < rawBuf.length; i += 4) {
-        rawBuf[i] = bmpData.data[i + 3];
-        rawBuf[i + 1] = bmpData.data[i + 2];
-        rawBuf[i + 2] = bmpData.data[i + 1];
-        rawBuf[i + 3] = bmpData.bitPP === 32 ? bmpData.data[i] : 255;
-      }
+    const decoded = decodeBmpBuffer(buffer);
+    const sharpInstance = sharp(decoded.data, {
+      raw: {
+        width: decoded.width,
+        height: decoded.height,
+        channels: 4,
+      },
+    });
 
-      const sharpInstance = sharp(rawBuf, {
-        raw: {
-          width: bmpData.width,
-          height: bmpData.height,
-          channels: 4,
-        },
-      });
+    const thumbnailBuffer = await sharpInstance
+      .resize(targetWidth, targetHeight, {
+        fit: IMAGE_THUMBNAIL_SPEC.fit,
+        withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
+      })
+      .webp({ quality: webpQuality })
+      .toBuffer();
 
-      const thumbnailBuffer = await sharpInstance
-        .resize(targetWidth, targetHeight, {
-          fit: IMAGE_THUMBNAIL_SPEC.fit,
-          withoutEnlargement: IMAGE_THUMBNAIL_SPEC.withoutEnlargement,
-        })
-        .webp({ quality: webpQuality })
-        .toBuffer();
-
-      return {
-        metadata: {
-          width: bmpData.width,
-          height: bmpData.height,
-          format: 'bmp',
-          channels: 4,
-          hasAlpha: false,
-        },
-        thumbnailBuffer,
-      };
-    } catch {
-      // fallback to standard sharp
-    }
+    return {
+      metadata: {
+        width: decoded.width,
+        height: decoded.height,
+        format: 'bmp',
+        channels: decoded.channels,
+        hasAlpha: decoded.hasAlpha,
+      },
+      thumbnailBuffer,
+    };
   }
 
   // Standard sharp pipeline for PNG, JPG, WEBP, GIF, SVG

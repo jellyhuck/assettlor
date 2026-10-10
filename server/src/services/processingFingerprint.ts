@@ -6,7 +6,7 @@ export const DEFAULT_THUMBNAIL_QUALITY = 85;
 // Bump rendererVersion when output or extracted metadata changes in a way that
 // cannot be described by the dimensions, encoder, resize policy, or quality.
 export const IMAGE_THUMBNAIL_SPEC = Object.freeze({
-  rendererVersion: 1,
+  rendererVersion: 2,
   width: 400,
   height: 400,
   encoder: 'webp',
