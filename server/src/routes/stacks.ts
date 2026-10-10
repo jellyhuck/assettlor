@@ -6,6 +6,7 @@ import {
   removeTagsFromStack,
 } from '../db/database.js';
 import type { AddAssetTagsRequest, RemoveAssetTagsRequest } from '../../../shared/types.js';
+import { parseTagMutation, parseTagName } from './tagValidation.js';
 
 export async function stacksRoutes(fastify: FastifyInstance) {
   fastify.get('/api/stacks/:id', async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
@@ -31,15 +32,11 @@ export async function stacksRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Stack not found' });
     }
 
-    const rawTags: string[] = [];
-    if (req.body?.tag) rawTags.push(req.body.tag);
-    if (Array.isArray(req.body?.tags)) rawTags.push(...req.body.tags);
+    const mutation = parseTagMutation(req.body, 'add');
+    if (!mutation.ok) return reply.status(400).send({ error: mutation.error });
 
-    if (rawTags.length === 0) {
-      return reply.status(400).send({ error: 'No tags provided' });
-    }
-
-    const updatedStack = addTagsToStack(req.params.id, rawTags, req.body?.source || 'user');
+    const updatedStack = addTagsToStack(req.params.id, mutation.value.tags, mutation.value.source);
+    if (!updatedStack) return reply.status(409).send({ error: 'Stack has no assets' });
     return reply.send({
       success: true,
       stack: updatedStack,
@@ -56,8 +53,11 @@ export async function stacksRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Stack not found' });
     }
 
-    const tagToRemove = decodeURIComponent(req.params.tag);
-    const updatedStack = removeTagsFromStack(req.params.id, [tagToRemove]);
+    // Fastify has already decoded the route parameter.
+    const tag = parseTagName(req.params.tag);
+    if (!tag.ok) return reply.status(400).send({ error: tag.error });
+    const updatedStack = removeTagsFromStack(req.params.id, [tag.value]);
+    if (!updatedStack) return reply.status(409).send({ error: 'Stack has no assets' });
     return reply.send({
       success: true,
       stack: updatedStack,
@@ -75,15 +75,11 @@ export async function stacksRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Stack not found' });
     }
 
-    const rawTags: string[] = [];
-    if (req.body?.tag) rawTags.push(req.body.tag);
-    if (Array.isArray(req.body?.tags)) rawTags.push(...req.body.tags);
+    const mutation = parseTagMutation(req.body, 'remove');
+    if (!mutation.ok) return reply.status(400).send({ error: mutation.error });
 
-    if (rawTags.length === 0) {
-      return reply.status(400).send({ error: 'No tags provided to remove' });
-    }
-
-    const updatedStack = removeTagsFromStack(req.params.id, rawTags);
+    const updatedStack = removeTagsFromStack(req.params.id, mutation.value.tags);
+    if (!updatedStack) return reply.status(409).send({ error: 'Stack has no assets' });
     return reply.send({
       success: true,
       stack: updatedStack,

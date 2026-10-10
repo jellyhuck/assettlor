@@ -20,6 +20,8 @@ import { copyAssetToProject } from '../services/copier.js';
 import { getZipEntryBuffer } from '../services/archive.js';
 import { getAudioMimeType } from '../services/audio.js';
 import { planAssetResponse } from './assetRange.js';
+import { parseCopyRequest } from './copyValidation.js';
+import { parseBatchTagMutation, parseTagMutation, parseTagName } from './tagValidation.js';
 import type {
   CopyAssetRequest,
   AssetQueryParams,
@@ -181,8 +183,11 @@ export async function assetsRoutes(fastify: FastifyInstance) {
 
   // Copy asset or stack to game project
   fastify.post('/api/assets/copy', async (req: FastifyRequest<{ Body: CopyAssetRequest }>, reply) => {
+    const copyRequest = parseCopyRequest(req.body);
+    if (!copyRequest.ok) return reply.status(400).send({ error: copyRequest.error });
+
     try {
-      const result = await copyAssetToProject(req.body);
+      const result = await copyAssetToProject(copyRequest.value);
       return reply.send(result);
     } catch (err: any) {
       return reply.status(400).send({ error: err.message });
@@ -199,19 +204,10 @@ export async function assetsRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Asset not found' });
     }
 
-    const rawTags: string[] = [];
-    if (req.body?.tag) {
-      rawTags.push(req.body.tag);
-    }
-    if (Array.isArray(req.body?.tags)) {
-      rawTags.push(...req.body.tags);
-    }
+    const mutation = parseTagMutation(req.body, 'add');
+    if (!mutation.ok) return reply.status(400).send({ error: mutation.error });
 
-    if (rawTags.length === 0) {
-      return reply.status(400).send({ error: 'No tags provided' });
-    }
-
-    const updatedAsset = addAssetTags(req.params.id, rawTags, req.body?.source || 'user');
+    const updatedAsset = addAssetTags(asset.id, mutation.value.tags, mutation.value.source);
     if (!updatedAsset) {
       return reply.status(500).send({ error: 'Failed to update asset tags' });
     }
@@ -232,10 +228,12 @@ export async function assetsRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Asset not found' });
     }
 
-    const tagToRemove = decodeURIComponent(req.params.tag);
-    removeAssetTag(req.params.id, tagToRemove);
+    // Fastify has already decoded the route parameter.
+    const tag = parseTagName(req.params.tag);
+    if (!tag.ok) return reply.status(400).send({ error: tag.error });
+    removeAssetTag(asset.id, tag.value);
 
-    const updatedAsset = getAssetById(req.params.id);
+    const updatedAsset = getAssetById(asset.id);
     return reply.send({
       success: true,
       asset: updatedAsset,
@@ -253,21 +251,12 @@ export async function assetsRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Asset not found' });
     }
 
-    const rawTags: string[] = [];
-    if (req.body?.tag) {
-      rawTags.push(req.body.tag);
-    }
-    if (Array.isArray(req.body?.tags)) {
-      rawTags.push(...req.body.tags);
-    }
+    const mutation = parseTagMutation(req.body, 'remove');
+    if (!mutation.ok) return reply.status(400).send({ error: mutation.error });
 
-    if (rawTags.length === 0) {
-      return reply.status(400).send({ error: 'No tags provided to remove' });
-    }
+    removeAssetTags(asset.id, mutation.value.tags);
 
-    removeAssetTags(req.params.id, rawTags);
-
-    const updatedAsset = getAssetById(req.params.id);
+    const updatedAsset = getAssetById(asset.id);
     return reply.send({
       success: true,
       asset: updatedAsset,
@@ -285,11 +274,10 @@ export async function assetsRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Asset not found' });
     }
 
-    if (!Array.isArray(req.body?.tags)) {
-      return reply.status(400).send({ error: 'tags must be an array' });
-    }
+    const mutation = parseTagMutation(req.body, 'set');
+    if (!mutation.ok) return reply.status(400).send({ error: mutation.error });
 
-    const updatedAsset = setAssetTags(req.params.id, req.body.tags, req.body?.source || 'user');
+    const updatedAsset = setAssetTags(asset.id, mutation.value.tags, mutation.value.source);
     return reply.send({
       success: true,
       asset: updatedAsset,
@@ -301,30 +289,39 @@ export async function assetsRoutes(fastify: FastifyInstance) {
   fastify.post('/api/assets/tags', async (req: FastifyRequest<{
     Body: BatchAssetTagsRequest;
   }>, reply) => {
-    const { assetIds, tags, action = 'add', source = 'user' } = req.body || {};
-    if (!Array.isArray(assetIds) || assetIds.length === 0) {
-      return reply.status(400).send({ error: 'assetIds must be a non-empty array' });
+    const mutation = parseBatchTagMutation(req.body);
+    if (!mutation.ok) return reply.status(400).send({ error: mutation.error });
+
+    const { assetIds, tags, action, source } = mutation.value;
+    const existingIds = new Set<string>();
+    const missingAssetIds: string[] = [];
+    for (const id of assetIds) {
+      const asset = getAssetById(id);
+      if (asset) existingIds.add(asset.id);
+      else if (!missingAssetIds.includes(id)) missingAssetIds.push(id);
     }
-    if (!Array.isArray(tags) || tags.length === 0) {
-      return reply.status(400).send({ error: 'tags must be a non-empty array' });
+    if (existingIds.size === 0) {
+      return reply.status(404).send({ error: 'Assets not found', missingAssetIds });
     }
 
+    const canonicalIds = [...existingIds];
     if (action === 'remove') {
-      const updated = removeTagsFromAssets(assetIds, tags);
+      const updated = removeTagsFromAssets(canonicalIds, tags);
       return reply.send({
         success: true,
         action: 'remove',
         affectedCount: updated.length,
         assets: updated,
-      });
-    } else {
-      const updated = addTagsToAssets(assetIds, tags, source);
-      return reply.send({
-        success: true,
-        action: 'add',
-        affectedCount: updated.length,
-        assets: updated,
+        missingAssetIds,
       });
     }
+    const updated = addTagsToAssets(canonicalIds, tags, source);
+    return reply.send({
+      success: true,
+      action: 'add',
+      affectedCount: updated.length,
+      assets: updated,
+      missingAssetIds,
+    });
   });
 }
