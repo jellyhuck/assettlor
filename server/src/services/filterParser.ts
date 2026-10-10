@@ -102,6 +102,59 @@ function mapComparisonOperator(op?: string): string {
   }
 }
 
+type StackFilterType = 'animation' | 'audio_variation';
+type SqlPredicate = { sql: string; args: any[] };
+
+/** Keep each predicate inside its own group before joining it to another. */
+export function composePredicates(clauses: string[], operator: 'AND' | 'OR'): string {
+  return clauses.map((clause) => `(${clause})`).join(` ${operator} `);
+}
+
+/** Bind a member match to the current stack before joining it with the asset match. */
+function composeAssetMemberPredicate(
+  flatCondition: string,
+  memberCondition: string,
+  flatArgs: any[],
+  memberArgs: any[],
+  isStackedView: boolean,
+  stackType?: StackFilterType,
+  flatGuard?: string
+): SqlPredicate {
+  const flatSql = flatGuard
+    ? `(${composePredicates([flatGuard, flatCondition], 'AND')})`
+    : flatCondition;
+  if (!isStackedView) return { sql: flatSql, args: flatArgs };
+
+  const memberScope = [
+    ...(stackType ? [`s.type = '${stackType}'`] : []),
+    'a.stack_id IS NOT NULL',
+    `EXISTS (SELECT 1 FROM assets m WHERE ${composePredicates(['m.stack_id = a.stack_id', memberCondition], 'AND')})`,
+  ];
+  return {
+    sql: `(${composePredicates([flatSql, composePredicates(memberScope, 'AND')], 'OR')})`,
+    args: [...flatArgs, ...memberArgs],
+  };
+}
+
+function composeMetadataRangePredicate(
+  field: 'width' | 'height' | 'duration' | 'bpm',
+  min: number,
+  max: number,
+  minOp: '>=' | '>',
+  maxOp: '<=' | '<',
+  isStackedView: boolean,
+  stackType: StackFilterType
+): SqlPredicate {
+  const condition = (alias: 'a' | 'm') => {
+    const value = `CAST(json_extract(${alias}.metadata, '$.${field}') AS NUMERIC)`;
+    return `${value} ${minOp} ? AND ${value} ${maxOp} ?`;
+  };
+  return composeAssetMemberPredicate(
+    condition('a'), condition('m'), [min, max], [min, max],
+    isStackedView, stackType
+  );
+}
+
 /**
  * Builds free-text search SQL fragment for a single token/phrase,
  * matching asset name, path, and tags (in stacked and unstacked views).
@@ -194,7 +247,7 @@ function compileAstNode(
 
     const op = node.operator && node.operator.operator === 'OR' ? 'OR' : 'AND';
     return {
-      sql: `(${leftRes.sql} ${op} ${rightRes.sql})`,
+      sql: `(${composePredicates([leftRes.sql, rightRes.sql], op)})`,
       args: [...leftRes.args, ...rightRes.args],
     };
   }
@@ -244,7 +297,7 @@ function compileAstNode(
             EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?) OR
             (a.stack_id IS NOT NULL AND EXISTS (
               SELECT 1 FROM assets m JOIN tags mt ON mt.asset_id = m.id
-              WHERE m.stack_id = a.stack_id AND LOWER(mt.tag) = ?
+              WHERE m.stack_id = a.stack_id AND (LOWER(mt.tag) = ?)
             ))
           )`,
           args: [cleanTag, cleanTag],
@@ -303,7 +356,7 @@ function compileAstNode(
       if (isStackedView) {
         return {
           sql: `(LOWER(a.extension) = ? OR (a.stack_id IS NOT NULL AND EXISTS (
-            SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND LOWER(m.extension) = ?
+            SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND (LOWER(m.extension) = ?)
           )))`,
           args: [extVal, extVal],
         };
@@ -375,16 +428,9 @@ function compileAstNode(
         const maxVal = Number(expr.range.max);
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
-        if (isStackedView) {
-          return {
-            sql: `(((CAST(json_extract(a.metadata, '$.width') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.width') AS NUMERIC) ${maxOp} ?)) OR (s.type = 'animation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND CAST(json_extract(m.metadata, '$.width') AS NUMERIC) ${minOp} ? AND CAST(json_extract(m.metadata, '$.width') AS NUMERIC) ${maxOp} ?)))`,
-            args: [minVal, maxVal, minVal, maxVal],
-          };
-        }
-        return {
-          sql: `(CAST(json_extract(a.metadata, '$.width') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.width') AS NUMERIC) ${maxOp} ?)`,
-          args: [minVal, maxVal],
-        };
+        return composeMetadataRangePredicate(
+          'width', minVal, maxVal, minOp, maxOp, isStackedView, 'animation'
+        );
       }
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
@@ -399,16 +445,9 @@ function compileAstNode(
         const maxVal = Number(expr.range.max);
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
-        if (isStackedView) {
-          return {
-            sql: `(((CAST(json_extract(a.metadata, '$.height') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.height') AS NUMERIC) ${maxOp} ?)) OR (s.type = 'animation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND CAST(json_extract(m.metadata, '$.height') AS NUMERIC) ${minOp} ? AND CAST(json_extract(m.metadata, '$.height') AS NUMERIC) ${maxOp} ?)))`,
-            args: [minVal, maxVal, minVal, maxVal],
-          };
-        }
-        return {
-          sql: `(CAST(json_extract(a.metadata, '$.height') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.height') AS NUMERIC) ${maxOp} ?)`,
-          args: [minVal, maxVal],
-        };
+        return composeMetadataRangePredicate(
+          'height', minVal, maxVal, minOp, maxOp, isStackedView, 'animation'
+        );
       }
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
@@ -423,16 +462,9 @@ function compileAstNode(
         const maxVal = Number(expr.range.max);
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
-        if (isStackedView) {
-          return {
-            sql: `(((CAST(json_extract(a.metadata, '$.duration') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.duration') AS NUMERIC) ${maxOp} ?)) OR (s.type = 'audio_variation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND CAST(json_extract(m.metadata, '$.duration') AS NUMERIC) ${minOp} ? AND CAST(json_extract(m.metadata, '$.duration') AS NUMERIC) ${maxOp} ?)))`,
-            args: [minVal, maxVal, minVal, maxVal],
-          };
-        }
-        return {
-          sql: `(CAST(json_extract(a.metadata, '$.duration') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.duration') AS NUMERIC) ${maxOp} ?)`,
-          args: [minVal, maxVal],
-        };
+        return composeMetadataRangePredicate(
+          'duration', minVal, maxVal, minOp, maxOp, isStackedView, 'audio_variation'
+        );
       }
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
@@ -447,16 +479,9 @@ function compileAstNode(
         const maxVal = Number(expr.range.max);
         const minOp = expr.range.minInclusive ? '>=' : '>';
         const maxOp = expr.range.maxInclusive ? '<=' : '<';
-        if (isStackedView) {
-          return {
-            sql: `(((CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) ${maxOp} ?)) OR (s.type = 'audio_variation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) ${minOp} ? AND CAST(json_extract(m.metadata, '$.bpm') AS NUMERIC) ${maxOp} ?)))`,
-            args: [minVal, maxVal, minVal, maxVal],
-          };
-        }
-        return {
-          sql: `(CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) ${minOp} ? AND CAST(json_extract(a.metadata, '$.bpm') AS NUMERIC) ${maxOp} ?)`,
-          args: [minVal, maxVal],
-        };
+        return composeMetadataRangePredicate(
+          'bpm', minVal, maxVal, minOp, maxOp, isStackedView, 'audio_variation'
+        );
       }
 
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
@@ -481,16 +506,16 @@ function compileAstNode(
           const maxW = parseInt(maxMatch[1], 10);
           const maxH = maxMatch[2] ? parseInt(maxMatch[2], 10) : maxW;
 
-          if (isStackedView) {
-            return {
-              sql: `((a.category = 'image' AND CAST(json_extract(a.metadata, '$.width') AS INTEGER) ${minOp} ? AND CAST(json_extract(a.metadata, '$.height') AS INTEGER) ${minOp} ? AND CAST(json_extract(a.metadata, '$.width') AS INTEGER) ${maxOp} ? AND CAST(json_extract(a.metadata, '$.height') AS INTEGER) ${maxOp} ?) OR (s.type = 'animation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND CAST(json_extract(m.metadata, '$.width') AS INTEGER) ${minOp} ? AND CAST(json_extract(m.metadata, '$.height') AS INTEGER) ${minOp} ? AND CAST(json_extract(m.metadata, '$.width') AS INTEGER) ${maxOp} ? AND CAST(json_extract(m.metadata, '$.height') AS INTEGER) ${maxOp} ?)))`,
-              args: [minW, minH, maxW, maxH, minW, minH, maxW, maxH],
-            };
-          }
-          return {
-            sql: `(a.category = 'image' AND CAST(json_extract(a.metadata, '$.width') AS INTEGER) ${minOp} ? AND CAST(json_extract(a.metadata, '$.height') AS INTEGER) ${minOp} ? AND CAST(json_extract(a.metadata, '$.width') AS INTEGER) ${maxOp} ? AND CAST(json_extract(a.metadata, '$.height') AS INTEGER) ${maxOp} ?)`,
-            args: [minW, minH, maxW, maxH],
-          };
+          const condition = (alias: 'a' | 'm') =>
+            `CAST(json_extract(${alias}.metadata, '$.width') AS INTEGER) ${minOp} ? AND ` +
+            `CAST(json_extract(${alias}.metadata, '$.height') AS INTEGER) ${minOp} ? AND ` +
+            `CAST(json_extract(${alias}.metadata, '$.width') AS INTEGER) ${maxOp} ? AND ` +
+            `CAST(json_extract(${alias}.metadata, '$.height') AS INTEGER) ${maxOp} ?`;
+          const rangeArgs = [minW, minH, maxW, maxH];
+          return composeAssetMemberPredicate(
+            condition('a'), condition('m'), rangeArgs, rangeArgs,
+            isStackedView, 'animation', "a.category = 'image'"
+          );
         }
       }
 
@@ -537,18 +562,10 @@ export function parseResolutionClause(
     stackedMemberCondition: string,
     flatArgs: any[],
     memberArgs: any[]
-  ) => {
-    if (isStackedView) {
-      return {
-        sql: `((a.category = 'image' AND ${flatCondition}) OR (s.type = 'animation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND ${stackedMemberCondition})))`,
-        args: [...flatArgs, ...memberArgs],
-      };
-    }
-    return {
-      sql: `(a.category = 'image' AND ${flatCondition})`,
-      args: flatArgs,
-    };
-  };
+  ) => composeAssetMemberPredicate(
+    flatCondition, stackedMemberCondition, flatArgs, memberArgs,
+    isStackedView, 'animation', "a.category = 'image'"
+  );
 
   // 1. Aspect ratio presets
   if (val === 'square') {
@@ -689,18 +706,10 @@ export function parseWidthClause(
     stackedMemberCondition: string,
     flatArgs: any[],
     memberArgs: any[]
-  ) => {
-    if (isStackedView) {
-      return {
-        sql: `((${flatCondition}) OR (s.type = 'animation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND ${stackedMemberCondition})))`,
-        args: [...flatArgs, ...memberArgs],
-      };
-    }
-    return {
-      sql: flatCondition,
-      args: flatArgs,
-    };
-  };
+  ) => composeAssetMemberPredicate(
+    flatCondition, stackedMemberCondition, flatArgs, memberArgs,
+    isStackedView, 'animation'
+  );
 
   // Range formats: [64 TO 512], 64-512, 64 TO 512
   const rangeMatch = str.match(/^\[?\s*(\d+)\s*(?:TO|-)\s*(\d+)\s*\]?$/i);
@@ -785,18 +794,10 @@ export function parseHeightClause(
     stackedMemberCondition: string,
     flatArgs: any[],
     memberArgs: any[]
-  ) => {
-    if (isStackedView) {
-      return {
-        sql: `((${flatCondition}) OR (s.type = 'animation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND ${stackedMemberCondition})))`,
-        args: [...flatArgs, ...memberArgs],
-      };
-    }
-    return {
-      sql: flatCondition,
-      args: flatArgs,
-    };
-  };
+  ) => composeAssetMemberPredicate(
+    flatCondition, stackedMemberCondition, flatArgs, memberArgs,
+    isStackedView, 'animation'
+  );
 
   // Range formats: [64 TO 512], 64-512, 64 TO 512
   const rangeMatch = str.match(/^\[?\s*(\d+)\s*(?:TO|-)\s*(\d+)\s*\]?$/i);
@@ -881,18 +882,10 @@ export function parseDurationClause(
     stackedMemberCondition: string,
     flatArgs: any[],
     memberArgs: any[]
-  ) => {
-    if (isStackedView) {
-      return {
-        sql: `((${flatCondition}) OR (s.type = 'audio_variation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND ${stackedMemberCondition})))`,
-        args: [...flatArgs, ...memberArgs],
-      };
-    }
-    return {
-      sql: flatCondition,
-      args: flatArgs,
-    };
-  };
+  ) => composeAssetMemberPredicate(
+    flatCondition, stackedMemberCondition, flatArgs, memberArgs,
+    isStackedView, 'audio_variation'
+  );
 
   const parseSec = (valStr: string): number | null => {
     const m = valStr.trim().match(/^([0-9.]+)(s|m|h)?$/);
@@ -988,18 +981,10 @@ export function parseBpmClause(
     stackedMemberCondition: string,
     flatArgs: any[],
     memberArgs: any[]
-  ) => {
-    if (isStackedView) {
-      return {
-        sql: `((${flatCondition}) OR (s.type = 'audio_variation' AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND ${stackedMemberCondition})))`,
-        args: [...flatArgs, ...memberArgs],
-      };
-    }
-    return {
-      sql: flatCondition,
-      args: flatArgs,
-    };
-  };
+  ) => composeAssetMemberPredicate(
+    flatCondition, stackedMemberCondition, flatArgs, memberArgs,
+    isStackedView, 'audio_variation'
+  );
 
   // Presets
   if (str === 'slow' || str === 'slow-tempo' || str === '<90' || str === '<80') {
@@ -1117,26 +1102,10 @@ export function parseSpriteClause(
     stackedMemberCondition: string,
     flatArgs: any[],
     stackedMemberArgs: any[]
-  ) => {
-    if (isStackedView) {
-      return {
-        sql: `(
-          ${flatCondition} OR
-          (a.stack_id IS NOT NULL AND EXISTS (
-            SELECT 1 FROM assets m
-            WHERE m.stack_id = a.stack_id AND (
-              ${stackedMemberCondition}
-            )
-          ))
-        )`,
-        args: [...flatArgs, ...stackedMemberArgs],
-      };
-    }
-    return {
-      sql: flatCondition,
-      args: flatArgs,
-    };
-  };
+  ) => composeAssetMemberPredicate(
+    flatCondition, stackedMemberCondition, flatArgs, stackedMemberArgs,
+    isStackedView
+  );
 
   // Status presets: sprite:none / sprite:unanalyzed
   if (spriteVal === 'none' || spriteVal === 'unanalyzed') {
@@ -1183,26 +1152,10 @@ export function parsePackClause(
     stackedMemberCondition: string,
     flatArgs: any[],
     stackedMemberArgs: any[]
-  ) => {
-    if (isStackedView) {
-      return {
-        sql: `(
-          ${flatCondition} OR
-          (a.stack_id IS NOT NULL AND EXISTS (
-            SELECT 1 FROM assets m
-            WHERE m.stack_id = a.stack_id AND (
-              ${stackedMemberCondition}
-            )
-          ))
-        )`,
-        args: [...flatArgs, ...stackedMemberArgs],
-      };
-    }
-    return {
-      sql: flatCondition,
-      args: flatArgs,
-    };
-  };
+  ) => composeAssetMemberPredicate(
+    flatCondition, stackedMemberCondition, flatArgs, stackedMemberArgs,
+    isStackedView
+  );
 
   // Status presets: pack:none / pack:unanalyzed
   if (packVal === 'none' || packVal === 'unanalyzed') {
@@ -1367,7 +1320,7 @@ function compileFallbackQuery(rawQuery: string, isStackedView: boolean): Compile
   }
 
   return {
-    sql: clauses.join(' AND '),
+    sql: composePredicates(clauses, 'AND'),
     args,
     isParsed: false,
   };

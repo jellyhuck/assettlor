@@ -31,6 +31,7 @@ import {
   parseBpmClause,
   parseSpriteClause,
   parsePackClause,
+  composePredicates,
   parseWidthClause,
   parseHeightClause,
   parseDurationClause,
@@ -1043,7 +1044,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
   if (params.format) {
     const fmt = params.format.toLowerCase();
     if (isStackedView) {
-      conditions.push('(LOWER(a.extension) = ? OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND LOWER(m.extension) = ?)))');
+      conditions.push('(LOWER(a.extension) = ? OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m WHERE m.stack_id = a.stack_id AND (LOWER(m.extension) = ?))))');
       args.push(fmt, fmt);
     } else {
       conditions.push('LOWER(a.extension) = ?');
@@ -1054,7 +1055,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
   if (params.tag) {
     const cleanTag = params.tag.replace(/^#/, '').toLowerCase().trim();
     if (isStackedView) {
-      conditions.push('(EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?) OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m JOIN tags mt ON mt.asset_id = m.id WHERE m.stack_id = a.stack_id AND LOWER(mt.tag) = ?)))');
+      conditions.push('(EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?) OR (a.stack_id IS NOT NULL AND EXISTS (SELECT 1 FROM assets m JOIN tags mt ON mt.asset_id = m.id WHERE m.stack_id = a.stack_id AND (LOWER(mt.tag) = ?))))');
       args.push(cleanTag, cleanTag);
     } else {
       conditions.push('EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)');
@@ -1133,7 +1134,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     conditions.push("s.type = 'audio_variation'");
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const whereClause = conditions.length > 0 ? `WHERE ${composePredicates(conditions, 'AND')}` : '';
 
   // Sort clause
   let sortField = isStackedView ? 'COALESCE(s.name, a.name)' : 'a.name';

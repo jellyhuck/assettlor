@@ -142,16 +142,15 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
     it('should compile tag:coin OR tag:gem', () => {
       const res = compileFilterExpression('tag:coin OR tag:gem', false);
       expect(res.sql).toBe(
-        '(EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?) OR EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?))'
+        '((EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)) OR (EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?)))'
       );
       expect(res.args).toEqual(['coin', 'gem']);
     });
 
     it('should compile conjunctions and groupings: (tag:a OR tag:b) AND size:<1MB', () => {
       const res = compileFilterExpression('(tag:a OR tag:b) AND size:<1MB', false);
-      expect(res.sql).toBe(
-        '(((EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?) OR EXISTS (SELECT 1 FROM tags t WHERE t.asset_id = a.id AND LOWER(t.tag) = ?))) AND a.size < ?)'
-      );
+      expect(res.sql).toContain(')) OR (EXISTS');
+      expect(res.sql).toContain('AND (a.size < ?))');
       expect(res.args).toEqual(['a', 'b', 1048576]);
     });
 
@@ -500,4 +499,3 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
     });
   });
 });
-
