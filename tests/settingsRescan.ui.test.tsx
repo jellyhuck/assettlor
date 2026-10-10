@@ -1,0 +1,201 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SettingsModal } from '../client/src/components/SettingsModal.js';
+import { ToastProvider } from '../client/src/components/Toast.js';
+import { createDeferredFetch, type PendingFetch } from '../client/tests/asyncFixtures.js';
+import { act, click, mountReact, useState } from '../client/tests/reactDomHarness.js';
+
+const appSettings = {
+  libraryPath: '/library', libraryPaths: ['/library'],
+  activeProjectPath: '/project', projectPaths: ['/project'],
+  thumbnailQuality: 80, autoStackAnimations: true,
+  autoStackAudio: true, defaultFps: 12,
+};
+
+const classifier = (id: string) => ({
+  id, name: id, description: id, category: 'audio', steps: [],
+  settings: id === 'bpm'
+    ? { enabled: true, minBpm: 60, maxBpm: 200, minDurationSeconds: 1, maxAnalysisSeconds: 45 }
+    : id === 'sprite'
+      ? { enabled: true, minConfidence: 0.5, enableVisualAnalysis: true,
+        enablePathAnalysis: true, enableStackAnalysis: true }
+      : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
+        directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
+        stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is', applyTag: false },
+});
+
+const scanStatus = (
+  status: 'idle' | 'scanning' | 'completed' | 'error',
+  startTime = 900,
+  message?: string,
+) => ({
+  status, libraryPath: '/library', libraryPaths: ['/library'],
+  scannedCount: 3, indexedCount: 2, startTime, message,
+});
+
+function Host() {
+  const [isOpen, setIsOpen] = useState(true);
+  return <>
+    <button onClick={() => setIsOpen(true)}>Open settings</button>
+    <SettingsModal isOpen={isOpen} onClose={() => setIsOpen(false)} onSettingsSaved={() => {}} />
+  </>;
+}
+
+describe('SettingsModal full rescan lifecycle', () => {
+  let fetchQueue: ReturnType<typeof createDeferredFetch>;
+  let view: Awaited<ReturnType<typeof mountReact>> | null;
+
+  function requests(url: string): PendingFetch[] {
+    return fetchQueue.requests.filter((request) => request.url === url);
+  }
+
+  async function respond(request: PendingFetch, value: unknown, status = 200) {
+    await act(async () => { request.resolveJson(value, status); });
+  }
+
+  async function loadOpenDialog(fromIndex: number, status = scanStatus('idle')) {
+    const batch = fetchQueue.requests.slice(fromIndex);
+    const responseByUrl: Record<string, unknown> = {
+      '/api/settings': appSettings,
+      '/api/classifiers/bpm': classifier('bpm'),
+      '/api/classifiers/sprite': classifier('sprite'),
+      '/api/classifiers/pack': classifier('pack'),
+      '/api/scan/status': status,
+    };
+    expect(batch.map((request) => request.url).sort()).toEqual(Object.keys(responseByUrl).sort());
+    await act(async () => {
+      for (const request of batch) request.resolveJson(responseByUrl[request.url]);
+    });
+    expect(view!.container.textContent).toContain('Asset Library Source Directories');
+  }
+
+  function button(label: string): HTMLButtonElement {
+    const found = Array.from(view!.container.querySelectorAll('button')).find((candidate) =>
+      candidate.getAttribute('aria-label') === label || candidate.textContent?.trim() === label);
+    if (!found) throw new Error(`Button not found: ${label}`);
+    return found;
+  }
+
+  function rescanButton(path: string): HTMLButtonElement {
+    const pathLabel = view!.container.querySelector<HTMLElement>(`span[title="${path}"]`);
+    const row = pathLabel?.parentElement?.parentElement?.parentElement;
+    const found = row?.querySelector<HTMLButtonElement>('button[title^="Reprocess"], button[title^="Save this library"]');
+    if (!found) throw new Error(`Rescan button not found for ${path}`);
+    return found;
+  }
+
+  async function startRescan(path = '/library') {
+    await click(rescanButton(path));
+    const request = requests('/api/scan/rescan').at(-1)!;
+    expect(request.init?.method).toBe('POST');
+    expect(JSON.parse(String(request.init?.body))).toEqual({ libraryPath: path });
+    return request;
+  }
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    fetchQueue = createDeferredFetch();
+    vi.stubGlobal('fetch', fetchQueue.fetcher);
+    view = await mountReact(<ToastProvider><Host /></ToastProvider>);
+    await loadOpenDialog(0);
+  });
+
+  afterEach(async () => {
+    await view?.unmount();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('allows saved libraries and blocks a new library in the draft', async () => {
+    const input = view!.container.querySelector<HTMLInputElement>('input[placeholder="Add asset library path..."]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, '/draft');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const add = input.parentElement!.querySelector<HTMLButtonElement>('button:last-child')!;
+    await click(add);
+    await respond(requests('/api/fs/validate')[0], {
+      exists: true, isDirectory: true, resolvedPath: '/draft',
+    });
+
+    expect(rescanButton('/library').disabled).toBe(false);
+    expect(rescanButton('/draft').disabled).toBe(true);
+    await startRescan('/library');
+    expect(requests('/api/scan/rescan')).toHaveLength(1);
+  });
+
+  it('shows validation errors for rejected starts and lets the user retry', async () => {
+    const start = await startRescan();
+    expect(rescanButton('/library').disabled).toBe(true);
+    await respond(start, { error: 'Invalid library path' }, 400);
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(requests('/api/scan/status')).toHaveLength(2);
+    await respond(requests('/api/scan/status')[1], scanStatus('idle'));
+    expect(view!.container.querySelector('[role="alert"]')?.textContent)
+      .toContain('Cannot rescan this directory: Invalid library path');
+    expect(rescanButton('/library').disabled).toBe(false);
+  });
+
+  it('refreshes a conflicting job before allowing another start', async () => {
+    const start = await startRescan();
+    await respond(start, { error: 'A scan is already running' }, 409);
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(requests('/api/scan/status')).toHaveLength(2);
+    await respond(requests('/api/scan/status')[1], scanStatus('scanning', 1001));
+    expect(view!.container.textContent).toContain('A scan is already running');
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(requests('/api/scan/rescan')).toHaveLength(1);
+  });
+
+  it('checks status after a lost start response before allowing a retry', async () => {
+    const start = await startRescan();
+    await act(async () => { start.response.reject(new TypeError('Connection lost')); });
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(requests('/api/scan/status')).toHaveLength(2);
+    await respond(requests('/api/scan/status')[1], scanStatus('scanning', 1001));
+    expect(view!.container.textContent).toContain('Connection lost');
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(requests('/api/scan/rescan')).toHaveLength(1);
+  });
+
+  it('stays busy through delayed status, then releases after cancellation', async () => {
+    const start = await startRescan();
+    expect(rescanButton('/library').disabled).toBe(true);
+    await respond(start, { message: 'Full rescan started' });
+    expect(requests('/api/scan/status')).toHaveLength(2);
+    await respond(requests('/api/scan/status')[1], scanStatus('idle'));
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(view!.container.textContent).toContain('Waiting for the new scan status');
+
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    await respond(requests('/api/scan/status')[2], scanStatus('scanning', 1001));
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(view!.container.textContent).toContain('Scan running');
+
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    await respond(requests('/api/scan/status')[3], scanStatus('idle', 1001, 'Scan cancelled.'));
+    expect(view!.container.textContent).toContain('Scan cancelled.');
+    expect(rescanButton('/library').disabled).toBe(false);
+  });
+
+  it('recovers the active job after close and reopen without starting another scan', async () => {
+    const start = await startRescan();
+    await respond(start, { message: 'Full rescan started' });
+    await respond(requests('/api/scan/status')[1], scanStatus('scanning', 1001));
+    expect(rescanButton('/library').disabled).toBe(true);
+    await click(button('Close settings'));
+    expect(view!.container.querySelector('[role="dialog"]')).toBeNull();
+
+    const reopenAt = fetchQueue.requests.length;
+    await click(button('Open settings'));
+    await loadOpenDialog(reopenAt, scanStatus('scanning', 1001));
+    expect(rescanButton('/library').disabled).toBe(true);
+    expect(requests('/api/scan/rescan')).toHaveLength(1);
+
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    await respond(requests('/api/scan/status')[3], scanStatus('completed', 1001));
+    expect(rescanButton('/library').disabled).toBe(false);
+  });
+});
