@@ -114,6 +114,15 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     const plan = planAssetResponse(totalSize, req.headers.range);
     reply.header('Accept-Ranges', 'bytes');
     reply.header('Content-Type', mimeType);
+    if (mimeType === 'image/svg+xml') {
+      // A direct SVG navigation must not inherit the app's origin or run its
+      // active content. Inline styles and embedded data images keep ordinary
+      // self-contained artwork visible without allowing network loads.
+      reply.header('Content-Security-Policy',
+        "sandbox; default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'");
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Content-Disposition', 'inline');
+    }
     reply.header('Content-Length', plan.contentLength);
     if (plan.contentRange) reply.header('Content-Range', plan.contentRange);
     if (plan.status === 416) return reply.status(416).send(Buffer.alloc(0));
