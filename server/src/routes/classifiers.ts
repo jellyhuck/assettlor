@@ -11,9 +11,21 @@ import {
   InvalidClassifierScopeError,
   validateClassifierScope,
 } from '../services/classifiers/scope.js';
+import { getClassifierTargets } from '../services/classifiers/targets.js';
 import { ClassifierSettingsError } from '../services/classifiers/settings.js';
 
 export async function classifiersRoutes(fastify: FastifyInstance) {
+  fastify.get('/api/classifiers/targets', async (_req, reply) => {
+    try {
+      return reply.send(getClassifierTargets());
+    } catch (err: unknown) {
+      return reply.status(500).send({
+        error: 'Failed to retrieve classifier targets',
+        details: err instanceof Error ? err.message : undefined,
+      });
+    }
+  });
+
   // GET /api/classifiers - List all available classifiers with metadata and settings
   fastify.get('/api/classifiers', async (_req: FastifyRequest, reply: FastifyReply) => {
     try {

@@ -322,6 +322,21 @@ export interface PackClassifierSettings {
 
 export type ClassifierTargetType = 'all' | 'asset' | 'directory' | 'archive';
 
+export interface ClassifierTargetChoice {
+  value: string;
+  label: string;
+}
+
+export interface ClassifierAssetTargetChoice extends ClassifierTargetChoice {
+  category: AssetCategory;
+}
+
+export interface ClassifierTargetInventory {
+  directories: ClassifierTargetChoice[];
+  archives: ClassifierTargetChoice[];
+  assets: ClassifierAssetTargetChoice[];
+}
+
 export interface RunClassifierRequest {
   targetType: ClassifierTargetType;
   targetValue?: string | string[];
