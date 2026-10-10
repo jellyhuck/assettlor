@@ -134,7 +134,7 @@ describe('Multiple Source and Project Directories', () => {
           targetSubfolder: 'sub',
         });
         expect(resReordered.success).toBe(true);
-        expect(resReordered.targetDirectory).toBe(projSecondary);
+        expect(resReordered.targetDirectory).toBe(path.join(projSecondary, 'sub'));
         expect(fs.existsSync(path.join(projSecondary, 'sub', 'icon.png'))).toBe(true);
       } finally {
         cleanupTempDir(projActive);

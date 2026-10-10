@@ -34,10 +34,10 @@
 ### 5. "Copy to Game Project" Workflow
 - Configure an **Active Game Project** destination path in Settings.
 - Click **"Copy to Game Project"** on any card or inspector panel:
-  - For single files: Copies directly into active project destination.
-  - For archive files: Extracts the specific buffer from `.zip` on the fly.
-  - For animation stacks: Option to copy either single frame or the entire sequence into a dedicated folder.
-- Instant toast notification confirming the target directory.
+  - For a single file or a stack's representative file: Copies that asset into the selected project directory.
+  - For a ZIP entry: Reads that entry from the archive and copies its bytes into the project.
+  - For a full animation or audio stack: Copies every member into a dedicated folder, using the stack name when no subfolder is specified.
+- Existing destination files cause a conflict instead of being overwritten. A successful copy reports the directory containing the copied files.
 
 ---
 
@@ -177,3 +177,9 @@ assettlor/
 | `GET` | `/api/settings` | Get current application settings |
 | `POST` | `/api/settings` | Update settings (library path, active project, etc.) |
 | `GET` | `/api/fs/browse` | Browse local directories for folder selection modals |
+
+For `POST /api/assets/copy`, provide exactly one of `assetId` or `stackId`. A stack request requires `copyStackAll: true`; sending the representative asset's `assetId` copies only that file. `targetPath` explicitly selects the project destination. When omitted, the server uses the first configured project path, then the active project path. `targetSubfolder` selects a relative folder inside that destination. A full stack uses a folder derived from its name when `targetSubfolder` is omitted.
+
+A successful copy returns `{ success, copiedFiles, targetDirectory, copyMode, copiedCount, message }`. `copyMode` is `asset` for a single or representative file and `stack` for a full stack; `targetDirectory` always contains the copied files. Copy errors return `{ error, code, details? }`: `400 INVALID_COPY_REQUEST` for invalid inputs or paths, `404 COPY_SOURCE_MISSING` for missing assets, stacks, or source files, `409 COPY_CONFLICT` for occupied or unsafe destinations, and `500 COPY_IO_ERROR` for other I/O failures. Execution failure details provide `copiedFiles`, `rolledBackFiles`, `remainingFiles`, and, when known, `failedFile` and `targetDirectory` so callers can identify any output left behind.
+
+`GET /api/stacks/:id/assets` returns 404 when the stack does not exist. `GET /api/assets/:id/file` returns 404 for a missing catalog asset, source, or archive entry, 422 for corrupt archive content, and 500 for filesystem read failures.

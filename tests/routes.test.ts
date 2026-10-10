@@ -514,7 +514,7 @@ describe('HTTP API Routes', () => {
       expect(bpms.some((b: any) => b.bpm === 120)).toBe(true);
     });
 
-    it('POST /api/assets/copy should copy asset or return 400 on error', async () => {
+    it('POST /api/assets/copy should copy asset or return 404 when missing', async () => {
       const okRes = await app.inject({
         method: 'POST',
         url: '/api/assets/copy',
@@ -533,7 +533,7 @@ describe('HTTP API Routes', () => {
           assetId: 'non_existent_asset',
         },
       });
-      expect(badRes.statusCode).toBe(400);
+      expect(badRes.statusCode).toBe(404);
       expect(badRes.json().error).toMatch(/not found/i);
     });
 

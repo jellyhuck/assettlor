@@ -160,7 +160,31 @@ export interface CopyAssetResult {
   success: boolean;
   copiedFiles: string[];
   targetDirectory: string;
+  copyMode: 'asset' | 'stack';
+  copiedCount: number;
   message?: string;
+}
+
+export type CopyErrorCode =
+  | 'INVALID_COPY_REQUEST'
+  | 'COPY_SOURCE_MISSING'
+  | 'COPY_CONFLICT'
+  | 'COPY_IO_ERROR';
+
+export interface CopyErrorDetails {
+  /** Final paths published before failure, including those rolled back. */
+  copiedFiles: string[];
+  rolledBackFiles: string[];
+  /** Paths still left by this operation; may include a temporary staging file. */
+  remainingFiles: string[];
+  failedFile?: string;
+  targetDirectory?: string;
+}
+
+export interface CopyErrorResponse {
+  error: string;
+  code: CopyErrorCode;
+  details?: CopyErrorDetails;
 }
 
 export interface AssetQueryParams {

@@ -64,10 +64,10 @@ A navigation and reference guide for understanding subsystem implementations and
 - Records stacks in `stacks` table and links member assets via `stack_id` and `stack_index`.
 
 ### D. "Copy to Game Project" Service (`server/src/services/copier.ts`)
-- Copies assets to the destination folder specified in `settings.activeProjectPath`.
-- For single disk files: Uses `fs.copyFileSync`.
-- For virtual zip assets: Extracts entry buffer from AdmZip on the fly and writes directly to target.
-- For animation stacks: Creates subfolder named after the stack and copies all constituent frames.
+- Uses an explicit `targetPath` when supplied, otherwise the first configured project path or the active project path. `targetSubfolder` must stay within that selected destination.
+- An `assetId` copies one disk file or ZIP entry, including a stack's representative asset. A `stackId` with `copyStackAll: true` copies all members into a dedicated folder; the default folder name derives from the stack name.
+- Plans and checks every source and destination before writing. Existing files, duplicate member names, and destination symlinks produce conflicts. Disk and ZIP bytes are staged before exclusive publication so an existing project file is never silently replaced.
+- On execution failure, rolls back only files published by that copy operation and reports any remaining paths. Success returns `copyMode`, `copiedCount`, `copiedFiles`, and the directory that contains them.
 
 ### E. SQLite Storage & Schema (`server/src/db/database.ts`)
 - Database file: `<data_dir>/index.db` (configured via `config.yaml`, defaulting to `~/.config/assetlor/data/index.db` or `sample/.assettlor/index.db`).
@@ -85,15 +85,15 @@ A navigation and reference guide for understanding subsystem implementations and
 - `GET /api/assets` - Paginated and filtered assets. Common query parameters: `category`, `tag`, `format`, `search`, `stackType`, `isStackedView`, `sortBy`, `sortOrder`, `page`, and `limit`; metadata filters also include `resolution`, `bpm`, `sprite`, `pack`, `width`, `height`, and `duration`.
 - `GET /api/assets/:id` - Detailed asset metadata and assigned tags.
 - `GET /api/assets/:id/thumbnail` - WebP thumbnail image.
-- `GET /api/assets/:id/file` - Raw file stream (supports HTTP 206 Partial Content range requests).
+- `GET /api/assets/:id/file` - Raw file stream (supports HTTP 206 Partial Content range requests); returns 404 for missing assets, sources, or archive entries, 422 for corrupt ZIP content, or 500 for filesystem read failures.
 - `POST /api/assets/:id/tags` - Assign tag(s) to asset (`tag`, `tags`, `source`).
 - `DELETE /api/assets/:id/tags/:tag` & `DELETE /api/assets/:id/tags` - Remove tag(s) from asset.
 - `PUT /api/assets/:id/tags` - Replace all tags on asset.
 - `POST /api/assets/tags` - Batch add or remove tags across multiple assets.
 - `POST /api/stacks/:id/tags` & `DELETE /api/stacks/:id/tags/:tag` - Assign or remove tags across all stack members.
 - `GET /api/tags` - Aggregate list of all tags with counts and sources.
-- `POST /api/assets/copy` - Copy one asset with `assetId`, or all stack members with `stackId` and `copyStackAll: true`; optional destination fields are `targetPath` and `targetSubfolder`.
-- `GET /api/stacks/:id/assets` - Ordered frames or variations for a stack.
+- `POST /api/assets/copy` - Copy one asset with `assetId`, or all stack members with `stackId` and `copyStackAll: true`; optional destination fields are `targetPath` and `targetSubfolder`. Success returns `{ success, copiedFiles, targetDirectory, copyMode, copiedCount, message }`, with `copyMode: 'asset' | 'stack'`. Errors return `{ error, code, details? }`: 400 `INVALID_COPY_REQUEST`, 404 `COPY_SOURCE_MISSING`, 409 `COPY_CONFLICT`, or 500 `COPY_IO_ERROR`. Execution failure details contain `copiedFiles`, `rolledBackFiles`, `remainingFiles`, and optionally `failedFile` and `targetDirectory`.
+- `GET /api/stacks/:id/assets` - Ordered frames or variations for a stack; 404 if the stack does not exist.
 - `GET /api/scan/progress` - SSE live scan progress stream.
 - `POST /api/scan/start` - Initiate directory scan.
 - `GET /api/settings` & `POST /api/settings` - Read / write app settings.

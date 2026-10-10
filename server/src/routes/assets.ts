@@ -16,7 +16,7 @@ import {
   addTagsToAssets,
   removeTagsFromAssets,
 } from '../db/database.js';
-import { copyAssetToProject } from '../services/copier.js';
+import { CopyError, copyAssetToProject } from '../services/copier.js';
 import { getZipEntryBuffer } from '../services/archive.js';
 import { getAudioMimeType } from '../services/audio.js';
 import { planAssetResponse } from './assetRange.js';
@@ -47,6 +47,16 @@ function getMimeTypeForExtension(ext: string): string {
     case '.flac': return 'audio/flac';
     default: return 'application/octet-stream';
   }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+function isFileSystemError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return typeof code === 'string' && /^E[A-Z0-9_]+$/.test(code);
 }
 
 export async function assetsRoutes(fastify: FastifyInstance) {
@@ -98,19 +108,60 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     const mimeType = getMimeTypeForExtension(asset.extension);
 
     let archiveBuffer: Buffer | undefined;
+    let diskHandle: Awaited<ReturnType<typeof fs.promises.open>> | undefined;
     let totalSize: number;
-    if (asset.isArchiveEntry && asset.archivePath && asset.archiveEntryPath) {
-      archiveBuffer = getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath) ?? undefined;
+    if (asset.isArchiveEntry) {
+      // An incomplete virtual entry must never fall through to the ZIP file
+      // itself as though that archive were a regular media asset.
+      if (!asset.archivePath || !asset.archiveEntryPath) {
+        return reply.status(404).send({ error: 'Archive entry unavailable' });
+      }
+      try {
+        archiveBuffer = getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath) ?? undefined;
+      } catch (error) {
+        if (isMissingFileError(error)) {
+          return reply.status(404).send({ error: 'Archive missing on disk' });
+        }
+        fastify.log.warn({ err: error }, 'Unable to read archive entry');
+        if (isFileSystemError(error)) {
+          return reply.status(500).send({ error: 'Archive cannot be read' });
+        }
+        return reply.status(422).send({ error: 'Archive entry cannot be read' });
+      }
       if (!archiveBuffer) {
+        // The archive helper returns null both for a missing entry and when
+        // existsSync cannot access the archive. Check the source to classify it.
+        try {
+          await fs.promises.stat(asset.archivePath);
+        } catch (error) {
+          if (isMissingFileError(error)) {
+            return reply.status(404).send({ error: 'Archive missing on disk' });
+          }
+          fastify.log.warn({ err: error }, 'Unable to inspect archive');
+          return reply.status(500).send({ error: 'Archive cannot be read' });
+        }
         return reply.status(404).send({ error: 'Entry not found in archive' });
       }
       totalSize = archiveBuffer.length;
     } else {
-      // Virtual ZIP paths must not be passed to filesystem APIs.
-      if (!fs.existsSync(asset.absolutePath)) {
-        return reply.status(404).send({ error: 'File missing on disk' });
+      // Hold the open descriptor through streaming. A file unlinked after
+      // opening still produces a complete response with the planned headers.
+      try {
+        diskHandle = await fs.promises.open(asset.absolutePath, 'r');
+        const stat = await diskHandle.stat();
+        if (!stat.isFile()) {
+          await diskHandle.close();
+          return reply.status(404).send({ error: 'File missing on disk' });
+        }
+        totalSize = stat.size;
+      } catch (error) {
+        await diskHandle?.close();
+        if (isMissingFileError(error)) {
+          return reply.status(404).send({ error: 'File missing on disk' });
+        }
+        fastify.log.warn({ err: error }, 'Unable to open asset file');
+        return reply.status(500).send({ error: 'File cannot be read' });
       }
-      totalSize = (await fs.promises.stat(asset.absolutePath)).size;
     }
 
     const plan = planAssetResponse(totalSize, req.headers.range);
@@ -127,7 +178,10 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     }
     reply.header('Content-Length', plan.contentLength);
     if (plan.contentRange) reply.header('Content-Range', plan.contentRange);
-    if (plan.status === 416) return reply.status(416).send(Buffer.alloc(0));
+    if (plan.status === 416) {
+      await diskHandle?.close();
+      return reply.status(416).send(Buffer.alloc(0));
+    }
 
     reply.status(plan.status);
     if (archiveBuffer) {
@@ -136,9 +190,13 @@ export async function assetsRoutes(fastify: FastifyInstance) {
         : archiveBuffer;
       return reply.send(content);
     }
-    return reply.send(plan.status === 206
-      ? fs.createReadStream(asset.absolutePath, { start: plan.start, end: plan.end })
-      : fs.createReadStream(asset.absolutePath));
+    const stream = diskHandle!.createReadStream(plan.status === 206
+      ? { start: plan.start, end: plan.end, autoClose: true }
+      : { autoClose: true });
+    // Fastify strips the body of a HEAD response. Destroy any stream it did
+    // not consume so the open descriptor is closed after the response.
+    if (req.method === 'HEAD') reply.raw.once('finish', () => stream.destroy());
+    return reply.send(stream);
   });
 
   // Get all tags
@@ -184,13 +242,23 @@ export async function assetsRoutes(fastify: FastifyInstance) {
   // Copy asset or stack to game project
   fastify.post('/api/assets/copy', async (req: FastifyRequest<{ Body: CopyAssetRequest }>, reply) => {
     const copyRequest = parseCopyRequest(req.body);
-    if (!copyRequest.ok) return reply.status(400).send({ error: copyRequest.error });
+    if (!copyRequest.ok) {
+      return reply.status(400).send({ error: copyRequest.error, code: 'INVALID_COPY_REQUEST' });
+    }
 
     try {
       const result = await copyAssetToProject(copyRequest.value);
       return reply.send(result);
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message });
+    } catch (error) {
+      if (error instanceof CopyError) {
+        return reply.status(error.status).send({
+          error: error.message,
+          code: error.code,
+          ...(error.details ? { details: error.details } : {}),
+        });
+      }
+      fastify.log.error({ err: error }, 'Unable to copy asset');
+      return reply.status(500).send({ error: 'Copy failed', code: 'COPY_IO_ERROR' });
     }
   });
 

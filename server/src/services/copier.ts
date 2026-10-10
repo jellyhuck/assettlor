@@ -8,25 +8,18 @@ import {
   getAppSettings,
 } from '../db/database.js';
 import { getZipEntryBuffer } from './archive.js';
-import type { Asset, CopyAssetRequest, CopyAssetResult } from '../../../shared/types.js';
+import type {
+  Asset,
+  CopyAssetRequest,
+  CopyAssetResult,
+  CopyErrorCode,
+  CopyErrorDetails,
+} from '../../../shared/types.js';
+export type { CopyErrorCode, CopyErrorDetails } from '../../../shared/types.js';
 
 interface PlannedCopy {
   asset: Asset;
   destination: string;
-}
-
-export type CopyErrorCode =
-  | 'INVALID_COPY_REQUEST'
-  | 'COPY_SOURCE_MISSING'
-  | 'COPY_CONFLICT'
-  | 'COPY_IO_ERROR';
-
-export interface CopyErrorDetails {
-  copiedFiles: string[];
-  rolledBackFiles: string[];
-  remainingFiles: string[];
-  failedFile?: string;
-  targetDirectory?: string;
 }
 
 export class CopyError extends Error {
@@ -197,6 +190,14 @@ async function planAssetCopy(asset: Asset, destDir: string, targetDir: string): 
       throw new CopyError(500, 'COPY_IO_ERROR', `Failed to read archive entry: ${asset.id}`);
     }
     if (!archiveBuffer) {
+      try {
+        await fs.promises.stat(asset.archivePath);
+      } catch (error) {
+        if (isMissingFilesystemError(error)) {
+          missingSource(`Archive source is missing: ${asset.id}`);
+        }
+        throw new CopyError(500, 'COPY_IO_ERROR', `Failed to inspect archive source: ${asset.id}`);
+      }
       missingSource(`Failed to extract entry ${asset.archiveEntryPath} from archive`);
     }
     return { asset, destination };
@@ -292,7 +293,7 @@ async function stageDiskSource(asset: Asset, stagePath: string): Promise<void> {
   }
 }
 
-function readArchiveSource(asset: Asset): Buffer {
+async function readArchiveSource(asset: Asset): Promise<Buffer> {
   let buffer: Buffer | null;
   try {
     buffer = getZipEntryBuffer(asset.archivePath!, asset.archiveEntryPath!);
@@ -303,6 +304,14 @@ function readArchiveSource(asset: Asset): Buffer {
     throw error;
   }
   if (!buffer) {
+    try {
+      await fs.promises.stat(asset.archivePath!);
+    } catch (error) {
+      if (isMissingFilesystemError(error)) {
+        missingSource(`Archive source disappeared: ${asset.id}`);
+      }
+      throw error;
+    }
     missingSource(`Archive entry source disappeared: ${asset.id}`);
   }
   return buffer;
@@ -404,7 +413,7 @@ export async function copyAssetToProject(req: CopyAssetRequest): Promise<CopyAss
 
       try {
         if (item.asset.isArchiveEntry) {
-          const buffer = readArchiveSource(item.asset);
+          const buffer = await readArchiveSource(item.asset);
           await fs.promises.writeFile(stagePath, buffer, { flag: 'wx' });
         } else {
           await stageDiskSource(item.asset, stagePath);
@@ -464,6 +473,8 @@ export async function copyAssetToProject(req: CopyAssetRequest): Promise<CopyAss
       success: true,
       copiedFiles,
       targetDirectory: destDir,
+      copyMode: 'stack',
+      copiedCount: copiedFiles.length,
       message: `Copied ${copiedFiles.length} files from "${stackName}" stack to ${destDir}`,
     };
   }
@@ -471,7 +482,9 @@ export async function copyAssetToProject(req: CopyAssetRequest): Promise<CopyAss
   return {
     success: true,
     copiedFiles,
-    targetDirectory: targetDir,
-    message: `Copied ${path.basename(copiedFiles[0])} to ${targetDir}`,
+    targetDirectory: destDir,
+    copyMode: 'asset',
+    copiedCount: copiedFiles.length,
+    message: `Copied ${path.basename(copiedFiles[0])} to ${destDir}`,
   };
 }

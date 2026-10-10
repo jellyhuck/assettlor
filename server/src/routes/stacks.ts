@@ -18,6 +18,9 @@ export async function stacksRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/api/stacks/:id/assets', async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    if (!getStackById(req.params.id)) {
+      return reply.status(404).send({ error: 'Stack not found' });
+    }
     const assets = getStackAssets(req.params.id);
     return reply.send(assets);
   });
