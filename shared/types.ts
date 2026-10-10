@@ -29,6 +29,10 @@ export interface AudioMetadata {
 
 export type AssetMetadata = ImageMetadata & AudioMetadata & {
   pack?: string;
+  classifierProvenance?: {
+    bpm?: { previousBpm: number | null; previousTempoDescription: string | null };
+    pack?: { previousPack: string | null };
+  };
   thumbnailFingerprint?: string;
   metadataProcessingVersion?: string;
   raw?: Record<string, unknown>;
@@ -340,6 +344,8 @@ export interface ClassifierAssetResult {
   tagsAdded?: string[];
   error?: string;
   retryable?: boolean;
+  outcome?: 'classified' | 'no-result' | 'error';
+  stale?: boolean;
 }
 
 export interface ClassifierRunResult {
@@ -350,6 +356,8 @@ export interface ClassifierRunResult {
   processedCount: number;
   classifiedCount: number;
   failedCount: number;
+  noResultCount?: number;
+  errorCount?: number;
   details: ClassifierAssetResult[];
   elapsedMs: number;
 }

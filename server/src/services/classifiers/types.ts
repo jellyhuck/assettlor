@@ -28,9 +28,18 @@ export interface Classifier<TSettings = any, TIntermediate = any> {
   description: string;
   category: ClassifierCategory;
   defaultSettings: TSettings;
+  /** Defaults to true; path-only classifiers can opt out of media reads. */
+  requiresBuffer?: boolean;
   steps: ClassifierStep<TSettings, TIntermediate>[];
   createIntermediateState: (asset: Asset, settings: TSettings) => TIntermediate;
   createAssetResult: (asset: Asset, intermediate: TIntermediate, settings: TSettings) => ClassifierAssetResult;
+  /** Applies a conclusive result to the original indexed asset revision. */
+  finalizeAsset?: (
+    asset: Asset,
+    intermediate: TIntermediate,
+    settings: TSettings,
+    result: ClassifierAssetResult
+  ) => boolean;
 }
 
 export interface RunClassifierOptions<TSettings = any> {

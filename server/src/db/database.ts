@@ -1316,6 +1316,96 @@ export function updateAssetMetadata(assetId: string, metadataUpdates: Partial<As
   return getAssetById(assetId);
 }
 
+/** Finalize one classifier result only if the indexed asset is still the revision analyzed. */
+export function finalizeClassifierAsset(
+  asset: Asset,
+  classifierId: 'bpm' | 'sprite' | 'pack',
+  outcome: 'classified' | 'no-result',
+  metadataUpdates: Partial<AssetMetadata>,
+  tags: string[]
+): boolean {
+  const db = getDatabase();
+  return db.transaction(() => {
+    const row = db.prepare(`
+      SELECT hash, path, absolute_path, archive_entry_path, source_directory,
+        size, mtime, updated_at, metadata
+      FROM assets WHERE id = ?
+    `).get(asset.id) as {
+      hash: string; path: string; absolute_path: string;
+      archive_entry_path: string | null; source_directory: string | null;
+      size: number; mtime: number; updated_at: number; metadata: string | null;
+    } | undefined;
+    if (!row || row.hash !== asset.hash || row.path !== asset.path ||
+        row.absolute_path !== asset.absolutePath ||
+        row.archive_entry_path !== (asset.archiveEntryPath || null) ||
+        row.source_directory !== (asset.sourceDirectory || null) ||
+        row.size !== asset.size || row.mtime !== asset.mtime ||
+        row.updated_at !== asset.updatedAt) return false;
+
+    let metadata: AssetMetadata = {};
+    if (row.metadata) {
+      try {
+        metadata = JSON.parse(row.metadata) as AssetMetadata;
+      } catch {
+        metadata = {};
+      }
+    }
+    const ownedPrior = Boolean(db.prepare('SELECT 1 FROM tags WHERE asset_id = ? AND source = ? LIMIT 1')
+      .get(asset.id, `classifier:${classifierId}`));
+    if (classifierId === 'bpm') {
+      const provenance = { ...(metadata.classifierProvenance || {}) };
+      if (outcome === 'classified' && !provenance.bpm) {
+        provenance.bpm = {
+          previousBpm: ownedPrior ? null : metadata.bpm ?? null,
+          previousTempoDescription: ownedPrior ? null : metadata.tempoDescription ?? null,
+        };
+      } else if (outcome === 'no-result') {
+        if (provenance.bpm) {
+          if (provenance.bpm.previousBpm === null) delete metadata.bpm;
+          else metadata.bpm = provenance.bpm.previousBpm;
+          if (provenance.bpm.previousTempoDescription === null) delete metadata.tempoDescription;
+          else metadata.tempoDescription = provenance.bpm.previousTempoDescription;
+          delete provenance.bpm;
+        } else if (ownedPrior) {
+          // A legacy generated tag establishes ownership without metadata provenance.
+          delete metadata.bpm;
+          delete metadata.tempoDescription;
+        }
+      }
+      if (Object.keys(provenance).length) metadata.classifierProvenance = provenance;
+      else delete metadata.classifierProvenance;
+    } else if (classifierId === 'pack') {
+      const provenance = { ...(metadata.classifierProvenance || {}) };
+      if (outcome === 'classified' && !provenance.pack) {
+        provenance.pack = { previousPack: ownedPrior ? null : metadata.pack ?? null };
+      } else if (outcome === 'no-result') {
+        if (provenance.pack) {
+          if (provenance.pack.previousPack === null) delete metadata.pack;
+          else metadata.pack = provenance.pack.previousPack;
+          delete provenance.pack;
+        } else if (ownedPrior) {
+          // A legacy generated tag establishes ownership of its pack value.
+          delete metadata.pack;
+        }
+      }
+      if (Object.keys(provenance).length) metadata.classifierProvenance = provenance;
+      else delete metadata.classifierProvenance;
+    } else if (outcome === 'no-result') {
+      delete metadata.spriteType;
+      delete metadata.spriteConfidence;
+    }
+    Object.assign(metadata, metadataUpdates);
+
+    db.prepare('DELETE FROM tags WHERE asset_id = ? AND source = ?')
+      .run(asset.id, `classifier:${classifierId}`);
+    const insertTag = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
+    for (const tag of tags) insertTag.run(asset.id, tag, `classifier:${classifierId}`);
+    db.prepare('UPDATE assets SET metadata = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(metadata), Math.max(Date.now(), row.updated_at + 1), asset.id);
+    return true;
+  })();
+}
+
 function normalizeTagsInput(
   tags: (string | { tag: string; source?: string })[],
   defaultSource = 'user'
