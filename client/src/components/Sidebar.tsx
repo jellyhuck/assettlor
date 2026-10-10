@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   TagInfo,
   FormatInfo,
@@ -12,12 +12,9 @@ import {
   Layers,
   Image as ImageIcon,
   Volume2,
-  Tag,
   Settings,
   RefreshCw,
   Search,
-  Filter,
-  Check,
   Disc3,
   Sparkles,
   Maximize2,
@@ -50,6 +47,8 @@ interface SidebarProps {
   bpms?: BpmInfo[];
   scanStatus: ScanProgressEvent;
   onTriggerScan: () => void;
+  onCancelScan?: () => void;
+  scanActionPending?: 'start' | 'cancel' | null;
   onOpenSettings: () => void;
   onOpenClassifiers?: () => void;
   settings: AppSettings;
@@ -85,6 +84,8 @@ export function Sidebar({
   bpms = [],
   scanStatus,
   onTriggerScan,
+  onCancelScan,
+  scanActionPending = null,
   onOpenSettings,
   onOpenClassifiers,
   settings,
@@ -93,6 +94,21 @@ export function Sidebar({
   const [tagSearch, setTagSearch] = useState('');
 
   const isScanning = scanStatus.status === 'scanning';
+  const configuredLibraries = settings.libraryPaths?.filter((library) => library.trim()) ?? [];
+  const fallbackLibrary = settings.libraryPath?.trim() ?? '';
+  const hasLibrary = configuredLibraries.length > 0 || fallbackLibrary.length > 0;
+  const libraryLabel = configuredLibraries.length > 1
+    ? `${configuredLibraries.length} Source Libraries`
+    : configuredLibraries[0] || fallbackLibrary || 'No folder selected';
+  const libraryTitle = `Libraries:\n${configuredLibraries.join('\n') || fallbackLibrary || 'None'}`;
+  const failedScopes = scanStatus.failedScopes?.length ?? 0;
+  const scanMessage = scanStatus.status === 'error'
+    ? scanStatus.message || scanStatus.error || 'Scan failed.'
+    : scanStatus.status === 'completed'
+      ? scanStatus.message || (failedScopes > 0 ? 'Scan completed with some unavailable files.' : 'Scan completed.')
+      : scanStatus.status === 'idle' && scanStatus.message?.toLowerCase().includes('cancel')
+        ? scanStatus.message
+        : null;
 
   const filteredTags = tags.filter((t) =>
     t.name.toLowerCase().includes(tagSearch.toLowerCase())
@@ -114,8 +130,10 @@ export function Sidebar({
           </div>
         </div>
         <button
+          type="button"
           onClick={onOpenSettings}
           title="App Settings"
+          aria-label="App settings"
           className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#202033] transition-colors cursor-pointer"
         >
           <Settings className="w-4 h-4" />
@@ -124,32 +142,53 @@ export function Sidebar({
 
       {/* Library Source & Scanner Section */}
       <div className="p-3.5 border-b border-[#242438] bg-[#181829]/60 space-y-2.5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Asset Library
           </span>
-          <button
-            onClick={onTriggerScan}
-            disabled={isScanning}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
-          >
-            <RefreshCw className={`w-3 h-3 ${isScanning ? 'animate-spin' : ''}`} />
-            {isScanning ? 'Scanning...' : 'Scan'}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onTriggerScan()}
+              disabled={!hasLibrary || isScanning || scanActionPending !== null}
+              title={!hasLibrary ? 'Add a library in settings before scanning' : undefined}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+            >
+              <RefreshCw className={`w-3 h-3 ${isScanning ? 'animate-spin' : ''}`} />
+              {scanActionPending === 'start' ? 'Starting...' : isScanning ? 'Scanning...' : 'Scan'}
+            </button>
+            {isScanning && onCancelScan && (
+              <button
+                type="button"
+                onClick={() => onCancelScan()}
+                disabled={scanActionPending !== null}
+                className="px-2 py-1 text-xs font-medium rounded-md border border-rose-500/50 text-rose-300 hover:bg-rose-950/50 disabled:opacity-50 cursor-pointer"
+              >
+                {scanActionPending === 'cancel' ? 'Cancelling...' : 'Cancel'}
+              </button>
+            )}
+          </div>
         </div>
 
-        <div
+        <button
+          type="button"
           onClick={onOpenSettings}
-          title={`Libraries:\n${settings.libraryPaths?.join('\n') || settings.libraryPath || 'None'}`}
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#12121d] border border-[#26263a] text-xs font-mono text-slate-300 hover:border-indigo-500/50 cursor-pointer truncate"
+          title={libraryTitle}
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#12121d] border border-[#26263a] text-xs font-mono text-slate-300 hover:border-indigo-500/50 cursor-pointer truncate text-left"
         >
           <Folder className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          <span className="truncate">
-            {settings.libraryPaths && settings.libraryPaths.length > 1
-              ? `${settings.libraryPaths.length} Source Libraries`
-              : (settings.libraryPath || 'No folder selected')}
-          </span>
-        </div>
+          <span className="truncate">{libraryLabel}</span>
+        </button>
+
+        {!hasLibrary && (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="text-left text-[11px] text-indigo-300 hover:underline cursor-pointer"
+          >
+            Add a library in settings to enable scanning.
+          </button>
+        )}
 
         {onOpenClassifiers && (
           <button
@@ -166,14 +205,30 @@ export function Sidebar({
         {/* Scan Status Progress */}
         {isScanning && (
           <div className="space-y-1.5 pt-1">
-            <div className="flex justify-between text-[11px] font-mono text-slate-400">
+            <div className="flex justify-between gap-2 text-[11px] font-mono text-slate-400">
               <span className="text-cyan-400">Indexing...</span>
               <span>{scanStatus.scannedCount} files</span>
             </div>
-            <div className="w-full bg-[#202033] h-1.5 rounded-full overflow-hidden">
+            <div
+              role="progressbar"
+              aria-label="Library scan progress"
+              aria-valuetext={`${scanStatus.scannedCount} files scanned`}
+              className="w-full bg-[#202033] h-1.5 rounded-full overflow-hidden"
+            >
               <div className="bg-indigo-500 h-full animate-pulse rounded-full w-full" />
             </div>
           </div>
+        )}
+        <span className="sr-only" role="status" aria-live="polite">
+          {scanActionPending === 'cancel' ? 'Cancelling scan' : isScanning ? 'Scan in progress' : ''}
+        </span>
+        {scanMessage && (
+          <p
+            role={scanStatus.status === 'error' ? 'alert' : 'status'}
+            className={`text-[11px] leading-normal ${scanStatus.status === 'error' ? 'text-rose-300' : failedScopes > 0 ? 'text-amber-300' : 'text-slate-400'}`}
+          >
+            {scanMessage}
+          </p>
         )}
       </div>
 
@@ -531,10 +586,10 @@ export function Sidebar({
               </div>
               <div className="flex flex-wrap gap-1 px-1">
                 {[
-                  { label: '< 90 (Slow)', value: 'slow' },
-                  { label: '90-120 (Mid)', value: 'moderate' },
-                  { label: '120-160 (Fast)', value: 'fast' },
-                  { label: '> 160 (High)', value: 'very-fast' },
+                  { label: '<80 (Slow)', value: 'slow' },
+                  { label: '80–<120 (Moderate)', value: 'moderate' },
+                  { label: '120–<150 (Fast)', value: 'fast' },
+                  { label: '≥150 (High)', value: 'very-fast' },
                 ].map((preset) => {
                   const isSelected = selectedBpm === preset.value;
                   return (
@@ -602,6 +657,7 @@ export function Sidebar({
               <Search className="w-3 h-3 text-slate-500 absolute left-3 top-2.5" />
               <input
                 type="text"
+                aria-label="Filter tags"
                 value={tagSearch}
                 onChange={(e) => setTagSearch(e.target.value)}
                 placeholder="Filter tags..."

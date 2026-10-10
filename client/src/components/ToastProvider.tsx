@@ -1,34 +1,35 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { ToastMessage } from '../types';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
+import { ToastContext } from './toastContext';
 
-interface ToastContextValue {
-  showToast: (type: ToastMessage['type'], title: string, description?: string) => void;
-}
-
-const ToastContext = createContext<ToastContextValue | undefined>(undefined);
-
-export function useToast() {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within ToastProvider');
-  }
-  return context;
-}
-
-export function ToastProvider({ children }: { children: React.ReactNode }) {
+export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const activeTimers = timers.current;
+    return () => {
+      for (const timer of activeTimers.values()) clearTimeout(timer);
+      activeTimers.clear();
+    };
+  }, []);
 
   const showToast = useCallback((type: ToastMessage['type'], title: string, description?: string) => {
     const id = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     setToasts((prev) => [...prev, { id, type, title, description }]);
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      timers.current.delete(id);
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4500);
+    timers.current.set(id, timer);
   }, []);
 
   const removeToast = useCallback((id: string) => {
+    const timer = timers.current.get(id);
+    if (timer !== undefined) clearTimeout(timer);
+    timers.current.delete(id);
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
@@ -52,9 +53,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           return (
             <div
               key={toast.id}
+              role={toast.type === 'error' ? 'alert' : 'status'}
               className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-lg shadow-xl border ${border} ${bg} text-slate-100 transition-all transform animate-in fade-in slide-in-from-bottom-2`}
             >
-              {icon}
+              <span aria-hidden="true">{icon}</span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold text-slate-100 leading-tight">{toast.title}</div>
                 {toast.description && (
@@ -62,7 +64,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 )}
               </div>
               <button
+                type="button"
                 onClick={() => removeToast(toast.id)}
+                aria-label={`Dismiss ${toast.title}`}
                 className="text-slate-500 hover:text-slate-300 transition-colors p-0.5 rounded cursor-pointer"
               >
                 <X className="w-4 h-4" />
