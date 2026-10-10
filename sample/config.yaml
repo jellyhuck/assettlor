@@ -1,26 +1,22 @@
 server:
   port: 3001
-  host: "127.0.0.1"
-  allowed_hosts: []
+  host: 127.0.0.1
   allowed_origins:
-    - "http://localhost:5173"
-    - "http://127.0.0.1:5173"
-
-data_dir: "./.assettlor"
-
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+  allowed_hosts: []
+data_dir: REDACTED_LOCAL_PATH/sample/.assettlor
 libraries:
-  - "./assets"
-
+  - REDACTED_LOCAL_PATH/sample/assets
 projects:
-  - "./game-project"
-
+  - REDACTED_LOCAL_PATH/sample/game-project
 classifiers:
   bpm:
     enabled: true
     minBpm: 60
     maxBpm: 200
-    minDurationSeconds: 1.0
-    maxAnalysisSeconds: 45.0
+    minDurationSeconds: 1
+    maxAnalysisSeconds: 45
     applyBpmTag: false
     applyTempoTag: false
   sprite:
@@ -34,17 +30,16 @@ classifiers:
     enabled: true
     inferFromArchive: true
     inferFromDirectory: true
-    directoryStrategy: "top"
+    directoryStrategy: top
     directoryDepth: 1
     cleanSeparators: true
     stripVersionSuffix: true
     stripAffixes: false
-    caseConvention: "as-is"
+    caseConvention: as-is
     applyTag: false
     tagPrefix: "pack:"
     targetArchives: []
     targetDirectories: []
-
 pipeline:
   thumbnail_quality: 80
   auto_stack_animations: true
