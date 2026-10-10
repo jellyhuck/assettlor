@@ -238,6 +238,68 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
       const result = updateSearchFilter(query, 'format', null);
       expect(result).toBe('res:square');
     });
+
+    it('keeps each bracketed range together when parsing, replacing, or removing it', () => {
+      const ranges = [
+        ['resolution', 'res:[64x64 TO 512x512]', '[64x64 to 512x512]'],
+        ['width', 'width:[64 TO 512]', '[64 to 512]'],
+        ['height', 'height:[64 TO 512]', '[64 to 512]'],
+        ['duration', 'dur:[10 TO 40]', '[10 to 40]'],
+        ['bpm', 'bpm:[80 TO 150]', '[80 to 150]'],
+      ] as const;
+
+      for (const [type, range, selected] of ranges) {
+        expect(parseFiltersFromQuery(range)[type]).toBe(selected);
+        expect(updateSearchFilter(`${range}  coin`, type, null)).toBe('coin');
+        expect(updateSearchFilter(`${range}  coin`, type, 'fast')).toBe(`${formatFilterToken(type, 'fast')}  coin`);
+      }
+    });
+
+    it('preserves grouped OR filters and adds a new selection as a separate conjunction', () => {
+      const query = '(ext:png OR ext:jpg) coin';
+      expect(parseFiltersFromQuery(query).format).toBeNull();
+      expect(updateSearchFilter(query, 'format', null)).toBe(query);
+
+      const edited = updateSearchFilter(query, 'format', '.webp');
+      expect(edited).toBe('((ext:png OR ext:jpg) coin) AND ext:webp');
+      expect(parseFiltersFromQuery(edited).format).toBeNull();
+      expect(parseFiltersFromQuery(edited).tag).toBeNull();
+    });
+
+    it('edits conjunctions inside parentheses without leaving dangling syntax', () => {
+      expect(updateSearchFilter('(ext:png AND tag:coin) hero', 'format', null)).toBe('(tag:coin) hero');
+      expect(updateSearchFilter('hero (ext:png)', 'format', null)).toBe('hero');
+      expect(updateSearchFilter('(ext:png)', 'format', null)).toBe('');
+      expect(updateSearchFilter('(ext:png AND tag:coin) hero', 'format', '.jpg'))
+        .toBe('(ext:jpg AND tag:coin) hero');
+    });
+
+    it('removes repeated positive filters and leaves negated filters intact', () => {
+      const query = 'ext:png AND ext:jpg AND tag:coin';
+      expect(parseFiltersFromQuery(query).format).toBeNull();
+      expect(updateSearchFilter(query, 'format', null)).toBe('tag:coin');
+      expect(updateSearchFilter(query, 'format', '.wav')).toBe('ext:wav AND tag:coin');
+
+      const negated = 'NOT ext:png AND -ext:jpg AND tag:coin';
+      expect(parseFiltersFromQuery(negated).format).toBeNull();
+      expect(updateSearchFilter(negated, 'format', null)).toBe(negated);
+      expect(updateSearchFilter(negated, 'format', '.wav')).toBe(`${negated} ext:wav`);
+    });
+
+    it('keeps literal whitespace and quoted operator text byte-for-byte', () => {
+      const query = 'tag:"a  b OR ext:png"    pack:"Retro (Pack)"';
+      expect(parseFiltersFromQuery(query).tag).toBe('a  b or ext:png');
+      expect(parseFiltersFromQuery(query).pack).toBe('retro (pack)');
+      expect(updateSearchFilter(query, 'format', '.png')).toBe(`${query} ext:png`);
+      expect(updateSearchFilter(`${query}    width:[64 TO 512]`, 'width', null)).toBe(query);
+    });
+
+    it('does not rewrite an incomplete expression while the user is typing', () => {
+      for (const query of ['(ext:png OR', 'width:[64 TO 512', 'tag:"unfinished', 'ext:png AND']) {
+        expect(updateSearchFilter(query, 'format', null)).toBe(query);
+        expect(updateSearchFilter(query, 'format', '.jpg')).toBe(query);
+      }
+    });
   });
 
   describe('Bidirectional Consistency Verification', () => {
