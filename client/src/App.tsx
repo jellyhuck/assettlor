@@ -786,6 +786,7 @@ function MainApp() {
           {detailError && <div className="text-xs px-3 py-2 bg-amber-950/50 text-amber-200" role="status">Details may be out of date: {detailError}</div>}
         <Inspector
           item={selectedItem}
+          revision={catalog.revision}
           initialViewMode={inspectorMode}
           onClose={closeInspector}
           settings={settings}

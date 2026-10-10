@@ -28,6 +28,30 @@ import { AudioWaveformPlayer } from './AudioWaveformPlayer';
 import { SoundIcon, MusicPlateIcon } from './AudioIcons';
 import { useToast } from './Toast';
 import { CopyModal } from './CopyModal';
+import { createRequestGate, errorMessage, isAbortError, requestJson, expectArray, expectRecord } from '../lib/requestLifecycle';
+
+type StackItem = AssetStack & { isStack: true };
+type MemberState = { key: string; phase: 'ready' | 'error'; assets: Asset[]; error: string | null };
+type ParentState = { key: string; parent: StackItem | null; error: string | null };
+
+function isAsset(value: unknown): value is Asset {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && typeof (value as Asset).id === 'string'
+    && typeof (value as Asset).name === 'string'
+    && typeof (value as Asset).fileUrl === 'string'
+    && typeof (value as Asset).thumbnailUrl === 'string'
+    && Array.isArray((value as Asset).tags)
+    && (value as Asset).metadata !== null && typeof (value as Asset).metadata === 'object';
+}
+
+function parseStack(value: unknown): StackItem {
+  const data = expectRecord(value, 'stack');
+  if (typeof data.id !== 'string' || typeof data.name !== 'string'
+    || !['animation', 'audio_variation'].includes(String(data.type))) {
+    throw new Error('The stack response has an unexpected shape');
+  }
+  return { ...data, isStack: true } as unknown as StackItem;
+}
 
 interface InspectorProps {
   item: Asset | (AssetStack & { isStack: true }) | null;
@@ -46,6 +70,7 @@ interface InspectorProps {
   onAssetUpdated?: (updatedAsset: Asset) => void;
   onStackUpdated?: (updatedStack: AssetStack & { isStack: true }) => void;
   availableTags?: TagInfo[];
+  revision?: number;
 }
 
 export function Inspector({
@@ -65,18 +90,20 @@ export function Inspector({
   onAssetUpdated,
   onStackUpdated,
   availableTags,
+  revision,
 }: InspectorProps) {
   const { showToast } = useToast();
 
   const [pixelated, setPixelated] = useState(true);
   const [checkerboard, setCheckerboard] = useState(true);
   const [zoomLevel, setZoomLevel] = useState(1);
-  const [stackAssets, setStackAssets] = useState<Asset[]>([]);
-  const [selectedVariant, setSelectedVariant] = useState<Asset | null>(null);
-  const [selectedFrameIndex, setSelectedFrameIndex] = useState(0);
-  const [stackViewMode, setStackViewMode] = useState<'stack' | 'assets'>(initialViewMode);
+  const [memberState, setMemberState] = useState<MemberState | null>(null);
+  const [selectedMember, setSelectedMember] = useState<{ stackId: string; id: string } | null>(null);
+  const [viewChoice, setViewChoice] = useState<{
+    itemKey: string; initialViewMode: 'stack' | 'assets'; value: 'stack' | 'assets';
+  } | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
-  const [parentStack, setParentStack] = useState<(AssetStack & { isStack: true }) | null>(null);
+  const [parentState, setParentState] = useState<ParentState | null>(null);
   const [analyzingBpm, setAnalyzingBpm] = useState(false);
   const [classifyingSprite, setClassifyingSprite] = useState(false);
   const [classifyingPack, setClassifyingPack] = useState(false);
@@ -91,6 +118,8 @@ export function Inspector({
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const [copiedName, setCopiedName] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const memberGate = useRef(createRequestGate());
+  const parentGate = useRef(createRequestGate());
 
   useEffect(() => {
     return () => {
@@ -102,52 +131,81 @@ export function Inspector({
 
   const isStack = Boolean(item && 'isStack' in item && item.isStack);
   const stack = isStack ? (item as AssetStack & { isStack: true }) : null;
+  const itemKey = item ? `${isStack ? 'stack' : 'asset'}:${item.id}` : '';
+  const stackViewMode = viewChoice?.itemKey === itemKey
+    && viewChoice.initialViewMode === initialViewMode ? viewChoice.value : initialViewMode;
+  const setStackViewMode = (value: 'stack' | 'assets') =>
+    setViewChoice({ itemKey, initialViewMode, value });
+  const stackId = stack?.id;
+  const representative = stack?.representativeAsset;
+  const memberKey = stack ? [itemKey, revision ?? '', stack.itemCount,
+    stack.representativeAssetId, representative?.updatedAt, representative?.fileUrl,
+    representative?.thumbnailUrl].join('|') : '';
+  const parentId = !isStack && item ? (item as Asset).stackId : null;
+  const parentKey = parentId ? `${itemKey}|${parentId}|${revision ?? ''}` : '';
+  const stackAssets = memberState?.key === memberKey ? memberState.assets : [];
+  const memberPhase = !stack ? null : memberState?.key === memberKey ? memberState.phase : 'loading';
+  const memberError = memberState?.key === memberKey ? memberState.error : null;
+  const selectedFrameIndex = stackAssets.findIndex((asset) =>
+    asset.id === (selectedMember && selectedMember.stackId === stack?.id
+      ? selectedMember.id : stack?.representativeAssetId));
+  const currentFrameIndex = selectedFrameIndex >= 0 ? selectedFrameIndex : 0;
+  const selectedVariant = stackAssets[currentFrameIndex] ?? null;
+  const parentStack = parentState?.key === parentKey ? parentState.parent : null;
+  const parentError = parentState?.key === parentKey ? parentState.error : null;
 
-  // Sync initial view mode when prop changes
+  const selectMember = (asset: Asset) => {
+    if (stack) setSelectedMember({ stackId: stack.id, id: asset.id });
+  };
+
+  const updateMember = (asset: Asset) => {
+    setMemberState((previous) => previous?.key === memberKey
+      ? { ...previous, assets: previous.assets.map((member) => member.id === asset.id ? asset : member) }
+      : previous);
+  };
+
+  // Member responses are keyed to the current stack revision, including a same-ID refresh.
   useEffect(() => {
-    if (initialViewMode) {
-      setStackViewMode(initialViewMode);
+    const gate = memberGate.current;
+    if (!stackId) {
+      gate.invalidate();
+      return;
     }
-  }, [initialViewMode]);
-
-  // Load stack frames / variations if item is a stack
-  useEffect(() => {
-    setZoomLevel(1);
-    setSelectedFrameIndex(0);
-
-    if (stack) {
-      fetch(`/api/stacks/${stack.id}/assets`)
-        .then((res) => res.json())
-        .then((assets: Asset[]) => {
-          setStackAssets(assets);
-          if (assets.length > 0) {
-            setSelectedVariant(assets[0]);
-          }
-        })
-        .catch((err) => {
-          console.warn('Failed to load stack assets:', err);
-        });
-    } else {
-      setStackAssets([]);
-      setSelectedVariant(null);
-    }
-  }, [item?.id, stack?.id]);
+    const request = gate.begin(memberKey);
+    requestJson(`/api/stacks/${encodeURIComponent(stackId)}/assets`,
+      (value) => expectArray(value, isAsset, 'stack members'), { signal: request.signal })
+      .then((assets) => {
+        if (request.isCurrent(memberKey)) {
+          setMemberState({ key: memberKey, phase: 'ready', assets, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (request.isCurrent(memberKey) && !isAbortError(error)) {
+          setMemberState({ key: memberKey, phase: 'error', assets: [], error: errorMessage(error) });
+        }
+      });
+    return () => gate.invalidate();
+  }, [memberKey, stackId]);
 
   // If item is an individual asset that has a stackId, fetch its parent stack details
   useEffect(() => {
-    if (!isStack && item && (item as Asset).stackId) {
-      fetch(`/api/stacks/${(item as Asset).stackId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.id) {
-            setParentStack({ ...data, isStack: true });
-          }
-        })
-        .catch(() => setParentStack(null));
-    } else {
-      setParentStack(null);
+    const gate = parentGate.current;
+    if (!parentId) {
+      gate.invalidate();
+      return;
     }
-  }, [item?.id, isStack]);
+    const request = gate.begin(parentKey);
+    requestJson(`/api/stacks/${encodeURIComponent(parentId)}`, parseStack, { signal: request.signal })
+      .then((parent) => {
+        if (request.isCurrent(parentKey)) setParentState({ key: parentKey, parent, error: null });
+      })
+      .catch((error: unknown) => {
+        if (request.isCurrent(parentKey) && !isAbortError(error)) {
+          setParentState({ key: parentKey, parent: null, error: errorMessage(error) });
+        }
+      });
+    return () => gate.invalidate();
+  }, [parentId, parentKey]);
 
   useEffect(() => {
     if (!availableTags || availableTags.length === 0) {
@@ -168,12 +226,17 @@ export function Inspector({
     }
   }, [isAddingTag]);
 
+  useEffect(() => () => {
+    memberGate.current.dispose();
+    parentGate.current.dispose();
+  }, []);
+
   if (!item) return null;
 
   // Active content asset when browsing stack members separately or viewing selected frame
   const currentSeparateAsset =
     isStack && stackAssets.length > 0
-      ? stackAssets[selectedFrameIndex] || stackAssets[0]
+      ? stackAssets[currentFrameIndex]
       : selectedVariant || stack?.representativeAsset || (item as Asset);
 
   // Asset to display in metadata section and single preview
@@ -182,7 +245,13 @@ export function Inspector({
       ? (item as Asset)
       : currentSeparateAsset || selectedVariant || stack?.representativeAsset;
 
-  if (!displayedAsset) return null;
+  if (!displayedAsset) {
+    return <div className="p-4 text-xs text-slate-300" role="status">
+      {memberPhase === 'error' ? `Stack members unavailable: ${memberError}`
+        : memberPhase === 'ready' ? 'This stack has no available preview.'
+        : 'Loading preview…'}
+    </div>;
+  }
 
   const isDisplayedImage = displayedAsset.category === 'image';
   const isDisplayedAudio = displayedAsset.category === 'audio';
@@ -245,9 +314,7 @@ export function Inspector({
             (t) => !t.startsWith('bpm:') && t !== displayedAsset.metadata.tempoDescription && t !== detail.result.tempoDescription
           ),
         };
-        if (selectedVariant) {
-          setSelectedVariant(updatedAsset);
-        }
+        updateMember(updatedAsset);
         onAssetUpdated?.(updatedAsset);
       } else {
         showToast('info', 'No Rhythmic Beats', detail?.error || 'Could not detect rhythmic tempo');
@@ -291,9 +358,7 @@ export function Inspector({
           },
           tags: displayedAsset.tags.filter((t) => !t.startsWith('sprite:')),
         };
-        if (selectedVariant) {
-          setSelectedVariant(updatedAsset);
-        }
+        updateMember(updatedAsset);
         onAssetUpdated?.(updatedAsset);
       } else {
         showToast('info', 'Sprite Classification', detail?.error || 'Could not classify sprite');
@@ -338,9 +403,7 @@ export function Inspector({
             ...(detail.tagsAdded || []),
           ],
         };
-        if (selectedVariant) {
-          setSelectedVariant(updatedAsset);
-        }
+        updateMember(updatedAsset);
         onAssetUpdated?.(updatedAsset);
       } else {
         showToast('info', 'Pack Classification', detail?.error || 'Could not classify pack');
@@ -394,13 +457,12 @@ export function Inspector({
 
         const updatedTags = Array.from(new Set([...currentTags, clean]));
         const updatedAsset = { ...displayedAsset, tags: updatedTags };
-        if (selectedVariant) setSelectedVariant(updatedAsset);
-        setStackAssets((prev) =>
-          prev.map((a) => ({
+        setMemberState((previous) => previous?.key === memberKey ? { ...previous,
+          assets: previous.assets.map((a) => ({
             ...a,
             tags: Array.from(new Set([...(a.tags || []), clean])),
-          }))
-        );
+          })),
+        } : previous);
         if (data.stack) {
           onStackUpdated?.({ ...data.stack, isStack: true });
         }
@@ -419,11 +481,9 @@ export function Inspector({
           ...displayedAsset,
           tags: Array.from(new Set([...currentTags, clean])),
         };
-        if (selectedVariant) setSelectedVariant(updatedAsset);
+        updateMember(updatedAsset);
         if (isStack) {
-          setStackAssets((prev) =>
-            prev.map((a) => (a.id === updatedAsset.id ? updatedAsset : a))
-          );
+          updateMember(updatedAsset);
         }
         onAssetUpdated?.(updatedAsset);
       }
@@ -471,13 +531,12 @@ export function Inspector({
 
         const updatedTags = Array.from(new Set([...currentTags, ...uniqueToAdd]));
         const updatedAsset = { ...displayedAsset, tags: updatedTags };
-        if (selectedVariant) setSelectedVariant(updatedAsset);
-        setStackAssets((prev) =>
-          prev.map((a) => ({
+        setMemberState((previous) => previous?.key === memberKey ? { ...previous,
+          assets: previous.assets.map((a) => ({
             ...a,
             tags: Array.from(new Set([...(a.tags || []), ...uniqueToAdd])),
-          }))
-        );
+          })),
+        } : previous);
         if (data.stack) {
           onStackUpdated?.({ ...data.stack, isStack: true });
         }
@@ -496,11 +555,9 @@ export function Inspector({
           ...displayedAsset,
           tags: Array.from(new Set([...currentTags, ...uniqueToAdd])),
         };
-        if (selectedVariant) setSelectedVariant(updatedAsset);
+        updateMember(updatedAsset);
         if (isStack) {
-          setStackAssets((prev) =>
-            prev.map((a) => (a.id === updatedAsset.id ? updatedAsset : a))
-          );
+          updateMember(updatedAsset);
         }
         onAssetUpdated?.(updatedAsset);
       }
@@ -533,15 +590,14 @@ export function Inspector({
           (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
         );
         const updatedAsset = { ...displayedAsset, tags: updatedTags };
-        if (selectedVariant) setSelectedVariant(updatedAsset);
-        setStackAssets((prev) =>
-          prev.map((a) => ({
+        setMemberState((previous) => previous?.key === memberKey ? { ...previous,
+          assets: previous.assets.map((a) => ({
             ...a,
             tags: (a.tags || []).filter(
               (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
             ),
-          }))
-        );
+          })),
+        } : previous);
         if (data.stack) {
           onStackUpdated?.({ ...data.stack, isStack: true });
         }
@@ -560,11 +616,9 @@ export function Inspector({
             (t) => t.replace(/^#/, '').toLowerCase() !== cleanTag.toLowerCase()
           ),
         };
-        if (selectedVariant) setSelectedVariant(updatedAsset);
+        updateMember(updatedAsset);
         if (isStack) {
-          setStackAssets((prev) =>
-            prev.map((a) => (a.id === updatedAsset.id ? updatedAsset : a))
-          );
+          updateMember(updatedAsset);
         }
         onAssetUpdated?.(updatedAsset);
       }
@@ -641,6 +695,14 @@ export function Inspector({
             </button>
           </div>
         )}
+        {parentId && parentError && (
+          <div className="px-4 py-2 text-xs text-amber-300" role="status">
+            Parent stack unavailable: {parentError}
+          </div>
+        )}
+        {parentId && !parentStack && !parentError && (
+          <div className="px-4 py-2 text-xs text-slate-400" role="status">Loading parent stack…</div>
+        )}
 
         {/* Stack Mode Switcher Tabs */}
         {isStack && (
@@ -686,8 +748,15 @@ export function Inspector({
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {isStack && memberPhase === 'loading' ? (
+            <div role="status" className="text-xs text-slate-400">Loading stack members…</div>
+          ) : isStack && memberPhase === 'error' ? (
+            <div role="alert" className="text-xs text-rose-300">Stack members unavailable: {memberError}</div>
+          ) : isStack && stackAssets.length === 0 ? (
+            <div role="status" className="text-xs text-slate-400">This stack has no available members.</div>
+          ) : null}
           {/* Stack View: Animation Flipbook controls */}
-          {isStack && stackViewMode === 'stack' && stack?.type === 'animation' && stackAssets.length > 0 ? (
+          {isStack && stackAssets.length === 0 ? null : isStack && stackViewMode === 'stack' && stack?.type === 'animation' ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-300">Animation Flipbook</span>
@@ -721,15 +790,13 @@ export function Inspector({
                 pixelated={pixelated}
                 checkerboard={checkerboard}
                 initialFps={settings.defaultFps}
-                initialFrameIndex={selectedFrameIndex}
-                selectedFrameIndex={selectedFrameIndex}
-                onSelectFrame={(idx, frame) => {
-                  setSelectedFrameIndex(idx);
-                  setSelectedVariant(frame);
+                initialFrameIndex={currentFrameIndex}
+                selectedFrameIndex={currentFrameIndex}
+                onSelectFrame={(_idx, frame) => {
+                  selectMember(frame);
                 }}
-                onViewFrameSeparately={(frame, idx) => {
-                  setSelectedFrameIndex(idx);
-                  setSelectedVariant(frame);
+                onViewFrameSeparately={(frame) => {
+                  selectMember(frame);
                   setStackViewMode('assets');
                 }}
               />
@@ -741,9 +808,7 @@ export function Inspector({
                 asset={displayedAsset}
                 variants={stackAssets}
                 onSelectVariant={(v) => {
-                  setSelectedVariant(v);
-                  const idx = stackAssets.findIndex((a) => a.id === v.id);
-                  if (idx >= 0) setSelectedFrameIndex(idx);
+                  selectMember(v);
                 }}
               />
             </div>
@@ -755,7 +820,7 @@ export function Inspector({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-xs font-semibold text-slate-200 shrink-0">
-                      {stack?.type === 'animation' ? 'Frame' : 'Asset'} {selectedFrameIndex + 1} of{' '}
+                      {stack?.type === 'animation' ? 'Frame' : 'Asset'} {currentFrameIndex + 1} of{' '}
                       {stackAssets.length}
                     </span>
                     <span
@@ -769,9 +834,8 @@ export function Inspector({
                     <button
                       onClick={() => {
                         const nextIdx =
-                          selectedFrameIndex > 0 ? selectedFrameIndex - 1 : stackAssets.length - 1;
-                        setSelectedFrameIndex(nextIdx);
-                        setSelectedVariant(stackAssets[nextIdx]);
+                          currentFrameIndex > 0 ? currentFrameIndex - 1 : stackAssets.length - 1;
+                        selectMember(stackAssets[nextIdx]);
                       }}
                       title="Previous asset"
                       className="p-1 rounded bg-[#202033] hover:bg-[#2b2b44] text-slate-400 hover:text-white border border-[#2d2d46] transition-colors cursor-pointer"
@@ -781,9 +845,8 @@ export function Inspector({
                     <button
                       onClick={() => {
                         const nextIdx =
-                          selectedFrameIndex + 1 < stackAssets.length ? selectedFrameIndex + 1 : 0;
-                        setSelectedFrameIndex(nextIdx);
-                        setSelectedVariant(stackAssets[nextIdx]);
+                          currentFrameIndex + 1 < stackAssets.length ? currentFrameIndex + 1 : 0;
+                        selectMember(stackAssets[nextIdx]);
                       }}
                       title="Next asset"
                       className="p-1 rounded bg-[#202033] hover:bg-[#2b2b44] text-slate-400 hover:text-white border border-[#2d2d46] transition-colors cursor-pointer"
@@ -796,13 +859,12 @@ export function Inspector({
                 {/* Thumbnails strip */}
                 <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-0.5">
                   {stackAssets.map((assetItem, index) => {
-                    const isCurrent = index === selectedFrameIndex;
+                    const isCurrent = index === currentFrameIndex;
                     return (
                       <button
                         key={assetItem.id}
                         onClick={() => {
-                          setSelectedFrameIndex(index);
-                          setSelectedVariant(assetItem);
+                          selectMember(assetItem);
                         }}
                         className={`relative shrink-0 w-12 h-12 rounded-lg border overflow-hidden p-0.5 transition-all cursor-pointer ${
                           isCurrent
@@ -1026,7 +1088,7 @@ export function Inspector({
               </h4>
               {isStack && stackAssets.length > 0 && (
                 <span className="text-[10px] font-mono text-indigo-400 select-text">
-                  Frame {selectedFrameIndex + 1}/{stackAssets.length}
+                  Frame {currentFrameIndex + 1}/{stackAssets.length}
                 </span>
               )}
             </div>
