@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Asset, AssetStack, AppSettings } from '../shared/types.js';
-import { createDeferredFetch } from '../client/tests/asyncFixtures.js';
+import { createDeferredFetch, deferred } from '../client/tests/asyncFixtures.js';
 import { act, click, mountReact } from '../client/tests/reactDomHarness.js';
 import { Inspector } from '../client/src/components/Inspector.js';
 import { ToastProvider } from '../client/src/components/ToastProvider.js';
@@ -235,5 +235,71 @@ describe('inspector request identity', () => {
     await act(async () => pending.requests[1].resolveJson({ ...original, metadata: {}, tags: [] }));
     expect(onAssetUpdated).toHaveBeenCalledWith(expect.objectContaining({ metadata: {}, tags: [] }), true);
     await view.unmount();
+  });
+});
+
+describe('inspector clipboard', () => {
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  afterEach(() => {
+    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    else Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
+  it('waits for clipboard success and reports permission failure', async () => {
+    const write = deferred<void>();
+    const writeText = vi.fn().mockImplementationOnce(() => write.promise)
+      .mockRejectedValueOnce(new Error('Permission denied'));
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const view = await mountReact(renderInspector(asset('a', 'A')));
+    await click(view.container.querySelector('button[aria-label="Copy name to clipboard"]')!);
+    expect(writeText).toHaveBeenCalledWith('A');
+    expect(view.container.textContent).not.toContain('File Name Copied');
+    await act(async () => write.resolve());
+    expect(view.container.textContent).toContain('File Name Copied');
+    await click(view.container.querySelector('button[aria-label="Copy name to clipboard"]')!);
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain('Permission denied');
+    await view.unmount();
+  });
+
+  it('identifies and copies the virtual location of an archive member', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const member = {
+      ...asset('archive-a', 'a.png'), isArchiveEntry: true,
+      archivePath: '/tmp/pack.zip', archiveEntryPath: 'gfx/a.png',
+      absolutePath: '/tmp/pack.zip', path: 'pack.zip#/gfx/a.png',
+    };
+    const view = await mountReact(renderInspector(member));
+    expect(view.container.textContent).toContain('Archive File');
+    expect(view.container.textContent).toContain('Member in Archive');
+    expect(view.container.textContent).toContain('gfx/a.png');
+    await click(view.container.querySelector('button[aria-label="Copy archive member location"]')!);
+    expect(writeText).toHaveBeenCalledWith('/tmp/pack.zip#/gfx/a.png');
+    await view.unmount();
+  });
+
+  it('reports an unavailable clipboard without a false success', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    const view = await mountReact(renderInspector(asset('a', 'A')));
+    await click(view.container.querySelector('button[aria-label="Copy name to clipboard"]')!);
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain('Clipboard is unavailable');
+    expect(view.container.textContent).not.toContain('File Name Copied');
+    await view.unmount();
+  });
+
+  it('clears copied-state timers when the target changes and unmounts', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const clear = vi.spyOn(globalThis, 'clearTimeout');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const view = await mountReact(renderInspector(asset('a', 'A')));
+    await click(view.container.querySelector('button[aria-label="Copy name to clipboard"]')!);
+    const beforeSwitch = clear.mock.calls.length;
+    await view.render(renderInspector(asset('b', 'B')));
+    expect(clear.mock.calls.length).toBeGreaterThan(beforeSwitch);
+    await click(view.container.querySelector('button[aria-label="Copy name to clipboard"]')!);
+    const beforeUnmount = clear.mock.calls.length;
+    await view.unmount();
+    expect(clear.mock.calls.length).toBeGreaterThan(beforeUnmount);
+    clear.mockRestore();
   });
 });

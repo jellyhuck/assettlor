@@ -73,6 +73,46 @@ function parseClassifierRun(value: unknown): ClassifierRunResult {
   return data as unknown as ClassifierRunResult;
 }
 
+function ClipboardButton({ text, label, successTitle, className, children }: {
+  text: string;
+  label: string;
+  successTitle: string;
+  className: string;
+  children: (copied: boolean) => React.ReactNode;
+}) {
+  const { showToast } = useToast();
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const active = useRef(true);
+
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard is unavailable');
+      await navigator.clipboard.writeText(text);
+      if (!active.current) return;
+      setCopied(true);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1500);
+      showToast('success', successTitle, text);
+    } catch (error: unknown) {
+      if (active.current) showToast('error', 'Copy Failed', errorMessage(error));
+    }
+  };
+
+  return <button type="button" onClick={() => { void handleCopy(); }}
+    title={copied ? 'Copied!' : label} aria-label={label} className={className}>
+    {children(copied)}
+  </button>;
+}
+
 interface InspectorProps {
   item: Asset | (AssetStack & { isStack: true }) | null;
   onClose: () => void;
@@ -134,18 +174,8 @@ export function Inspector({
   const [localAvailableTags, setLocalAvailableTags] = useState<TagInfo[]>([]);
   const [failedImageIds, setFailedImageIds] = useState<Set<string>>(() => new Set());
   const tagInputRef = useRef<HTMLInputElement | null>(null);
-  const [copiedName, setCopiedName] = useState(false);
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const memberGate = useRef(createRequestGate());
   const parentGate = useRef(createRequestGate());
-
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const isStack = Boolean(item && 'isStack' in item && item.isStack);
   const stack = isStack ? (item as AssetStack & { isStack: true }) : null;
@@ -290,6 +320,13 @@ export function Inspector({
 
   const isDisplayedImage = displayedAsset.category === 'image';
   const isDisplayedAudio = displayedAsset.category === 'audio';
+  const displayedName = isStack && stackViewMode === 'stack' ? stack?.name || displayedAsset.name : displayedAsset.name;
+  const archiveFilePath = displayedAsset.archivePath || displayedAsset.absolutePath;
+  const archiveMemberPath = displayedAsset.archiveEntryPath
+    || displayedAsset.path.split('#/')[1] || displayedAsset.path;
+  const locationToCopy = displayedAsset.isArchiveEntry
+    ? `${archiveFilePath}#/${archiveMemberPath.replace(/^\//, '')}`
+    : displayedAsset.absolutePath;
 
   const formatBytes = (bytes?: number) => {
     if (!bytes || bytes === 0) return '0 B';
@@ -297,24 +334,6 @@ export function Inspector({
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-  };
-
-  const copyPathToClipboard = () => {
-    navigator.clipboard.writeText(displayedAsset.absolutePath);
-    showToast('success', 'Path Copied', displayedAsset.absolutePath);
-  };
-
-  const copyNameToClipboard = (nameToCopy?: string) => {
-    const name = nameToCopy || displayedAsset.name;
-    navigator.clipboard.writeText(name);
-    setCopiedName(true);
-    if (copyTimeoutRef.current) {
-      clearTimeout(copyTimeoutRef.current);
-    }
-    copyTimeoutRef.current = setTimeout(() => {
-      setCopiedName(false);
-    }, 1500);
-    showToast('success', 'File Name Copied', name);
   };
 
   const handleRunClassifier = async (kind: 'bpm' | 'sprite' | 'pack') => {
@@ -493,26 +512,20 @@ export function Inspector({
             ) : (
               <MusicPlateIcon className="w-4 h-4 shrink-0" />
             )}
-            <span className="text-xs font-semibold text-slate-100 truncate">
-              {isStack && stackViewMode === 'stack' ? stack?.name : displayedAsset.name}
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                copyNameToClipboard(
-                  isStack && stackViewMode === 'stack' ? stack?.name : displayedAsset.name
-                )
-              }
-              title={copiedName ? 'Copied!' : 'Copy name to clipboard'}
-              aria-label="Copy name to clipboard"
+            <span className="text-xs font-semibold text-slate-100 truncate">{displayedName}</span>
+            <ClipboardButton
+              key={`${itemKey}|${revision ?? ''}|name|${displayedName}`}
+              text={displayedName}
+              label="Copy name to clipboard"
+              successTitle="File Name Copied"
               className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#252538] transition-colors cursor-pointer shrink-0"
             >
-              {copiedName ? (
+              {(copied) => copied ? (
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
               ) : (
                 <Copy className="w-3.5 h-3.5" />
               )}
-            </button>
+            </ClipboardButton>
             {isStack && (
               <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-950/70 text-indigo-300 border border-indigo-500/30 shrink-0">
                 {stack?.itemCount} items
@@ -920,13 +933,16 @@ export function Inspector({
                   : 'Copy to Project'}
               </span>
             </button>
-            <button
-              onClick={copyPathToClipboard}
+            <ClipboardButton
+              key={`${itemKey}|${revision ?? ''}|location|${locationToCopy}`}
+              text={locationToCopy}
+              label={displayedAsset.isArchiveEntry ? 'Copy archive member location' : 'Copy file path'}
+              successTitle={displayedAsset.isArchiveEntry ? 'Member Location Copied' : 'Path Copied'}
               className="flex items-center justify-center gap-1.5 px-3 py-2 bg-[#202033] hover:bg-[#2b2b44] text-slate-200 border border-[#30304a] rounded-lg text-xs font-medium transition-all cursor-pointer truncate"
             >
-              <Folder className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              <span className="truncate">Copy Path</span>
-            </button>
+              {() => <><Folder className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="truncate">{displayedAsset.isArchiveEntry ? 'Copy Member Location' : 'Copy Path'}</span></>}
+            </ClipboardButton>
           </div>
 
           {/* Metadata Section */}
@@ -951,19 +967,19 @@ export function Inspector({
                   >
                     {displayedAsset.name}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => copyNameToClipboard(displayedAsset.name)}
-                    title={copiedName ? 'Copied!' : 'Copy file name to clipboard'}
-                    aria-label="Copy file name to clipboard"
+                  <ClipboardButton
+                    key={`${itemKey}|${revision ?? ''}|file-name|${displayedAsset.name}`}
+                    text={displayedAsset.name}
+                    label="Copy file name to clipboard"
+                    successTitle="File Name Copied"
                     className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#252538] transition-colors cursor-pointer shrink-0"
                   >
-                    {copiedName ? (
+                    {(copied) => copied ? (
                       <Check className="w-3.5 h-3.5 text-emerald-400" />
                     ) : (
                       <Copy className="w-3.5 h-3.5" />
                     )}
-                  </button>
+                  </ClipboardButton>
                 </div>
               </div>
 
@@ -1408,14 +1424,22 @@ export function Inspector({
             )}
           </div>
 
-          {/* Filesystem Path */}
+          {/* Filesystem and virtual archive locations */}
           <div className="space-y-1.5 pt-2 border-t border-[#25253c]">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Filesystem Location
+              {displayedAsset.isArchiveEntry ? 'Archive File' : 'Filesystem Location'}
             </span>
             <div className="p-2 bg-[#12121d] border border-[#28283e] rounded text-[11px] font-mono text-slate-400 break-all select-text">
-              {displayedAsset.absolutePath}
+              {archiveFilePath}
             </div>
+            {displayedAsset.isArchiveEntry && <>
+              <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider pt-1">
+                Member in Archive
+              </span>
+              <div className="p-2 bg-[#12121d] border border-[#28283e] rounded text-[11px] font-mono text-slate-400 break-all select-text">
+                {archiveMemberPath}
+              </div>
+            </>}
           </div>
         </div>
       </div>
