@@ -1,38 +1,3 @@
-import React from 'react';
-
-/**
- * Computes color transition based on BPM:
- * - Low BPM (<= 60): Teal rgb(121, 204, 191)
- * - Mid BPM (120): Purple rgb(168, 85, 247)
- * - High BPM (>= 180): Red rgb(239, 68, 68)
- * - Linear transition from teal through purple in the middle up to red for high BPM values.
- */
-export function getBpmColor(bpm?: number | null): string {
-  if (bpm === undefined || bpm === null || isNaN(bpm)) {
-    return 'rgb(121, 204, 191)'; // default teal
-  }
-  const minBpm = 60;
-  const maxBpm = 180;
-  const t = Math.max(0, Math.min(1, (bpm - minBpm) / (maxBpm - minBpm)));
-
-  let r: number, g: number, b: number;
-  if (t <= 0.5) {
-    // 0 to 0.5: Teal (121, 204, 191) -> Purple (168, 85, 247)
-    const factor = t / 0.5;
-    r = Math.round(121 + factor * (168 - 121));
-    g = Math.round(204 + factor * (85 - 204));
-    b = Math.round(191 + factor * (247 - 191));
-  } else {
-    // 0.5 to 1.0: Purple (168, 85, 247) -> Red (239, 68, 68)
-    const factor = (t - 0.5) / 0.5;
-    r = Math.round(168 + factor * (239 - 168));
-    g = Math.round(85 + factor * (68 - 85));
-    b = Math.round(247 + factor * (68 - 247));
-  }
-
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
 /**
  * Sound Icon: Symmetrical alert bell with sound vibration arcs for short sounds (<= 5s).
  */
@@ -41,6 +6,8 @@ export function SoundIcon({ className = 'w-4 h-4' }: { className?: string }) {
     <svg
       viewBox="0 0 512 512"
       className={className}
+      aria-hidden="true"
+      focusable="false"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -123,7 +90,6 @@ export function SoundIcon({ className = 'w-4 h-4' }: { className?: string }) {
  */
 export function MusicPlateIcon({
   className = 'w-4 h-4',
-  bpm,
 }: {
   className?: string;
   bpm?: number | null;
@@ -132,6 +98,8 @@ export function MusicPlateIcon({
     <svg
       viewBox="0 0 1024 1024"
       className={className}
+      aria-hidden="true"
+      focusable="false"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -208,4 +176,3 @@ export function AudioAssetIcon({
 }
 
 export { MusicPlateIcon as MusicIcon };
-
