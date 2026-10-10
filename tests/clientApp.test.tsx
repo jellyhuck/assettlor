@@ -309,6 +309,45 @@ describe('App catalog and live request lifecycle', () => {
     expect(FakeEventSource.instances[1].closed).toBe(false);
   });
 
+  it('guards scan start and cancel requests until the terminal cancellation event', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    const source = FakeEventSource.instances[0];
+
+    await click(button('Start scan'));
+    await click(button('Start scan'));
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    const start = requests('/api/scan/start')[0];
+    expect(start.init?.method).toBe('POST');
+    expect(JSON.parse(String(start.init?.body))).toEqual({
+      libraryPath: '/tmp/library', libraryPaths: ['/tmp/library'],
+    });
+    expect(view!.container.querySelector('[data-testid="scan-state"]')?.textContent).toBe('idle:start');
+    await click(button('Cancel scan'));
+    expect(requests('/api/scan/cancel')).toHaveLength(0);
+
+    await act(async () => { start.resolveJson({ message: 'Scan started' }); });
+    await act(async () => { source.emit(scanEvent('scanning', 31)); });
+    await click(button('Start scan'));
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    await click(button('Cancel scan'));
+    await click(button('Cancel scan'));
+    expect(requests('/api/scan/cancel')).toHaveLength(1);
+    const cancel = requests('/api/scan/cancel')[0];
+    expect(cancel.init?.method).toBe('POST');
+    expect(view!.container.querySelector('[data-testid="scan-state"]')?.textContent).toBe('scanning:cancel');
+
+    await act(async () => { cancel.resolveJson({ message: 'Cancellation requested' }); });
+    expect(view!.container.querySelector('[data-testid="scan-state"]')?.textContent).toBe('scanning:cancel');
+    const catalogCount = catalogRequests().length;
+    await act(async () => { source.emit({ ...scanEvent('idle', 31), message: 'Scan cancelled' }); });
+    expect(view!.container.querySelector('[data-testid="scan-state"]')?.textContent).toBe('idle:ready');
+    expect(view!.container.textContent).toContain('Library Scan Cancelled');
+    expect(catalogRequests()).toHaveLength(catalogCount + 1);
+    await act(async () => { source.emit({ ...scanEvent('idle', 31), message: 'Scan cancelled' }); });
+    expect(catalogRequests()).toHaveLength(catalogCount + 1);
+  });
+
   it('shows catalog HTTP, JSON, and item-shape failures with a retry path', async () => {
     await mount();
     await act(async () => {
