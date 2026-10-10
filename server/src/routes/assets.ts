@@ -19,6 +19,7 @@ import {
 import { copyAssetToProject } from '../services/copier.js';
 import { getZipEntryBuffer } from '../services/archive.js';
 import { getAudioMimeType } from '../services/audio.js';
+import { planAssetResponse } from './assetRange.js';
 import type {
   CopyAssetRequest,
   AssetQueryParams,
@@ -94,69 +95,39 @@ export async function assetsRoutes(fastify: FastifyInstance) {
 
     const mimeType = getMimeTypeForExtension(asset.extension);
 
+    let archiveBuffer: Buffer | undefined;
+    let totalSize: number;
     if (asset.isArchiveEntry && asset.archivePath && asset.archiveEntryPath) {
-      // Archive virtual file
-      const buffer = getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath);
-      if (!buffer) {
+      archiveBuffer = getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath) ?? undefined;
+      if (!archiveBuffer) {
         return reply.status(404).send({ error: 'Entry not found in archive' });
       }
-
-      const totalSize = buffer.length;
-      const range = req.headers.range;
-
-      reply.header('Accept-Ranges', 'bytes');
-      reply.header('Content-Type', mimeType);
-
-      if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-
-        if (start >= totalSize || end >= totalSize) {
-          reply.header('Content-Range', `bytes */${totalSize}`);
-          return reply.status(416).send('Requested Range Not Satisfiable');
-        }
-
-        const chunk = buffer.subarray(start, end + 1);
-        reply.header('Content-Range', `bytes ${start}-${end}/${totalSize}`);
-        reply.header('Content-Length', chunk.length);
-        return reply.status(206).send(chunk);
+      totalSize = archiveBuffer.length;
+    } else {
+      // Virtual ZIP paths must not be passed to filesystem APIs.
+      if (!fs.existsSync(asset.absolutePath)) {
+        return reply.status(404).send({ error: 'File missing on disk' });
       }
-
-      reply.header('Content-Length', totalSize);
-      return reply.send(buffer);
+      totalSize = (await fs.promises.stat(asset.absolutePath)).size;
     }
 
-    // Regular file on disk
-    if (!fs.existsSync(asset.absolutePath)) {
-      return reply.status(404).send({ error: 'File missing on disk' });
-    }
-
-    const stat = await fs.promises.stat(asset.absolutePath);
-    const totalSize = stat.size;
-    const range = req.headers.range;
-
+    const plan = planAssetResponse(totalSize, req.headers.range);
     reply.header('Accept-Ranges', 'bytes');
     reply.header('Content-Type', mimeType);
+    reply.header('Content-Length', plan.contentLength);
+    if (plan.contentRange) reply.header('Content-Range', plan.contentRange);
+    if (plan.status === 416) return reply.status(416).send(Buffer.alloc(0));
 
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-
-      if (start >= totalSize || end >= totalSize) {
-        reply.header('Content-Range', `bytes */${totalSize}`);
-        return reply.status(416).send('Requested Range Not Satisfiable');
-      }
-
-      reply.header('Content-Range', `bytes ${start}-${end}/${totalSize}`);
-      reply.header('Content-Length', end - start + 1);
-      reply.status(206);
-      return reply.send(fs.createReadStream(asset.absolutePath, { start, end }));
+    reply.status(plan.status);
+    if (archiveBuffer) {
+      const content = plan.status === 206
+        ? archiveBuffer.subarray(plan.start, plan.end + 1)
+        : archiveBuffer;
+      return reply.send(content);
     }
-
-    reply.header('Content-Length', totalSize);
-    return reply.send(fs.createReadStream(asset.absolutePath));
+    return reply.send(plan.status === 206
+      ? fs.createReadStream(asset.absolutePath, { start: plan.start, end: plan.end })
+      : fs.createReadStream(asset.absolutePath));
   });
 
   // Get all tags
