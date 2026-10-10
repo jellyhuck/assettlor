@@ -137,10 +137,11 @@ function FolderBrowserSession({ onClose, onSelect, initialPath, title }: Omit<Fo
 
   const loaded = !state.loading && !state.error ? state.result : null;
   const displayedPath = loaded?.currentPath ?? state.requestedPath ?? 'Default directory';
+  const backPath = loaded?.parentPath ?? (!loaded ? state.result?.currentPath : null);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
       onMouseDown={(event) => { if (isBackdropPress(event.target, event.currentTarget)) onClose(); }}
     >
       <div
@@ -149,7 +150,7 @@ function FolderBrowserSession({ onClose, onSelect, initialPath, title }: Omit<Fo
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="bg-[#181828] border border-[#2e2e48] rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden text-slate-200"
+        className="bg-[#181828] border border-[#2e2e48] rounded-xl shadow-2xl w-full max-w-2xl h-[30rem] max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden text-slate-200"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2a2a44] bg-[#141422]">
           <div className="flex items-center gap-2.5">
@@ -167,10 +168,10 @@ function FolderBrowserSession({ onClose, onSelect, initialPath, title }: Omit<Fo
         </div>
 
         <div className="px-5 py-3 border-b border-[#25253c] bg-[#1a1a2e] flex items-center gap-2">
-          {state.result?.parentPath && (
+          {backPath && (
             <button
-              onClick={() => void loadDirectory(state.result?.parentPath ?? undefined)}
-              aria-label="Go to parent directory"
+              onClick={() => void loadDirectory(backPath)}
+              aria-label={loaded ? 'Go to parent directory' : 'Return to previous directory'}
               className="p-1.5 rounded bg-[#25253e] hover:bg-[#323254] text-slate-300 hover:text-white transition-colors cursor-pointer"
             >
               <CornerLeftUp className="w-4 h-4" />
@@ -181,7 +182,7 @@ function FolderBrowserSession({ onClose, onSelect, initialPath, title }: Omit<Fo
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-1 min-h-[300px]" aria-busy={state.loading}>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-1" aria-busy={state.loading}>
           {state.loading ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-slate-400" role="status">
               <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />

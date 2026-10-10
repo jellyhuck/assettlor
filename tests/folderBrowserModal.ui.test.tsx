@@ -65,21 +65,21 @@ describe('FolderBrowserModal loaded-folder selection', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('ignores an older navigation after a parent request wins', async () => {
+  it('returns to the last loaded folder without skipping a level', async () => {
     await open('/library');
     await resolve(0, listing('/library', [{ name: 'child', path: '/library/child' }]));
     await click(button('child'));
     expect(button('Choose Folder').disabled).toBe(true);
     expect(view!.container.textContent).toContain('Opening: /library/child');
-    await click(button('Go to parent directory'));
+    await click(button('Return to previous directory'));
     expect(fetchQueue.requests[1].init?.signal?.aborted).toBe(true);
     expect(button('Choose Folder').disabled).toBe(true);
-    await resolve(2, listing('/'));
+    await resolve(2, listing('/library', [{ name: 'child', path: '/library/child' }]));
     await resolve(1, listing('/library/child'));
-    expect(view!.container.textContent).toContain('Selected: /');
+    expect(view!.container.textContent).toContain('Selected: /library');
     expect(view!.container.textContent).not.toContain('Selected: /library/child');
     await click(button('Choose Folder'));
-    expect(onSelect).toHaveBeenCalledExactlyOnceWith('/');
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith('/library');
   });
 
   it('resets on an initialPath change and ignores the old response', async () => {
