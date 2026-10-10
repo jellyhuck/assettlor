@@ -267,5 +267,47 @@ describe('App catalog and live request lifecycle', () => {
     expect(view!.container.querySelector('[data-testid="loaded-count"]')?.textContent).toBe('1/1');
   });
 
+  it('keeps one stream through query edits and notifies once per observed scan', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const source = FakeEventSource.instances[0];
+    await act(async () => { source.emit(scanEvent('completed', 7)); });
+    expect(view!.container.textContent).not.toContain('Library Scan Completed');
+
+    await click(button('Audio category'));
+    await act(async () => { latestCatalog().resolveJson(catalogPage([], 1, 0)); });
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    await act(async () => { source.emit(scanEvent('scanning', 8)); });
+    await act(async () => { source.emit(scanEvent('completed', 8)); });
+    const catalogCount = catalogRequests().length;
+    const tagsCount = requests('/api/tags').length;
+    expect(view!.container.textContent).toContain('Library Scan Completed');
+    await act(async () => { source.emit(scanEvent('completed', 8)); });
+    await act(async () => { source.fail(); });
+    expect(view!.container.textContent).toContain('Scan updates disconnected');
+    await act(async () => { source.open(); source.emit(scanEvent('completed', 8)); });
+    expect(view!.container.textContent).not.toContain('Scan updates disconnected');
+    expect(catalogRequests()).toHaveLength(catalogCount);
+    expect(requests('/api/tags')).toHaveLength(tagsCount);
+    expect(view!.container.textContent?.match(/Library Scan Completed/g)).toHaveLength(1);
+
+    await act(async () => { source.emit(scanEvent('scanning', 9)); });
+    await act(async () => { source.emit(scanEvent('completed', 9)); });
+    expect(view!.container.textContent?.match(/Library Scan Completed/g)).toHaveLength(2);
+  });
+
+  it('closes the StrictMode setup stream and keeps the active one stable', async () => {
+    await mount(true);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[0].closed).toBe(true);
+    await resolveBootstrap([], 0);
+    await click(button('Audio category'));
+    expect(FakeEventSource.instances).toHaveLength(2);
+    await act(async () => { latestCatalog().resolveJson(catalogPage([], 1, 0)); });
+    expect(FakeEventSource.instances[1].closed).toBe(false);
+  });
+
 
 });
