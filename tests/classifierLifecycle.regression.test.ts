@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import bmp from 'bmp-js';
+import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addAssetTags,
@@ -14,6 +16,8 @@ import { runClassifier } from '../server/src/services/classifiers/engine.js';
 import { packClassifier } from '../server/src/services/classifiers/packClassifier.js';
 import { spriteClassifier } from '../server/src/services/classifiers/spriteClassifier.js';
 import type { Classifier } from '../server/src/services/classifiers/types.js';
+import { processImageBuffer } from '../server/src/services/image.js';
+import { IMAGE_THUMBNAIL_SPEC } from '../server/src/services/processingFingerprint.js';
 import {
   cleanupTempDir,
   createTempDir,
@@ -305,6 +309,125 @@ describe('Classifier result lifecycle', () => {
     expect(second.noResultCount).toBe(1);
     expect(getAssetById('sprite')?.metadata.spriteType).not.toBe('character');
     expect(tagSources('sprite', 'sprite:character')).toEqual(['user']);
+  });
+
+  it('extracts equivalent visual features from PNG, BMP, and TGA images', async () => {
+    const width = 32;
+    const height = 32;
+    const rgba = Buffer.alloc(width * height * 4);
+    const bmpAbgr = Buffer.alloc(width * height * 4);
+    const tgaPixels = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const rgbaOffset = (y * width + x) * 4;
+        const tgaOffset = (y * width + x) * 3;
+        const red = (x * 7) & 255;
+        const green = (y * 7) & 255;
+        const blue = ((x + y) * 3) & 255;
+        rgba[rgbaOffset] = red;
+        rgba[rgbaOffset + 1] = green;
+        rgba[rgbaOffset + 2] = blue;
+        rgba[rgbaOffset + 3] = 255;
+        // bmp-js accepts ABGR input and encodes 24-bit BGR pixels.
+        bmpAbgr[rgbaOffset] = 255;
+        bmpAbgr[rgbaOffset + 1] = blue;
+        bmpAbgr[rgbaOffset + 2] = green;
+        bmpAbgr[rgbaOffset + 3] = red;
+        tgaPixels[tgaOffset] = blue;
+        tgaPixels[tgaOffset + 1] = green;
+        tgaPixels[tgaOffset + 2] = red;
+      }
+    }
+    const tgaHeader = Buffer.alloc(18);
+    tgaHeader[2] = 2;
+    tgaHeader.writeUInt16LE(width, 12);
+    tgaHeader.writeUInt16LE(height, 14);
+    tgaHeader[16] = 24;
+    tgaHeader[17] = 0x20;
+    const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
+    const formats = [
+      { extension: '.png', buffer: png },
+      { extension: '.bmp', buffer: bmp.encode({ data: bmpAbgr, width, height }).data },
+      { extension: '.tga', buffer: Buffer.concat([tgaHeader, tgaPixels]) },
+    ];
+    const visualStep = spriteClassifier.steps.find((step) => step.id === 'analyze-visual-features');
+    expect(visualStep).toBeDefined();
+    const scores = [];
+    const normalizedPixels: Buffer[] = [];
+
+    for (const format of formats) {
+      const id = format.extension.slice(1);
+      upsertAsset({
+        id,
+        path: `solid${format.extension}`,
+        absolutePath: path.join(tempDir, `solid${format.extension}`),
+        name: `solid${format.extension}`,
+        extension: format.extension,
+        category: 'image',
+        size: format.buffer.length,
+        mtime: 1,
+        hash: id,
+        isArchiveEntry: false,
+      });
+      const asset = getAssetById(id)!;
+      const intermediate = spriteClassifier.createIntermediateState(asset, spriteClassifier.defaultSettings);
+      await visualStep!.execute({
+        asset,
+        buffer: format.buffer,
+        settings: spriteClassifier.defaultSettings,
+        intermediate,
+      });
+      expect(intermediate.error).toBeUndefined();
+      expect(intermediate.visualScores).toBeDefined();
+      scores.push(intermediate.visualScores);
+
+      const normalized = await processImageBuffer(format.buffer, format.extension);
+      normalizedPixels.push(await sharp(normalized.thumbnailBuffer).removeAlpha().raw().toBuffer());
+    }
+
+    expect(scores[1]).toEqual(scores[0]);
+    expect(scores[2]).toEqual(scores[0]);
+    for (const pixels of normalizedPixels.slice(1)) {
+      const meanDifference = pixels.reduce((sum, channel, index) =>
+        sum + Math.abs(channel - normalizedPixels[0][index]), 0) / pixels.length;
+      expect(meanDifference).toBeLessThan(5);
+    }
+  });
+
+  it('normalizes a large image to bounded pixels before sprite analysis', async () => {
+    const width = 1600;
+    const height = 1200;
+    const png = await sharp({
+      create: { width, height, channels: 4, background: { r: 128, g: 0, b: 255, alpha: 1 } },
+    }).png().toBuffer();
+    const normalized = await processImageBuffer(png, '.png');
+    const thumbnail = await sharp(normalized.thumbnailBuffer).metadata();
+    expect(thumbnail.width).toBeLessThanOrEqual(IMAGE_THUMBNAIL_SPEC.width);
+    expect(thumbnail.height).toBeLessThanOrEqual(IMAGE_THUMBNAIL_SPEC.height);
+
+    upsertAsset({
+      id: 'large',
+      path: 'large.png',
+      absolutePath: path.join(tempDir, 'large.png'),
+      name: 'large.png',
+      extension: '.png',
+      category: 'image',
+      size: png.length,
+      mtime: 1,
+      hash: 'large-v1',
+      isArchiveEntry: false,
+    });
+    const asset = getAssetById('large')!;
+    const intermediate = spriteClassifier.createIntermediateState(asset, spriteClassifier.defaultSettings);
+    const visualStep = spriteClassifier.steps.find((step) => step.id === 'analyze-visual-features');
+    await visualStep!.execute({
+      asset,
+      buffer: png,
+      settings: spriteClassifier.defaultSettings,
+      intermediate,
+    });
+    expect(intermediate.error).toBeUndefined();
+    expect(intermediate.visualScores).toBeDefined();
   });
 
   it('does not persist a delayed result over a newer indexed asset revision', async () => {

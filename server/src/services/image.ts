@@ -138,7 +138,14 @@ export async function processImageBuffer(
   if (ext === '.bmp') {
     try {
       const bmpData = bmp.decode(buffer);
-      const rawBuf = Buffer.from(bmpData.data);
+      // bmp-js exposes ABGR bytes, while Sharp's four-channel raw input is RGBA.
+      const rawBuf = Buffer.alloc(bmpData.data.length);
+      for (let i = 0; i < rawBuf.length; i += 4) {
+        rawBuf[i] = bmpData.data[i + 3];
+        rawBuf[i + 1] = bmpData.data[i + 2];
+        rawBuf[i + 2] = bmpData.data[i + 1];
+        rawBuf[i + 3] = bmpData.bitPP === 32 ? bmpData.data[i] : 255;
+      }
 
       const sharpInstance = sharp(rawBuf, {
         raw: {
