@@ -373,6 +373,21 @@ describe('App catalog and live request lifecycle', () => {
     expect(itemIds()).toEqual(['asset-1']);
   });
 
+  it('retries a network failure without showing an old query as current', async () => {
+    await mount();
+    await resolveBootstrap([asset(1, 'Old result')], 1);
+    await click(button('Search gem'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 220)); });
+    expect(query(latestCatalog(), 'search')).toBe('gem');
+    await act(async () => { latestCatalog().response.reject(new TypeError('Network unavailable')); });
+    expect(view!.container.textContent).toContain('Network unavailable');
+    expect(itemIds()).toEqual([]);
+
+    await click(button('Retry results'));
+    await act(async () => { latestCatalog().resolveJson(catalogPage([asset(2, 'Fresh result')], 1, 1)); });
+    expect(itemIds()).toEqual(['asset-2']);
+  });
+
   it('keeps settings and facets failures out of typed Sidebar state', async () => {
     await mount();
     await act(async () => {

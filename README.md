@@ -29,7 +29,7 @@
   - **Images**: Zoom controls, checkerboard transparency toggle, Nearest-Neighbor (pixel art) vs Bilinear smooth scaling. Drag-to-pan is not implemented.
   - **Audio**: Interactive waveform visualization powered by `wavesurfer.js`, seeking, looping, volume, and variation tabs.
   - **Metadata**: Dimensions, channels, sample rate, bitrate, format, file size, filesystem path, tags.
-- **Gallery Grid**: Responsive card grid with quick copy, audio preview, and animation flipbook on hover. The client currently loads the first 100 matching items and renders them directly; it has no pagination controls or grid virtualization.
+- **Gallery Grid**: Responsive virtualized grid and list with quick copy, audio preview, and animation flipbook on hover. The client loads results 100 at a time with a **Load more** action and a retry for failed pages.
 
 ### 5. "Copy to Game Project" Workflow
 - Configure an **Active Game Project** destination path in Settings.
@@ -90,12 +90,14 @@ The Fastify server serves both the REST/SSE API and the compiled React productio
 ### 5. Run Verification Pipeline Tests
 ```bash
 npm test
+npm run test:client
 npm --prefix client run lint
 npm run build
 npm run typecheck:server
 ```
 
-Run all four checks with `npm run verify`.
+`npm run test:client` runs the React interaction tests. Run the full test, lint,
+build, and server type-check set with `npm run verify`.
 
 Run the isolated scanner-to-copy integration check with `npm run test:pipeline`.
 

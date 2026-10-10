@@ -104,5 +104,6 @@ A navigation and reference guide for understanding subsystem implementations and
 ## 5. Verification and current UI limits
 
 - Run `npm run verify` for `npm test`, client lint, client build, and `npm run typecheck:server`. The build command alone does not type-check the server.
+- Run `npm run test:client` for the React DOM interaction tests with deferred fetch and EventSource fixtures.
 - Run `npm run test:pipeline` for the isolated scanner → stacker → query → copy check.
-- The React client currently requests at most the first 100 matching assets and renders the cards directly. The API accepts `page` and `limit`, but the client has no pagination controls or grid virtualization. The inspector supports image zoom controls, but no drag-to-pan interaction.
+- The React client pages through all matching assets with **Load more** and virtualizes grid and list rows. The inspector supports image zoom controls, but no drag-to-pan interaction.
