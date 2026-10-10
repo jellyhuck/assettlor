@@ -19,12 +19,12 @@ import {
 import { CopyError, copyAssetToProject } from '../services/copier.js';
 import { getZipEntryBuffer } from '../services/archive.js';
 import { getAudioMimeType } from '../services/audio.js';
+import { AssetQueryValidationError, requireAssetQuery } from '../services/assetQueryValidation.js';
 import { planAssetResponse } from './assetRange.js';
 import { parseCopyRequest } from './copyValidation.js';
 import { parseBatchTagMutation, parseTagMutation, parseTagName } from './tagValidation.js';
 import type {
   CopyAssetRequest,
-  AssetQueryParams,
   AddAssetTagsRequest,
   RemoveAssetTagsRequest,
   SetAssetTagsRequest,
@@ -61,12 +61,16 @@ function isFileSystemError(error: unknown): boolean {
 
 export async function assetsRoutes(fastify: FastifyInstance) {
   // Query assets list
-  fastify.get('/api/assets', async (req: FastifyRequest<{ Querystring: AssetQueryParams }>, reply) => {
+  fastify.get('/api/assets', async (req: FastifyRequest<{ Querystring: Record<string, unknown> }>, reply) => {
     try {
-      const result = queryAssets(req.query);
+      const result = queryAssets(requireAssetQuery(req.query));
       return reply.send(result);
-    } catch (err: any) {
-      return reply.status(500).send({ error: err.message });
+    } catch (err) {
+      if (err instanceof AssetQueryValidationError) {
+        return reply.status(400).send({ error: err.message, details: err.details });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to query assets';
+      return reply.status(500).send({ error: message });
     }
   });
 

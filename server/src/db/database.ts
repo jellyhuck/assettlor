@@ -37,6 +37,7 @@ import {
   parseDurationClause,
 } from '../services/filterParser.js';
 import { canonicalAssetId } from '../services/assetIdentity.js';
+import { requireAssetQuery } from '../services/assetQueryValidation.js';
 
 let dbInstance: Database.Database | null = null;
 let currentDataDir: string = '';
@@ -983,10 +984,12 @@ export function reconcileScannedAssets(
 }
 
 export function queryAssets(params: AssetQueryParams): AssetListResponse {
+  const query = requireAssetQuery(params);
+  params = query;
   const db = getDatabase();
-  const isStackedView = params.isStackedView !== false && String(params.isStackedView) !== 'false';
-  const page = Math.max(1, Number(params.page) || 1);
-  const limit = Math.max(1, Math.min(200, Number(params.limit) || 60));
+  const isStackedView = params.isStackedView !== false;
+  const page = query.page;
+  const limit = query.limit;
   const offset = (page - 1) * limit;
 
   // Compute summary stats first
@@ -1184,7 +1187,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     FROM assets a
     LEFT JOIN stacks s ON a.stack_id = s.id
     ${whereClause}
-    ORDER BY ${sortField} ${sortOrder}
+    ORDER BY ${sortField} ${sortOrder}, a.id ASC
     LIMIT ? OFFSET ?
   `;
 
