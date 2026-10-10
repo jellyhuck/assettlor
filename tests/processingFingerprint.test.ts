@@ -51,7 +51,7 @@ describe('processing fingerprint', () => {
     for (const change of changes) {
       expect(fingerprintThumbnailProcessing({ ...base, ...change })).not.toBe(current);
     }
-    expect(AUDIO_THUMBNAIL_SPEC.rendererVersion).toBe(4);
+    expect(AUDIO_THUMBNAIL_SPEC.rendererVersion).toBe(5);
   });
 
   it('validates quality at the fingerprint and media boundaries', async () => {

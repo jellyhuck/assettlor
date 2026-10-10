@@ -25,6 +25,8 @@ export interface AudioMetadata {
   bpm?: number;
   tempoDescription?: string;
   audioThumbnailVersion?: number;
+  audioMetadataStatus?: 'complete' | 'partial' | 'failed';
+  audioMetadataError?: string;
 }
 
 export type AssetMetadata = ImageMetadata & AudioMetadata & {

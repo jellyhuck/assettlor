@@ -96,8 +96,9 @@ export async function generateAudioThumbnail(
 ): Promise<Buffer> {
   const width = AUDIO_THUMBNAIL_SPEC.width;
   const height = AUDIO_THUMBNAIL_SPEC.height;
-  const isSound = duration !== undefined && duration <= 5;
-  const durationStr = duration
+  const hasDuration = duration !== undefined && Number.isFinite(duration) && duration >= 0;
+  const isSound = hasDuration && duration <= 5;
+  const durationStr = hasDuration
     ? `${Math.floor(duration / 60)}:${Math.floor(duration % 60).toString().padStart(2, '0')}`
     : '';
 
@@ -219,40 +220,72 @@ export async function generateAudioThumbnail(
     .toBuffer();
 }
 
-export async function processAudioFile(
-  filePath: string,
-  quality = DEFAULT_THUMBNAIL_QUALITY
-): Promise<AudioProcessingResult> {
-  const ext = path.extname(filePath);
-  const name = path.basename(filePath);
-  let metadata: AudioMetadata = {};
+type ParsedAudio = Awaited<ReturnType<typeof mm.parseBuffer>>;
 
+function usefulNumber(value: number | undefined, minimum = 0): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value >= minimum ? value : undefined;
+}
+
+function extractAudioMetadata(parsed: ParsedAudio): AudioMetadata {
+  const metadata: AudioMetadata = {
+    audioThumbnailVersion: AUDIO_THUMBNAIL_SPEC.rendererVersion,
+    duration: usefulNumber(parsed.format.duration),
+    sampleRate: usefulNumber(parsed.format.sampleRate, 1),
+    numberOfChannels: usefulNumber(parsed.format.numberOfChannels, 1),
+    bitrate: usefulNumber(parsed.format.bitrate),
+    codec: parsed.format.codec || undefined,
+    lossless: parsed.format.lossless,
+    bpm: usefulNumber(parsed.common.bpm),
+  };
+
+  // A duration of zero is valid. Missing duration is different from a clip
+  // that contains no samples, and other parsed fields are still useful.
+  const complete = metadata.duration !== undefined && metadata.sampleRate !== undefined;
+  const partial = metadata.duration !== undefined || metadata.sampleRate !== undefined ||
+    metadata.numberOfChannels !== undefined || metadata.bitrate !== undefined ||
+    metadata.codec !== undefined || metadata.lossless !== undefined || metadata.bpm !== undefined;
+  metadata.audioMetadataStatus = complete ? 'complete' : partial ? 'partial' : 'failed';
+  if (!partial) metadata.audioMetadataError = 'Audio parser returned no usable metadata';
+  return metadata;
+}
+
+function failedAudioMetadata(error: unknown): AudioMetadata {
+  const detail = error instanceof Error ? error.message : String(error);
+  return {
+    audioThumbnailVersion: AUDIO_THUMBNAIL_SPEC.rendererVersion,
+    audioMetadataStatus: 'failed',
+    audioMetadataError: detail || 'Audio metadata parser failed',
+  };
+}
+
+async function processAudio(
+  name: string,
+  quality: number,
+  parse: () => Promise<ParsedAudio>
+): Promise<AudioProcessingResult> {
+  let metadata: AudioMetadata;
   try {
-    const parsed = await mm.parseFile(filePath, { skipCovers: true });
-    if (parsed.format.duration !== undefined || parsed.format.sampleRate !== undefined) {
-      metadata = {
-        duration: parsed.format.duration,
-        sampleRate: parsed.format.sampleRate,
-        numberOfChannels: parsed.format.numberOfChannels,
-        bitrate: parsed.format.bitrate,
-        codec: parsed.format.codec,
-        lossless: parsed.format.lossless,
-        bpm: parsed.common.bpm,
-        audioThumbnailVersion: AUDIO_THUMBNAIL_SPEC.rendererVersion,
-      };
-    }
-  } catch (err) {
-    console.warn(`Could not parse audio metadata for ${filePath}:`, err);
+    metadata = extractAudioMetadata(await parse());
+  } catch (error) {
+    metadata = failedAudioMetadata(error);
+    console.warn(`Could not parse audio metadata for ${name}:`, error);
   }
 
   const thumbnailBuffer = await generateAudioThumbnail(
     name, metadata.duration, metadata.numberOfChannels, metadata.bpm, quality
   );
+  return { metadata, thumbnailBuffer };
+}
 
-  return {
-    metadata,
-    thumbnailBuffer,
-  };
+export async function processAudioFile(
+  filePath: string,
+  quality = DEFAULT_THUMBNAIL_QUALITY
+): Promise<AudioProcessingResult> {
+  return processAudio(
+    path.basename(filePath),
+    quality,
+    () => mm.parseFile(filePath, { skipCovers: true })
+  );
 }
 
 export async function processAudioBuffer(
@@ -261,33 +294,13 @@ export async function processAudioBuffer(
   extension: string,
   quality = DEFAULT_THUMBNAIL_QUALITY
 ): Promise<AudioProcessingResult> {
-  const mimeType = getAudioMimeType(extension);
-  let metadata: AudioMetadata = {};
-
-  try {
-    const parsed = await mm.parseBuffer(buffer, { mimeType, size: buffer.length });
-    if (parsed.format.duration !== undefined || parsed.format.sampleRate !== undefined) {
-      metadata = {
-        duration: parsed.format.duration,
-        sampleRate: parsed.format.sampleRate,
-        numberOfChannels: parsed.format.numberOfChannels,
-        bitrate: parsed.format.bitrate,
-        codec: parsed.format.codec,
-        lossless: parsed.format.lossless,
-        bpm: parsed.common.bpm,
-        audioThumbnailVersion: AUDIO_THUMBNAIL_SPEC.rendererVersion,
-      };
-    }
-  } catch (err) {
-    console.warn(`Could not parse audio buffer for ${name}:`, err);
-  }
-
-  const thumbnailBuffer = await generateAudioThumbnail(
-    name, metadata.duration, metadata.numberOfChannels, metadata.bpm, quality
+  return processAudio(
+    name,
+    quality,
+    () => mm.parseBuffer(
+      buffer,
+      { mimeType: getAudioMimeType(extension), size: buffer.length },
+      { skipCovers: true }
+    )
   );
-
-  return {
-    metadata,
-    thumbnailBuffer,
-  };
 }

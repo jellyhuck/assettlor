@@ -15,7 +15,7 @@ export const IMAGE_THUMBNAIL_SPEC = Object.freeze({
 });
 
 export const AUDIO_THUMBNAIL_SPEC = Object.freeze({
-  rendererVersion: 4,
+  rendererVersion: 5,
   width: 400,
   height: 240,
   encoder: 'webp',

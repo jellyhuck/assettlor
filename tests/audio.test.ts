@@ -170,7 +170,11 @@ describe('Audio Service', () => {
       const result = await processAudioBuffer(corruptBuffer, 'broken.wav', '.wav');
 
       expect(result).toBeDefined();
-      expect(result.metadata).toEqual({});
+      expect(result.metadata).toMatchObject({
+        audioMetadataStatus: 'failed',
+        audioMetadataError: expect.any(String),
+      });
+      expect(result.metadata.audioThumbnailVersion).toBeGreaterThan(0);
       expect(result.thumbnailBuffer).toBeInstanceOf(Buffer);
     });
   });
