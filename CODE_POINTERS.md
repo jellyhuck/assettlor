@@ -101,9 +101,9 @@ A navigation and reference guide for understanding subsystem implementations and
 
 ---
 
-## 5. Verification and current UI limits
+## 5. Verification and UI behavior
 
 - Run `npm run verify` for `npm test`, client lint, client build, and `npm run typecheck:server`. The build command alone does not type-check the server.
 - Run `npm run test:client` for the React DOM interaction tests with deferred fetch and EventSource fixtures.
 - Run `npm run test:pipeline` for the isolated scanner → stacker → query → copy check.
-- The React client pages through all matching assets with **Load more** and virtualizes grid and list rows. The inspector supports image zoom controls, but no drag-to-pan interaction.
+- The React client pages through all matching assets with **Load more** and virtualizes grid and list rows. The inspector supports image zoom controls, pointer drag and arrow-key panning, and pan reset.

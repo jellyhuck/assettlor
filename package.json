@@ -13,7 +13,7 @@
     "start": "tsx server/src/index.ts",
     "generate:samples": "tsx scripts/generate-sample-assets.ts",
     "test": "vitest run",
-    "test:client": "vitest run tests/clientApp.test.tsx tests/assetGrid.ui.test.ts tests/catalogControls.ui.test.ts tests/clientFixtures.test.tsx tests/clientRequestLifecycle.test.ts tests/assetCard.ui.test.tsx tests/inspectorLifecycle.ui.test.tsx tests/flipbookPlayer.ui.test.tsx tests/audioWaveformPlayer.ui.test.tsx tests/imagePreview.ui.test.tsx tests/imageThumbnail.ui.test.tsx tests/classifierModal.ui.test.ts",
+    "test:client": "vitest run tests/client*.test.ts* tests/*.ui.test.ts* tests/classifierModalData.test.ts tests/dialogFocus.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:pipeline": "node --import tsx scripts/test-pipeline.ts"
