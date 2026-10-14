@@ -1,6 +1,7 @@
 {
   "name": "assettlor",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "High-performance local-first game asset manager and web viewer",
   "type": "module",
   "scripts": {
