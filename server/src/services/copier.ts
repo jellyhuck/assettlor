@@ -334,7 +334,7 @@ export async function copyAssetToProject(req: CopyAssetRequest): Promise<CopyAss
   const selectedTarget = req.targetPath || (settings.projectPaths && settings.projectPaths[0]) || settings.activeProjectPath;
 
   if (typeof selectedTarget !== 'string' || !selectedTarget.trim()) {
-    invalidCopyRequest('Active game project path is not configured. Please set it in Settings.');
+    invalidCopyRequest('Active project path is not configured. Please set it in Settings.');
   }
 
   const targetDir = path.resolve(selectedTarget);

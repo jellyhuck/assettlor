@@ -1,6 +1,6 @@
-# Assettlor 🎮📦
+# Assettlor 📦
 
-**Assettlor** is a high-performance, local-first game asset manager and web viewer inspired by [AssetHoard](https://assethoard.com/). It indexes your local game development assets (sprites, sounds, tiles, archives) into an embedded SQLite database, automatically detects animation sequences and audio variations, extracts rich metadata and WebP thumbnails, and provides an AssetHoard-like dark UI for searching, previewing, and copying assets directly into your active game engine projects.
+**Assettlor** is a local-first asset manager for images, audio, and asset libraries, inspired by [AssetHoard](https://assethoard.com/). It indexes your local images and audio, including files inside ZIP archives, into an embedded SQLite database, automatically detects animation sequences and audio variations, and extracts rich metadata and WebP thumbnails. Its dark web interface lets you search, preview, organize, and copy assets directly into your projects.
 
 ---
 
@@ -18,9 +18,9 @@
 - **Auto-Archive Tagging**: Tags every asset with the archive name and interior folder structure.
 
 ### 3. Automatic Tagging & Stacking Engine
-- **Sequential Sprite Stacking**: Automatically detects frame sequences (e.g. `Knight_Walk_01.png` ... `04.png`, `Coin_Spin_01.png` ... `06.png`) and consolidates them into single animation cards with frame counts.
+- **Image Sequence Stacking**: Automatically detects frame sequences (e.g. `Logo_Spin_01.png` ... `04.png`, `Transition_01.png` ... `06.png`) and consolidates them into single animation cards with frame counts.
 - **Flipbook Animation Player**: Interactive playback in the inspector with Play/Pause, FPS slider (1-60 fps), frame timeline scrubber, and hover cycle.
-- **Audio Variation Stacking**: Groups audio variations (e.g. `laser_01.wav`, `laser_02.wav` or `Explosion_A.wav`, `Explosion_B.wav`) with instant variant switcher.
+- **Audio Variation Stacking**: Groups audio variations (e.g. `click_01.wav`, `click_02.wav` or `Chime_A.wav`, `Chime_B.wav`) with instant variant switcher.
 - **Stacked View vs Flat View**: Toggle between stacked grouping and individual file cards anytime.
 
 ### 4. AssetHoard Dark Palette & Modern Web UI
@@ -31,9 +31,9 @@
   - **Metadata**: Dimensions, channels, sample rate, bitrate, format, file size, filesystem path, tags.
 - **Gallery Grid**: Responsive virtualized grid and list with quick copy, audio preview, and animation flipbook on hover. The client loads results 100 at a time with a **Load more** action and a retry for failed pages.
 
-### 5. "Copy to Game Project" Workflow
-- Configure an **Active Game Project** destination path in Settings.
-- Click **"Copy to Game Project"** on any card or inspector panel:
+### 5. "Copy to Project" Workflow
+- Configure an **Active Project** destination path in Settings.
+- Click **"Copy to Project"** on any card or inspector panel:
   - For a single file or a stack's representative file: Copies that asset into the selected project directory.
   - For a ZIP entry: Reads that entry from the archive and copies its bytes into the project.
   - For a full animation or audio stack: Copies every member into a dedicated folder, using the stack name when no subfolder is specified.
@@ -79,7 +79,7 @@ Open `http://127.0.0.1:3001`. On first launch, Assettlor creates
 1. Click the settings gear in the sidebar. Under **Asset Library Source
    Directories**, use **Browse** to select a folder of assets, or enter its
    path and click **Add**. Click **Save Settings** to start the first scan.
-2. To use **Copy to Game Project**, add a **Game Project Destination** in
+2. To use **Copy to Project**, add a **Project Destination** in
    Settings. Browsing and indexing assets do not require one.
 
 For a demo, select this checkout's `sample/assets` as the library. Sample files
@@ -149,7 +149,7 @@ assettlor/
 │   │       ├── image.ts         # Sharp image processor, TGA/BMP decoder, WebP thumbnails
 │   │       ├── audio.ts         # Music-metadata extractor & audio artwork generator
 │   │       ├── archive.ts       # In-memory AdmZip inspector & virtual streaming
-│   │       └── copier.ts        # Copy to active game project service
+│   │       └── copier.ts        # Copy to active project service
 ├── client/
 │   ├── src/
 │   │   ├── components/
@@ -160,7 +160,7 @@ assettlor/
 │   │   │   ├── Inspector.tsx    # Right inspector with zoom, flipbook, wavesurfer
 │   │   │   ├── FlipbookPlayer.tsx  # Interactive animation player (Play/Pause/FPS/scrub)
 │   │   │   ├── AudioWaveformPlayer.tsx # Wavesurfer waveform audio player
-│   │   │   ├── SettingsModal.tsx   # Config modal for active game project
+│   │   │   ├── SettingsModal.tsx   # Config modal for active project
 │   │   │   ├── FolderBrowserModal.tsx # File system folder picker
 │   │   │   ├── CopyModal.tsx    # Stack copy confirmation modal
 │   │   │   └── Toast.tsx        # Toast notification system

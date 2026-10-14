@@ -180,7 +180,7 @@ describe('Copier Service', () => {
   it('should throw when no active project and no targetPath configured', async () => {
     updateAppSettings({ activeProjectPath: '' });
     await expect(copyAssetToProject({ assetId: 'any' })).rejects.toThrow(
-      /Active game project path is not configured/
+      /Active project path is not configured/
     );
   });
 

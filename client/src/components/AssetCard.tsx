@@ -302,7 +302,7 @@ function AssetCardContent({
           <Eye aria-hidden="true" className="h-3.5 w-3.5" />
         </button>}
         {onQuickCopy && <button type="button" onClick={onQuickCopy}
-          aria-label="Copy to Game Project" title="Copy to Game Project"
+          aria-label="Copy to Project" title="Copy to Project"
           className="relative z-10 shrink-0 rounded p-1.5 text-slate-400 opacity-0 transition-all hover:bg-indigo-600 hover:text-white group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-indigo-400">
           <Copy aria-hidden="true" className="h-3.5 w-3.5" />
         </button>}
@@ -368,7 +368,7 @@ function AssetCardContent({
           : <Play aria-hidden="true" className="ml-0.5 h-3.5 w-3.5" />}
       </button>}
       {onQuickCopy && <button type="button" onClick={onQuickCopy}
-        aria-label="Quick Copy to Game Project" title="Quick Copy to Game Project"
+        aria-label="Quick Copy to Project" title="Quick Copy to Project"
         className="pointer-events-auto absolute bottom-2 right-2 z-10 rounded-md border border-white/20 bg-black/80 p-1.5 text-slate-300 opacity-0 shadow-md transition-all hover:bg-indigo-600 hover:text-white group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-indigo-400">
         <Copy aria-hidden="true" className="h-3.5 w-3.5" />
       </button>}

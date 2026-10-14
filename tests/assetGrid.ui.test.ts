@@ -200,7 +200,7 @@ describe('AssetGrid virtual rows', () => {
 
   it('keeps the focused card mounted while distant rows are visible', async () => {
     await render({ items: Array.from({ length: 2000 }, (_, index) => asset(index)), viewMode: 'list' });
-    const firstAction = container.querySelector<HTMLButtonElement>('[data-virtual-item-id="asset-0"] button[title="Copy to Game Project"]');
+    const firstAction = container.querySelector<HTMLButtonElement>('[data-virtual-item-id="asset-0"] button[title="Copy to Project"]');
     if (!firstAction) throw new Error('First card action was not rendered');
     await act(async () => firstAction.focus());
     await scrollToEnd();

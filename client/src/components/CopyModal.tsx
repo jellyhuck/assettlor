@@ -160,7 +160,7 @@ function OpenCopyModal({ onClose, asset, stack, targetDir, projectPaths }: Omit<
         showToast('error', result.failure.title, result.failure.message);
         return;
       }
-      showToast('success', 'Copied to Game Project',
+      showToast('success', 'Copied to Project',
         result.message ?? `${submitted.itemName} copied to ${submitted.targetPath}`);
       if (itemIdentityRef.current === submitted.itemIdentity) onCloseRef.current();
     } catch (error) {
@@ -183,7 +183,7 @@ function OpenCopyModal({ onClose, asset, stack, targetDir, projectPaths }: Omit<
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#25253c] bg-[#131320]">
           <div className="flex items-center gap-2">
             <Copy className="w-4 h-4 text-indigo-400" />
-            <h3 id="copy-dialog-title" className="text-sm font-semibold text-slate-100">Copy to Game Project</h3>
+            <h3 id="copy-dialog-title" className="text-sm font-semibold text-slate-100">Copy to Project</h3>
           </div>
           <button
             ref={closeButtonRef}

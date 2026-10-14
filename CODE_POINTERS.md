@@ -63,7 +63,7 @@ A navigation and reference guide for understanding subsystem implementations and
 - **Audio Variations**: Identifies numbered or lettered sound variants (`laser_01`, `laser_02` or `hit_a`, `hit_b`).
 - Records stacks in `stacks` table and links member assets via `stack_id` and `stack_index`.
 
-### D. "Copy to Game Project" Service (`server/src/services/copier.ts`)
+### D. "Copy to Project" Service (`server/src/services/copier.ts`)
 - Uses an explicit `targetPath` when supplied, otherwise the first configured project path or the active project path. `targetSubfolder` must stay within that selected destination.
 - An `assetId` copies one disk file or ZIP entry, including a stack's representative asset. A `stackId` with `copyStackAll: true` copies all members into a dedicated folder; the default folder name derives from the stack name.
 - Plans and checks every source and destination before writing. Existing files, duplicate member names, and destination symlinks produce conflicts. Disk and ZIP bytes are staged before exclusive publication so an existing project file is never silently replaced.

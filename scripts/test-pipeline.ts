@@ -120,8 +120,8 @@ async function verifyPipeline(sampleDir: string, projectDir: string, { getDataba
     console.log(`✓ Tag filter "${tt.tag}": ${tRes.items.length} items returned correctly`);
   }
 
-  // 5. Test Copy to Game Project
-  console.log('\n--- 5. Testing "Copy to Game Project" Workflow ---');
+  // 5. Test Copy to Project
+  console.log('\n--- 5. Testing "Copy to Project" Workflow ---');
   fs.mkdirSync(projectDir, { recursive: true });
 
   // A: Copy regular asset

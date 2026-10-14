@@ -243,7 +243,7 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Copy asset or stack to game project
+  // Copy asset or stack to project
   fastify.post('/api/assets/copy', async (req: FastifyRequest<{ Body: CopyAssetRequest }>, reply) => {
     const copyRequest = parseCopyRequest(req.body);
     if (!copyRequest.ok) {

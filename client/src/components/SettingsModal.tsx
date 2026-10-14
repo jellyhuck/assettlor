@@ -540,11 +540,11 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
             <fieldset disabled={saving} className="min-w-0 w-full space-y-5">
             {activeTab === 'general' ? (
               <>
-                {/* Game Project Destinations */}
+                {/* Project Destinations */}
                 <div className="space-y-2">
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Game Project Destinations
+                      Project Destinations
                     </label>
                     <p className="text-xs text-slate-400 mt-0.5">
                       Target directories where assets can be copied. The first directory in the list is the Active Project.
@@ -638,7 +638,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
 
                     {settings.projectPaths.length === 0 && (
                       <div className="p-3 text-center text-xs text-slate-500 bg-[#12121d] rounded-lg border border-[#25253c] border-dashed">
-                        No game project directories configured yet. Add one below.
+                        No project directories configured yet. Add one below.
                       </div>
                     )}
                   </div>
@@ -647,7 +647,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                   <div className="flex items-center gap-2 pt-1">
                     <input
                       type="text"
-                      aria-label="Add game project path"
+                      aria-label="Add project path"
                       value={newProjectPath}
                       onChange={(e) => {
                         pathGates.current.project.invalidate();
@@ -662,7 +662,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                           void addPath('project', newProjectPath);
                         }
                       }}
-                      placeholder="Add game project path..."
+                      placeholder="Add project path..."
                       className="min-w-0 flex-1 bg-[#12121d] border border-[#2c2c45] rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-hidden focus:border-indigo-500"
                     />
                     <button
@@ -1355,7 +1355,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
         <FolderBrowserModal
           isOpen={Boolean(browserMode)}
           onClose={() => setBrowserMode(null)}
-          title={browserMode === 'add_library' ? 'Select Asset Library Directory' : 'Select Game Project Directory'}
+          title={browserMode === 'add_library' ? 'Select Asset Library Directory' : 'Select Project Directory'}
           initialPath={browserMode === 'add_library' ? (settings.libraryPaths[0] || settings.libraryPath) : (settings.projectPaths[0] || settings.activeProjectPath)}
           onSelect={(selectedPath) => {
             if (browserMode === 'add_library') {

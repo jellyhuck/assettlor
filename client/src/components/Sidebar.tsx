@@ -265,7 +265,7 @@ export function Sidebar({
           >
             <div className="flex items-center gap-2">
               <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Images & Sprites</span>
+              <span>Images</span>
             </div>
             <span className="text-[11px] font-mono opacity-80">{summary.imageCount}</span>
           </button>
@@ -700,7 +700,7 @@ export function Sidebar({
           <Folder className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
           <div className="min-w-0 text-left">
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-500 block leading-none">Active Game Project</span>
+              <span className="text-[10px] text-slate-500 block leading-none">Active Project</span>
               {settings.projectPaths && settings.projectPaths.length > 1 && (
                 <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/40 font-mono">
                   +{settings.projectPaths.length - 1} more

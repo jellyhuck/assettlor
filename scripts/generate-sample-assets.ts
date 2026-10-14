@@ -146,7 +146,7 @@ async function createCoinSprite(frame: number, totalFrames: number): Promise<Buf
 }
 
 export async function generateSampleAssets() {
-  console.log(`Generating realistic sample game assets in: ${sampleDir}...`);
+  console.log(`Generating realistic sample assets in: ${sampleDir}...`);
 
   if (!fs.existsSync(sampleDir)) {
     fs.mkdirSync(sampleDir, { recursive: true });
@@ -371,7 +371,7 @@ export async function generateSampleAssets() {
   zip.writeZip(zipPath);
   console.log(`✓ Generated virtual archive: ${zipPath}`);
 
-  console.log('\n Sample game assets generation complete!');
+  console.log('\n Sample assets generation complete!');
 }
 
 // Auto-run if executed directly

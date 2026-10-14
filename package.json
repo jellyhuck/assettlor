@@ -2,7 +2,7 @@
   "name": "assettlor",
   "version": "1.0.0",
   "license": "MIT",
-  "description": "High-performance local-first game asset manager and web viewer",
+  "description": "Local-first asset manager for images, audio, and asset libraries",
   "type": "module",
   "scripts": {
     "dev": "concurrently -n \"server,client\" -c \"cyan,magenta\" \"tsx watch server/src/index.ts --config ./sample/config.yaml\" \"npm --prefix client run dev\"",

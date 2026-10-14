@@ -112,7 +112,7 @@ describe('SettingsModal validation and path selection', () => {
 
   async function addPath(kind: 'library' | 'project', path: string): Promise<PendingFetch> {
     const placeholder = kind === 'library'
-      ? 'Add asset library path...' : 'Add game project path...';
+      ? 'Add asset library path...' : 'Add project path...';
     const input = view!.container.querySelector<HTMLInputElement>(`input[placeholder="${placeholder}"]`)!;
     await act(async () => nativeInput(input, path));
     const add = Array.from(input.parentElement!.querySelectorAll('button'))
@@ -253,7 +253,7 @@ describe('SettingsModal validation and path selection', () => {
       libraryPath: '/legacy/library', libraryPaths: [],
       activeProjectPath: '/legacy/project', projectPaths: [],
     } });
-    expect(current.container.textContent).toContain('No game project directories configured yet');
+    expect(current.container.textContent).toContain('No project directories configured yet');
     expect(current.container.textContent).toContain('No asset library directories configured yet');
     await click(button(current.container, 'Save Settings'));
     expect(requests('/api/settings', 'POST')).toHaveLength(1);

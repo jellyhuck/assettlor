@@ -4,7 +4,7 @@
 
 ## Overview
 
-**Assettlor** is a local-first game asset manager and web viewer built with Fastify, SQLite (WAL mode), AdmZip, and Sharp on the backend, and React 19, Vite, and Tailwind CSS on the frontend.
+**Assettlor** is a local-first asset manager for images, audio, and asset libraries, built with Fastify, SQLite (WAL mode), AdmZip, and Sharp on the backend, and React 19, Vite, and Tailwind CSS on the frontend.
 
 ---
 

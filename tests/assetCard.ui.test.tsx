@@ -144,7 +144,7 @@ describe('AssetCard preview ownership', () => {
     expect(document.activeElement).toBe(select);
     await click(select);
     expect(controls.onSelect).toHaveBeenCalledOnce();
-    await click(button(view.container, 'Copy to Game Project'));
+    await click(button(view.container, 'Copy to Project'));
     await click(button(view.container, 'View each content asset separately'));
     await click(button(view.container, 'Expand to view content assets'));
     expect(controls.onSelect).toHaveBeenCalledOnce();
