@@ -5,11 +5,11 @@ server:
     - http://localhost:5173
     - http://127.0.0.1:5173
   allowed_hosts: []
-data_dir: REDACTED_LOCAL_PATH/sample/.assettlor
+data_dir: ./.assettlor
 libraries:
-  - REDACTED_LOCAL_PATH/sample/assets
+  - ./assets
 projects:
-  - REDACTED_LOCAL_PATH/sample/game-project
+  - ./game-project
 classifiers:
   bpm:
     enabled: true
