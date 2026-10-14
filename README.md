@@ -61,33 +61,41 @@ used as the intrinsic size when no width or height is specified.
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
-```bash
-npm install
-npm --prefix client install
-```
+Requires Node.js 22.12 or newer and npm. From a checkout of this repository:
 
-### 2. Generate Sample Game Assets
-A built-in script generates realistic game assets (animation sequences, sound variations, TGA textures, WebP items, and a nested `RetroPack.zip` archive):
-```bash
-npm run generate:samples
-```
+### First run with your own assets
 
-### 3. Run Development Server
 ```bash
-npm run dev
-```
-- **Backend API**: `http://localhost:3001`
-- **Frontend Web UI**: `http://localhost:5173` (proxies `/api` to backend)
-
-### 4. Production Build & Start
-```bash
+npm ci
+npm --prefix client ci
 npm run build
 npm start
 ```
-The Fastify server serves both the REST/SSE API and the compiled React production client at `http://localhost:3001`.
 
-### 5. Run Verification Pipeline Tests
+Open `http://127.0.0.1:3001`. On first launch, Assettlor creates
+`~/.config/assetlor/config.yaml` and stores its index under
+`~/.config/assetlor/data/`.
+
+1. Click the settings gear in the sidebar. Under **Asset Library Source
+   Directories**, use **Browse** to select a folder of assets, or enter its
+   path and click **Add**. Click **Save Settings** to start the first scan.
+2. To use **Copy to Game Project**, add a **Game Project Destination** in
+   Settings. Browsing and indexing assets do not require one.
+
+For a demo, select this checkout's `sample/assets` as the library. Sample files
+are included; `npm run generate:samples` regenerates them.
+
+### Development server
+
+```bash
+npm run dev
+```
+
+This uses `sample/config.yaml`, serves the API at `http://localhost:3001`, and
+runs the Vite UI at `http://localhost:5173`.
+
+### Run verification
+
 ```bash
 npm test
 npm run test:client
@@ -105,7 +113,15 @@ Run the isolated scanner-to-copy integration check with `npm run test:pipeline`.
 
 `npm run dev` loads `sample/config.yaml`. `npm start` uses `~/.config/assetlor/config.yaml` by default; select another file with `--config`, `ASSETTLOR_CONFIG`, or `CONFIG_PATH`. Relative `data_dir`, `libraries`, and `projects` paths resolve from the directory containing that YAML file. The sample paths therefore point inside `sample/`.
 
-The server binds to `127.0.0.1` by default. `server.allowed_origins` lists browser origins allowed to use the API from another origin; the sample config includes the Vite development origin. `server.allowed_hosts` lists additional accepted HTTP Host names. For intentional LAN use, configure `server.host`; add any separate browser origin and custom Host name you use. Requests from other browser origins are rejected; local command-line requests without an Origin header remain supported.
+The server binds to `127.0.0.1` by default. It has no login, so keep it on a
+trusted local machine unless you add access control. `server.allowed_origins`
+lists browser origins allowed to use the API from another origin; the sample
+config includes the Vite development origin. `server.allowed_hosts` lists
+additional accepted HTTP Host names. For intentional LAN use, configure
+`server.host`; add any separate browser origin and custom Host name you use.
+Requests from other browser origins are rejected; local command-line requests
+without an Origin header remain supported. Host and Origin checks are not
+authentication.
 
 ---
 
