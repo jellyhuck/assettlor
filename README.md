@@ -1,6 +1,8 @@
 # Assettlor 📦
 
-**Assettlor** is a local-first asset manager for images, audio, and asset libraries, inspired by [AssetHoard](https://assethoard.com/). It indexes your local images and audio, including files inside ZIP archives, into an embedded SQLite database, automatically detects animation sequences and audio variations, and extracts rich metadata and WebP thumbnails. Its dark web interface lets you search, preview, organize, and copy assets directly into your projects.
+[Documentation](docs/site/index.md) · [Documentation publishing](docs/site/publishing.md)
+
+**Assettlor** is a local-first asset manager for images, audio, and asset libraries. It indexes your local images and audio, including files inside ZIP archives, into an embedded SQLite database, automatically detects animation sequences and audio variations, and extracts rich metadata and WebP thumbnails. Its dark web interface lets you search, preview, organize, and copy assets directly into your projects.
 
 ---
 
@@ -23,15 +25,7 @@
 - **Audio Variation Stacking**: Groups audio variations (e.g. `click_01.wav`, `click_02.wav` or `Chime_A.wav`, `Chime_B.wav`) with instant variant switcher.
 - **Stacked View vs Flat View**: Toggle between stacked grouping and individual file cards anytime.
 
-### 4. AssetHoard Dark Palette & Modern Web UI
-- **Aesthetic**: Deep dark slate palette (`#141420`, `#1a1a2e`, `#252538`) with high-contrast accent badges.
-- **Inspector Panel**:
-  - **Images**: Zoom from 25% to 400%, drag or use arrow keys to pan, reset zoom and pan, toggle checkerboard transparency, and switch between Nearest-Neighbor (pixel art) and Bilinear smooth scaling. A failed original falls back to its thumbnail with a retry control; TGA previews use converted thumbnails.
-  - **Audio**: Interactive waveform visualization powered by `wavesurfer.js`, seeking, looping, volume, and variation tabs.
-  - **Metadata**: Dimensions, channels, sample rate, bitrate, format, file size, filesystem path, tags.
-- **Gallery Grid**: Responsive virtualized grid and list with quick copy, audio preview, and animation flipbook on hover. The client loads results 100 at a time with a **Load more** action and a retry for failed pages.
-
-### 5. "Copy to Project" Workflow
+### 4. "Copy to Project" Workflow
 - Configure an **Active Project** destination path in Settings.
 - Click **"Copy to Project"** on any card or inspector panel:
   - For a single file or a stack's representative file: Copies that asset into the selected project directory.
@@ -166,7 +160,7 @@ assettlor/
 │   │   │   └── Toast.tsx        # Toast notification system
 │   │   ├── App.tsx              # Root application component
 │   │   ├── main.tsx             # React entry point
-│   │   └── index.css            # AssetHoard dark palette & CSS utilities
+│   │   └── index.css            # Dark palette & CSS utilities
 │   ├── vite.config.ts           # Vite configuration with Tailwind CSS & API proxy
 │   └── package.json
 ├── scripts/

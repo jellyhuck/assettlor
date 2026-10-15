@@ -46,7 +46,7 @@ Guidelines for authoring code in Assettlor. Agents and developers must adhere to
 - **Components**: Functional components in `client/src/components/`. Use descriptive PascalCase names.
 - **Styling**: Tailwind CSS v4 utility classes.
   - Use `clsx` and `tailwind-merge` when combining dynamic class names.
-  - Adhere to the AssetHoard dark slate aesthetic (`#141420`, `#1a1a2e`, `#252538`).
+  - Adhere to the dark slate aesthetic (`#141420`, `#1a1a2e`, `#252538`).
 - **Hooks & State**:
   - Adhere strictly to React 19 hook guidelines.
   - Avoid calling `setState` synchronously within `useEffect` if the state can be derived during rendering.
