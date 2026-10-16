@@ -100,17 +100,26 @@ export function createDefaultYamlConfig(): AppYamlConfig {
   };
 }
 
-export function parseCliConfigArg(): string | undefined {
+function parseCliOption(name: string): string | undefined {
   for (let i = 0; i < process.argv.length; i++) {
     const arg = process.argv[i];
-    if (arg === '--config' && i + 1 < process.argv.length) {
-      return process.argv[i + 1];
+    if (arg === name) {
+      // A trailing flag without a value reads as empty rather than absent.
+      return i + 1 < process.argv.length ? process.argv[i + 1] : '';
     }
-    if (arg.startsWith('--config=')) {
-      return arg.slice('--config='.length);
+    if (arg.startsWith(`${name}=`)) {
+      return arg.slice(name.length + 1);
     }
   }
   return undefined;
+}
+
+export function parseCliConfigArg(): string | undefined {
+  return parseCliOption('--config');
+}
+
+export function parseCliGenerateConfigArg(): string | undefined {
+  return parseCliOption('--generate-config');
 }
 
 export function resolveConfigPath(rawPath: string, configDir: string): string {
@@ -163,6 +172,31 @@ function requireStringList(value: unknown, name: string): string[] {
     throw new ConfigValidationError(`${name} must be an array of strings`);
   }
   return value.map((entry, index) => requireString(entry, `${name}[${index}]`));
+}
+
+function readConfEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value === undefined || value === '' ? undefined : value;
+}
+
+// The configuration written when none exists yet. ASSETTLOR_CONF_* variables
+// seed it and are never consulted when an existing file is loaded.
+export function createInitialYamlConfig(): AppYamlConfig {
+  const initial = createDefaultYamlConfig();
+  const dataDir = readConfEnv('ASSETTLOR_CONF_DATA_DIR');
+  if (dataDir !== undefined) {
+    // Resolve from the shell's cwd, where the variable was written, rather
+    // than from the configuration directory.
+    initial.data_dir = resolveConfigPath(requireString(dataDir, 'ASSETTLOR_CONF_DATA_DIR'), process.cwd());
+  }
+  const port = readConfEnv('ASSETTLOR_CONF_PORT');
+  if (port !== undefined) {
+    initial.server = {
+      ...initial.server,
+      port: requireInteger(Number(port), 'ASSETTLOR_CONF_PORT', 1, 65535),
+    };
+  }
+  return initial;
 }
 
 function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
@@ -276,7 +310,7 @@ export function loadConfigFile(customPath?: string): AppYamlConfig {
     }
     candidate = normalizeYamlConfig(parsed, configDir);
   } else {
-    candidate = normalizeYamlConfig(createDefaultYamlConfig(), configDir);
+    candidate = normalizeYamlConfig(createInitialYamlConfig(), configDir);
     if (!selectedMemoryOnly) {
       fs.mkdirSync(configDir, { recursive: true });
       fs.writeFileSync(selectedPath, YAML.stringify(candidate), { encoding: 'utf-8', flag: 'wx' });
@@ -289,6 +323,19 @@ export function loadConfigFile(customPath?: string): AppYamlConfig {
   currentYamlConfig = candidate;
   syncConfigObject();
   return currentYamlConfig;
+}
+
+// Writes a fresh configuration to targetPath without loading it. Refuses to
+// replace an existing file.
+export function generateConfigFile(targetPath: string): string {
+  const selectedPath = path.resolve(targetPath);
+  if (fs.existsSync(selectedPath)) {
+    throw new ConfigValidationError(`Configuration already exists at ${selectedPath}`);
+  }
+  const candidate = normalizeYamlConfig(createInitialYamlConfig(), path.dirname(selectedPath));
+  fs.mkdirSync(path.dirname(selectedPath), { recursive: true });
+  fs.writeFileSync(selectedPath, YAML.stringify(candidate), { encoding: 'utf-8', flag: 'wx' });
+  return selectedPath;
 }
 
 export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
@@ -357,5 +404,8 @@ export function resetConfigForTesting(newConfig?: Partial<AppYamlConfig>): void 
   syncConfigObject();
 }
 
-// Initial load
-loadConfigFile();
+// Initial load. --generate-config only writes its own file, so it must not
+// create or read the regular configuration.
+if (parseCliGenerateConfigArg() === undefined) {
+  loadConfigFile();
+}

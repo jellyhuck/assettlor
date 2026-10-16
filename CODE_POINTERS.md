@@ -75,7 +75,7 @@ A navigation and reference guide for understanding subsystem implementations and
 - `stacks`: Stored animation and audio variation stacks.
 - `tags`: Indexed tags with fast lookup index.
 - Configuration: Stored separately in `config.yaml` (`libraries`, `projects`, `classifiers`, `server`, `pipeline`).
-- `npm run dev` loads `sample/config.yaml`; `npm start` defaults to `~/.config/assetlor/config.yaml`. `--config`, `ASSETTLOR_CONFIG`, and `CONFIG_PATH` select another file. Relative `data_dir`, `libraries`, and `projects` paths resolve from that file's directory.
+- `npm run dev` loads `sample/config.yaml`; `npm start` defaults to `~/.config/assetlor/config.yaml`. `--config`, `ASSETTLOR_CONFIG`, and `CONFIG_PATH` select another file. `--generate-config <path>` (handled by `runCli()` in `index.ts`) writes a fresh config and exits; `ASSETTLOR_CONF_DATA_DIR` and `ASSETTLOR_CONF_PORT` seed only newly created configs (`createInitialYamlConfig()`). Relative `data_dir`, `libraries`, and `projects` paths resolve from that file's directory.
 - The default bind host is `127.0.0.1`. `server.allowed_origins` permits specified cross-origin browser clients (including Vite in the sample config), while `server.allowed_hosts` admits additional HTTP Host names. The server rejects untrusted browser origins and Host names.
 
 ---

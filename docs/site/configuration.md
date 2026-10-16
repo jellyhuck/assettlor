@@ -22,6 +22,33 @@ the default file. Relative `data_dir`, `libraries`, and `projects` paths
 resolve from the configuration file's directory. Paths beginning with `~/`
 resolve from the home directory.
 
+## Generate a configuration file
+
+Write a fresh configuration without starting the server:
+
+```bash
+npm start -- --generate-config /absolute/path/config.yaml
+```
+
+Assettlor writes the defaults to that path and exits. It refuses to replace an
+existing file and does not create or read the default configuration.
+
+Two environment variables seed the generated file:
+
+| Variable | Sets |
+|---|---|
+| `ASSETTLOR_CONF_DATA_DIR` | `data_dir`; a relative path resolves from the current working directory |
+| `ASSETTLOR_CONF_PORT` | `server.port`, an integer from 1 to 65535 |
+
+```bash
+ASSETTLOR_CONF_DATA_DIR=~/assettlor-data ASSETTLOR_CONF_PORT=4000 \
+  npm start -- --generate-config ~/.config/assetlor/config.yaml
+```
+
+The same variables apply when Assettlor creates a missing configuration on
+first launch. They never override an existing configuration file; use `PORT`
+to override the port of an existing configuration at runtime.
+
 ## Example
 
 ```yaml

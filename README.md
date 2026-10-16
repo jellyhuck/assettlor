@@ -117,7 +117,7 @@ Run the isolated scanner-to-copy integration check with `npm run test:pipeline`.
 
 ### Configuration
 
-`npm run dev` loads `sample/config.yaml`. `npm start` uses `~/.config/assetlor/config.yaml` by default; select another file with `--config`, `ASSETTLOR_CONFIG`, or `CONFIG_PATH`. Relative `data_dir`, `libraries`, and `projects` paths resolve from the directory containing that YAML file. The sample paths therefore point inside `sample/`.
+`npm run dev` loads `sample/config.yaml`. `npm start` uses `~/.config/assetlor/config.yaml` by default; select another file with `--config`, `ASSETTLOR_CONFIG`, or `CONFIG_PATH`. `--generate-config <path>` writes a fresh configuration to that path and exits; `ASSETTLOR_CONF_DATA_DIR` and `ASSETTLOR_CONF_PORT` seed `data_dir` and `server.port` in it, and in the file created on first launch, but never override an existing configuration. Relative `data_dir`, `libraries`, and `projects` paths resolve from the directory containing that YAML file. The sample paths therefore point inside `sample/`.
 
 The server binds to `127.0.0.1` by default. It has no login, so keep it on a
 trusted local machine unless you add access control. `server.allowed_origins`

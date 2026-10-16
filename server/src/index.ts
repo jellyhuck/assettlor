@@ -6,7 +6,14 @@ import fs from 'fs';
 import os from 'os';
 import { isIP } from 'net';
 import { fileURLToPath } from 'url';
-import { config, getEffectiveConfig, loadConfigFile, resolveDataDir } from './config.js';
+import {
+  config,
+  generateConfigFile,
+  getEffectiveConfig,
+  loadConfigFile,
+  parseCliGenerateConfigArg,
+  resolveDataDir,
+} from './config.js';
 import {
   closeDatabase,
   getCurrentDataDir,
@@ -245,13 +252,33 @@ export async function startServer() {
   }
 }
 
+// Command-line entry: `--generate-config <path>` writes a fresh configuration
+// and exits; otherwise the server starts.
+export async function runCli(): Promise<void> {
+  const generateConfigPath = parseCliGenerateConfigArg();
+  if (generateConfigPath !== undefined) {
+    try {
+      if (!generateConfigPath) throw new Error('--generate-config requires a path');
+      console.log(`📁 Generated config file: ${generateConfigFile(generateConfigPath)}`);
+    } catch (err) {
+      console.error('Failed to generate Assettlor config:', err instanceof Error ? err.message : err);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  try {
+    await startServer();
+  } catch (err) {
+    console.error('Failed to start Assettlor:', err);
+    process.exitCode = 1;
+  }
+}
+
 const isDirectRun = Boolean(
   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)
 );
 
 if (isDirectRun) {
-  startServer().catch((err) => {
-    console.error('Failed to start Assettlor:', err);
-    process.exitCode = 1;
-  });
+  void runCli();
 }

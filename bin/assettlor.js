@@ -8,11 +8,6 @@ import { register } from 'tsx/esm/api';
 // Use the package's tsconfig rather than one found from the caller's cwd.
 register({ tsconfig: fileURLToPath(new URL('../tsconfig.json', import.meta.url)) });
 
-const { startServer } = await import('../server/src/index.ts');
+const { runCli } = await import('../server/src/index.ts');
 
-try {
-  await startServer();
-} catch (err) {
-  console.error('Failed to start Assettlor:', err);
-  process.exitCode = 1;
-}
+await runCli();
