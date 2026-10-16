@@ -1,0 +1,51 @@
+site_name: Assettlor
+site_description: Documentation for the local-first image, audio, and asset library manager.
+site_url: https://jellyhuck.github.io/assettlor/
+repo_url: https://github.com/jellyhuck/assettlor
+repo_name: jellyhuck/assettlor
+edit_uri: edit/main/docs/site/
+docs_dir: docs/site
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - content.code.copy
+    - navigation.footer
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Using Assettlor: usage.md
+  - Configuration: configuration.md
+  - API reference: api.md
+  - Development: development.md
+  - Publishing documentation: publishing.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+validation:
+  links:
+    anchors: warn

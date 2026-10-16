@@ -33,3 +33,7 @@ pnpm-debug.log*
 # Temporary development files
 tmp/
 temp/
+
+# Documentation toolchain and generated site
+.venv-docs/
+site/

@@ -13,6 +13,8 @@
     "verify": "npm test && npm --prefix client run lint && npm run build && npm run typecheck:server",
     "start": "tsx server/src/index.ts",
     "generate:samples": "tsx scripts/generate-sample-assets.ts",
+    "docs": "tsx scripts/docs.ts",
+    "docs:build": "tsx scripts/docs.ts build --strict",
     "test": "vitest run",
     "test:client": "vitest run tests/client*.test.ts* tests/*.ui.test.ts* tests/classifierModalData.test.ts tests/dialogFocus.test.ts",
     "test:watch": "vitest",

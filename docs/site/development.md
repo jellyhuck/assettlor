@@ -29,7 +29,7 @@ using `sample/config.yaml`. Run either process separately with
 | `client/src/` | React interface, gallery, inspector, players, and dialogs |
 | `tests/` | Vitest service, route, and React interaction tests |
 | `scripts/` | Sample generation and pipeline verification |
-| `docs/site/` | Markdown documentation and Jekyll configuration |
+| `docs/site/` | Markdown documentation sources, built with MkDocs (`mkdocs.yml`) |
 
 Scanning inventories disk files and ZIP entries, extracts metadata and
 thumbnails for changed assets, and publishes catalog updates to SQLite.
@@ -55,6 +55,8 @@ the server TypeScript check. Useful individual commands are:
 | `npm run build` | Type-check and build the production client |
 | `npm run typecheck:server` | Type-check backend and shared code |
 | `npm run test:pipeline` | Scanner, stacker, query, and copy integration check |
+| `npm run docs` | Preview this documentation locally with live reload |
+| `npm run docs:build` | Strict documentation build, as run in CI |
 
 Run the pipeline check when changing scanner, stacker, or copier behavior.
 The `ci` GitHub workflow installs dependencies and runs `npm test` on pushes.

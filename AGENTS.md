@@ -21,6 +21,8 @@
 | **Test Single** | `npx vitest run tests/<file>.test.ts` | Runs a targeted test suite |
 | **Pipeline Test** | `npm run test:pipeline` | End-to-end scanner, stacker, and copier verification |
 | **Lint** | `npm --prefix client run lint` | Runs Oxlint on client code |
+| **Docs** | `npm run docs` | Serves MkDocs documentation at `http://127.0.0.1:8000/assettlor/` (requires Python 3) |
+| **Docs Build** | `npm run docs:build` | Strict MkDocs build into `site/`, as run in CI |
 | **Generate Samples** | `npm run generate:samples` | Creates sample assets and `RetroPack.zip` in `sample/assets/` |
 
 ---
