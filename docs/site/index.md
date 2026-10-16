@@ -19,8 +19,7 @@ your machine.
 | [Using Assettlor](usage.md) | Search, previews, stacks, classifiers, and copying |
 | [Configuration](configuration.md) | Library paths, storage, server, and pipeline settings |
 | [API reference](api.md) | REST endpoints, scan events, and request examples |
-| [Development](development.md) | Architecture, local development, and verification |
-| [Publishing documentation](publishing.md) | Markdown authoring and the GitHub Pages workflow |
+| [Development](development.md) | Architecture, local development, verification, and documentation publishing |
 
 ## Supported media
 

@@ -1,6 +1,6 @@
 # Assettlor 📦
 
-[Documentation](docs/site/index.md) · [Documentation publishing](docs/site/publishing.md)
+[Documentation](docs/site/index.md) · [Development](docs/site/development.md)
 
 **Assettlor** is a local-first asset manager for images, audio, and asset libraries. It indexes your local images and audio, including files inside ZIP archives, into an embedded SQLite database, automatically detects animation sequences and audio variations, and extracts rich metadata and WebP thumbnails. Its dark web interface lets you search, preview, organize, and copy assets directly into your projects.
 

@@ -35,7 +35,6 @@ nav:
   - Configuration: configuration.md
   - API reference: api.md
   - Development: development.md
-  - Publishing documentation: publishing.md
 
 markdown_extensions:
   - admonition
