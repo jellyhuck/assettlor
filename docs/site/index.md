@@ -9,6 +9,8 @@ so you can search, preview, tag, and copy assets into your projects. Its React
 interface talks to a local Fastify server; the catalog and thumbnails stay on
 your machine.
 
+![Assettlor asset catalog overview](screenshots/overview.png)
+
 ## Guides
 
 | Guide | What you will find |

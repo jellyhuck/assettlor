@@ -36,4 +36,4 @@ temp/
 
 # Documentation toolchain and generated site
 .venv-docs/
-site/
+/site/

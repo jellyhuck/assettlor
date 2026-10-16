@@ -18,6 +18,8 @@ Use category, tag, and format filters in the sidebar and search in the top bar.
 The gallery offers stacked and flat views, sorting, and **Load more** paging.
 Open an asset to inspect its dimensions, audio metadata, tags, and source path.
 
+![Browsing assets in the library catalog](screenshots/overview.png)
+
 ## Search
 
 | Example | Meaning |
@@ -40,6 +42,8 @@ the tag and another has the tempo. In flat view, all filters must match the
 same asset. Empty known filters such as `tag:` impose no restriction while
 you type; unsupported clauses are searched as literal text.
 
+![Filtering assets with pack and wildcard search](screenshots/search-filtering.png)
+
 ## Preview stacks and media
 
 Sequential image names such as `Logo_Spin_01.png` through `Logo_Spin_04.png`
@@ -52,6 +56,10 @@ and a frame scrubber. Audio previews use a waveform player and variant
 selection. Image previews support zoom, pointer dragging, arrow-key panning,
 and resetting the pan position. TGA images use converted thumbnails for display.
 
+![Flipbook animation preview in the asset inspector](screenshots/inspector-animation.png)
+
+![Audio variation waveform player in the asset inspector](screenshots/inspector-audio.png)
+
 ## Classify assets
 
 The classifier interface exposes BPM analysis for audio, sprite classification
@@ -60,6 +68,8 @@ has its own settings and can run against selected targets. Optional tag
 application is controlled in classifier settings. See
 [Configuration](configuration.md) for defaults and the [API reference](api.md)
 for programmatic runs.
+
+![Asset classifiers modal for BPM, sprite, and pack detection](screenshots/classifier-modal.png)
 
 ## Copy to a project
 
@@ -74,3 +84,5 @@ duplicate member names, and unsafe destination symlinks cause a conflict.
 If a copy fails during execution, Assettlor attempts to remove the files
 published by that operation and reports any remaining paths. The success
 message identifies the directory containing the copied files.
+
+![Copy to project dialog with destination options](screenshots/copy-modal.png)
