@@ -35,6 +35,59 @@ On first launch, Assettlor creates `~/.config/assetlor/config.yaml` and stores
 the catalog under `~/.config/assetlor/data/`. The directory name `assetlor`
 contains one `t` even though the application name is Assettlor.
 
+## Install on Proxmox VE
+
+On a Proxmox VE host shell, create an LXC container running Assettlor:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/jellyhuck/assettlor/main/deploy/proxmox/ct/assettlor.sh)"
+```
+
+The script asks for the container OS: Debian 13, or the smaller Alpine 3.24.
+Set `var_os=alpine` or `var_os=debian` before the command to skip the prompt.
+
+The script uses the [community-scripts](https://github.com/community-scripts/core)
+engine, pinned to a fixed commit, so the prompts and options match other
+community-scripts containers. Assettlor itself is not part of that catalog.
+
+Inside the container, Assettlor listens on port 3001 on all interfaces and
+reads `/etc/assettlor/config.yaml`. Assettlor has no login, so only use
+this on a trusted network. To add asset folders, bind-mount them into the
+container and add them as libraries in Settings:
+
+```bash
+pct set <CTID> -mp0 /path/on/host,mp=/mnt/assets
+```
+
+To update, run `update` in the container console. The update builds the
+latest commit of `main` alongside the running copy, then replaces it. The
+configuration in `/etc/assettlor` and the catalog in
+`/var/lib/assettlor/data` are kept.
+
+### Alpine Linux
+
+To create an Alpine 3.24 container without the OS prompt, run this on the
+Proxmox VE host shell:
+
+```bash
+var_os=alpine bash -c "$(curl -fsSL https://raw.githubusercontent.com/jellyhuck/assettlor/main/deploy/proxmox/ct/assettlor.sh)"
+```
+
+The container installs Node.js from Alpine's `nodejs` package instead of
+NodeSource, and runs Assettlor as an OpenRC service. The configuration, data
+directory, port and `update` command are the same as on Debian. On Alpine,
+`update` also upgrades the system packages, Node.js included.
+
+### Manage the service
+
+Run these in the container console:
+
+| Task | Debian | Alpine |
+|---|---|---|
+| Status | `systemctl status assettlor` | `rc-service assettlor status` |
+| Restart after editing the configuration | `systemctl restart assettlor` | `rc-service assettlor restart` |
+| Follow the log | `journalctl -u assettlor -f` | `tail -f /var/log/assettlor.log` |
+
 ## Add your first library
 
 1. Open Settings using the sidebar gear.
