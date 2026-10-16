@@ -10,9 +10,12 @@ title: Development
 
 ```bash
 npm ci
-npm --prefix client ci
 npm run dev
 ```
+
+`npm ci` runs the `prepare` script, which installs the client's dependencies
+and builds the client. The same step builds the client when npm installs
+Assettlor from GitHub, for example through `npx github:jellyhuck/assettlor`.
 
 The development command runs Fastify on port 3001 and Vite on port 5173
 using `sample/config.yaml`. Run either process separately with

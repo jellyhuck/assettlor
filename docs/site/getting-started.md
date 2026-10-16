@@ -8,15 +8,25 @@ title: Getting started
 
 ## Install and launch
 
-Install Node.js 22.12 or newer and npm, then run these commands from a checkout
-of the repository:
+Install Node.js 22.12 or newer and npm. To run Assettlor without cloning the
+repository:
+
+```bash
+npx github:jellyhuck/assettlor
+```
+
+The first run clones the repository, installs dependencies, and builds the
+client, so it takes a few minutes. Options such as `--config ./config.yaml` go
+after the package name.
+
+From a checkout of the repository, run:
 
 ```bash
 npm ci
-npm --prefix client ci
-npm run build
 npm start
 ```
+
+`npm ci` also installs the client's dependencies and builds the client.
 
 Open [http://127.0.0.1:3001](http://127.0.0.1:3001). The server serves both
 the API and the built client. The default server is bound to your local machine.

@@ -55,16 +55,28 @@ used as the intrinsic size when no width or height is specified.
 
 ## 🚀 Quick Start
 
-Requires Node.js 22.12 or newer and npm. From a checkout of this repository:
+Requires Node.js 22.12 or newer and npm.
 
-### First run with your own assets
+### Run without cloning
+
+```bash
+npx github:jellyhuck/assettlor
+```
+
+npm clones the repository, installs its dependencies, and builds the client
+before the first launch, so that run takes a few minutes; later runs reuse
+npm's cache. Pass options after the package name, for example
+`npx github:jellyhuck/assettlor --config ./config.yaml`.
+
+### First run from a checkout
 
 ```bash
 npm ci
-npm --prefix client ci
-npm run build
 npm start
 ```
+
+`npm ci` also installs the client's dependencies and builds it, through the
+`prepare` script. After changing client code, rebuild with `npm run build`.
 
 Open `http://127.0.0.1:3001`. On first launch, Assettlor creates
 `~/.config/assetlor/config.yaml` and stores its index under

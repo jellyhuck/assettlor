@@ -4,7 +4,25 @@
   "license": "MIT",
   "description": "Local-first asset manager for images, audio, and asset libraries",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jellyhuck/assettlor.git"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "bin": {
+    "assettlor": "bin/assettlor.js"
+  },
+  "files": [
+    "bin/",
+    "server/src/",
+    "shared/",
+    "client/dist/",
+    "/tsconfig.json"
+  ],
   "scripts": {
+    "prepare": "npm --prefix client ci && npm run build",
     "dev": "concurrently -n \"server,client\" -c \"cyan,magenta\" \"tsx watch server/src/index.ts --config ./sample/config.yaml\" \"npm --prefix client run dev\"",
     "dev:server": "tsx watch server/src/index.ts --config ./sample/config.yaml",
     "dev:client": "npm --prefix client run dev",

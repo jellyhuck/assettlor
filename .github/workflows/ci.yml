@@ -23,11 +23,9 @@ jobs:
             package-lock.json
             client/package-lock.json
 
-      - name: Install server and test dependencies
+      # The prepare script also installs client dependencies and builds the client.
+      - name: Install dependencies
         run: npm ci
-
-      - name: Install client dependencies
-        run: npm --prefix client ci
 
       - name: Run tests
         run: npm test
