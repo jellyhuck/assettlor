@@ -16,6 +16,7 @@ import {
   extractArchiveBaseName,
   extractDirectoryCandidate,
   normalizePackName,
+  looksLikeHashName,
 } from '../server/src/services/classifiers/packClassifier.js';
 import {
   getAllClassifiers,
@@ -233,6 +234,72 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
       const asset = getAssetById('asset_scifi_1');
       expect(asset?.metadata.pack).toBe('SciFi Audio');
       expect(asset?.tags).not.toContain('pack:SciFi Audio');
+    });
+  });
+
+  describe('Hash-Named Archive Fallback', () => {
+    const SHA1_NAME = '2f0f082ccb41c9900f43d2b54a16f1c84c5352e8';
+    let caseCount = 0;
+
+    async function classifyArchive(archiveName: string, entries: string[]): Promise<string | undefined> {
+      const caseDir = `case${++caseCount}`;
+      const assetId = `asset_hash_zip_${caseCount}`;
+      const zipPath = path.join(tempLibraryDir, caseDir, `${archiveName}.zip`);
+      createTestZipArchive(zipPath, entries.map((name) => ({ name, content: TINY_PNG_BUFFER })));
+      const entryName = entries.find((name) => name.endsWith('.png') && !name.startsWith('__MACOSX/'))!;
+      upsertAsset({
+        id: assetId,
+        path: `${caseDir}/${archiveName}.zip#/${entryName}`,
+        absolutePath: zipPath,
+        name: path.posix.basename(entryName),
+        extension: '.png',
+        category: 'image',
+        size: TINY_PNG_BUFFER.length,
+        mtime: Date.now(),
+        hash: `hash_${assetId}`,
+        isArchiveEntry: true,
+        archivePath: zipPath,
+        archiveEntryPath: entryName,
+        tags: [],
+      });
+      await runClassifier(packClassifier, { targetType: 'asset', targetValue: assetId });
+      return getAssetById(assetId)?.metadata.pack;
+    }
+
+    it('looksLikeHashName should detect hex digests and UUIDs only', () => {
+      expect(looksLikeHashName(SHA1_NAME)).toBe(true);
+      expect(looksLikeHashName('d41d8cd98f00b204e9800998ecf8427e')).toBe(true);
+      expect(looksLikeHashName('123e4567-e89b-12d3-a456-426614174000')).toBe(true);
+      expect(looksLikeHashName('RetroPack')).toBe(false);
+      expect(looksLikeHashName('cafe')).toBe(false);
+      expect(looksLikeHashName('Forest_Tiles_v2')).toBe(false);
+    });
+
+    it('should use the single root directory of a hash-named archive', async () => {
+      expect(await classifyArchive(SHA1_NAME, [
+        'Forest_Tiles_v2/a.png',
+        'Forest_Tiles_v2/sub/b.png',
+      ])).toBe('Forest Tiles');
+    });
+
+    it('should ignore __MACOSX metadata when finding the root directory', async () => {
+      expect(await classifyArchive(SHA1_NAME, [
+        'Forest_Tiles/a.png',
+        '__MACOSX/Forest_Tiles/._a.png',
+      ])).toBe('Forest Tiles');
+    });
+
+    it('should keep the hash name when the archive has several roots or root-level files', async () => {
+      expect(await classifyArchive(SHA1_NAME, ['sprites/a.png', 'audio/b.png'])).toBe(SHA1_NAME);
+      expect(await classifyArchive(SHA1_NAME, ['Forest/a.png', 'readme.txt'])).toBe(SHA1_NAME);
+    });
+
+    it('should keep the archive hash when the root directory is a hash too', async () => {
+      expect(await classifyArchive(SHA1_NAME, ['d41d8cd98f00b204e9800998ecf8427e/a.png'])).toBe(SHA1_NAME);
+    });
+
+    it('should keep non-hash archive names even with a single root directory', async () => {
+      expect(await classifyArchive('RetroPack', ['sprites/hero.png'])).toBe('RetroPack');
     });
   });
 

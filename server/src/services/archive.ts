@@ -276,3 +276,36 @@ export function getZipEntryBuffer(archiveAbsolutePath: string, internalPath: str
   }
   return buffer;
 }
+
+const ARCHIVE_JUNK_ROOT_FILES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
+const zipRootDirectoryCache = new Map<string, { signature: string; root: string | null }>();
+
+/**
+ * Returns the single top-level directory that holds every entry of a ZIP,
+ * ignoring OS metadata such as __MACOSX/ and .DS_Store. Returns null when the
+ * archive is missing, empty, has root-level files, or has several roots.
+ */
+export function getZipRootDirectory(archiveAbsolutePath: string): string | null {
+  if (!fs.existsSync(archiveAbsolutePath)) return null;
+  const stats = fs.statSync(archiveAbsolutePath);
+  const signature = `${stats.size}:${stats.mtimeMs}`;
+  const cached = zipRootDirectoryCache.get(archiveAbsolutePath);
+  if (cached && cached.signature === signature) return cached.root;
+
+  const roots = new Set<string>();
+  let hasRootFile = false;
+  for (const entry of loadBoundedArchive(archiveAbsolutePath, DEFAULT_ARCHIVE_LIMITS)) {
+    const segments = entry.entryName.replace(/\\/g, '/').replace(/^(?:\.\/|\/)+/, '').split('/').filter(Boolean);
+    if (segments.length === 0 || segments[0] === '__MACOSX') continue;
+    if (segments.length === 1 && !entry.isDirectory) {
+      if (ARCHIVE_JUNK_ROOT_FILES.has(segments[0].toLowerCase())) continue;
+      hasRootFile = true;
+      break;
+    }
+    roots.add(segments[0]);
+  }
+
+  const root = !hasRootFile && roots.size === 1 ? [...roots][0] : null;
+  zipRootDirectoryCache.set(archiveAbsolutePath, { signature, root });
+  return root;
+}

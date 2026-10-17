@@ -69,6 +69,11 @@ application is controlled in classifier settings. See
 [Configuration](configuration.md) for defaults and the [API reference](api.md)
 for programmatic runs.
 
+When an archive's file name is a hash (for example
+`2f0f082ccb41c9900f43d2b54a16f1c84c5352e8.zip`), pack inference looks inside
+it and uses its single root directory as the pack name, unless that directory
+name is also a hash.
+
 ![Asset classifiers modal for BPM, sprite, and pack detection](screenshots/classifier-modal.png)
 
 ## Copy to a project

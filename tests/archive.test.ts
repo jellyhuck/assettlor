@@ -5,6 +5,7 @@ import {
   isArchiveFile,
   inspectZipArchive,
   getZipEntryBuffer,
+  getZipRootDirectory,
 } from '../server/src/services/archive.js';
 import {
   createTempDir,
@@ -112,6 +113,34 @@ describe('Archive Service', () => {
 
       const buf = getZipEntryBuffer(zipPath, 'bar.png');
       expect(buf).toBeNull();
+    });
+  });
+
+  describe('getZipRootDirectory', () => {
+    it('should return the single top-level directory', () => {
+      const zipPath = createTestZipArchive(path.join(tempDir, 'single.zip'), [
+        { name: 'Pack/a.png', content: TINY_PNG_BUFFER },
+        { name: 'Pack/sub/b.png', content: TINY_PNG_BUFFER },
+        { name: '.DS_Store', content: 'junk' },
+      ]);
+      expect(getZipRootDirectory(zipPath)).toBe('Pack');
+    });
+
+    it('should return null for mixed roots or root-level files', () => {
+      const mixed = createTestZipArchive(path.join(tempDir, 'mixed.zip'), [
+        { name: 'a/x.png', content: TINY_PNG_BUFFER },
+        { name: 'b/y.png', content: TINY_PNG_BUFFER },
+      ]);
+      const rootFile = createTestZipArchive(path.join(tempDir, 'root-file.zip'), [
+        { name: 'Pack/x.png', content: TINY_PNG_BUFFER },
+        { name: 'y.png', content: TINY_PNG_BUFFER },
+      ]);
+      expect(getZipRootDirectory(mixed)).toBeNull();
+      expect(getZipRootDirectory(rootFile)).toBeNull();
+    });
+
+    it('should return null for a missing archive', () => {
+      expect(getZipRootDirectory(path.join(tempDir, 'missing.zip'))).toBeNull();
     });
   });
 });

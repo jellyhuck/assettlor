@@ -11,6 +11,7 @@ import {
 import {
   finalizeClassifierAsset,
 } from '../../db/database.js';
+import { getZipRootDirectory } from '../archive.js';
 
 export const DEFAULT_PACK_SETTINGS: PackClassifierSettings = {
   enabled: true,
@@ -47,6 +48,26 @@ export function extractArchiveBaseName(archivePathOrVirtual: string): string {
   const base = path.basename(archivePath);
   const ext = path.extname(base);
   return ext ? base.slice(0, -ext.length) : base;
+}
+
+/** Detects machine-generated names such as SHA-1/MD5 digests or UUIDs. */
+export function looksLikeHashName(name: string): boolean {
+  const trimmed = name.trim();
+  return /^[0-9a-f]{16,}$/i.test(trimmed) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed);
+}
+
+/** Hash-named archives fall back to their single root directory when it has a real name. */
+export function extractArchiveCandidate(asset: Asset): string {
+  const baseName = extractArchiveBaseName(asset.archivePath || asset.path);
+  if (!baseName || !looksLikeHashName(baseName)) return baseName;
+  try {
+    const root = getZipRootDirectory(asset.archivePath || asset.absolutePath);
+    if (root && !looksLikeHashName(root)) return root;
+  } catch {
+    // Unreadable archives keep their file name as the candidate.
+  }
+  return baseName;
 }
 
 export function extractDirectoryCandidate(
@@ -218,10 +239,10 @@ const probeStep: ClassifierStep<PackClassifierSettings, PackIntermediateState> =
 const extractStep: ClassifierStep<PackClassifierSettings, PackIntermediateState> = {
   id: 'extract-name',
   name: 'Extract Pack Candidate',
-  description: 'Extracts candidate pack name from archive name or directory hierarchy.',
+  description: 'Extracts candidate pack name from archive name (or its root directory when the name is a hash) or directory hierarchy.',
   execute: ({ asset, settings, intermediate }) => {
     if (asset.isArchiveEntry) {
-      const raw = extractArchiveBaseName(asset.archivePath || asset.path);
+      const raw = extractArchiveCandidate(asset);
       if (!raw) {
         intermediate.skipped = true;
         intermediate.skipReason = 'Could not determine archive base name';
