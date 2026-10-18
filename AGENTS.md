@@ -4,7 +4,7 @@
 
 ## Overview
 
-**Assettlor** is a local-first asset manager for images, audio, and asset libraries, built with Fastify, SQLite (WAL mode), AdmZip, and Sharp on the backend, and React 19, Vite, and Tailwind CSS on the frontend.
+**Assettlor** is a local-first asset manager for images, audio, and asset libraries, built with Fastify, SQLite (WAL mode), yauzl, and Sharp on the backend, and React 19, Vite, and Tailwind CSS on the frontend.
 
 ---
 
@@ -44,7 +44,7 @@ Do not read all documentation upfront. Load detailed docs only when relevant to 
   ```bash
   sqlite3 sample/.assettlor/index.db "SELECT id, path, category, stack_id FROM assets LIMIT 10;"
   ```
-- **Verify Scanning & Copying Pipeline**: Run `npm run test:pipeline` to test incremental scanning, AdmZip virtual inspection, sequential stacking, and file copying end-to-end against sample data.
+- **Verify Scanning & Copying Pipeline**: Run `npm run test:pipeline` to test incremental scanning, virtual ZIP inspection, sequential stacking, and file copying end-to-end against sample data.
 - **Client Lint Verification**: Run `npm --prefix client run lint` to catch React hook dependency errors and cascading render warnings.
 
 ---

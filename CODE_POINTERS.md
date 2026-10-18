@@ -9,7 +9,7 @@ A navigation and reference guide for understanding subsystem implementations and
 ```
 [Local Asset Directory]
        │
-       ▼ (Scan / adm-zip)
+       ▼ (Scan / yauzl)
 [server/services/scanner.ts] ──► [server/services/stacker.ts] (Animation & audio variation grouping)
        │                                │
        ▼ (Extract metadata & thumbs)    │
@@ -53,10 +53,11 @@ A navigation and reference guide for understanding subsystem implementations and
 - Cancelling before index publication removes staged thumbnails and leaves prior rows intact. Automatic classifiers run after index publication; cancelling that phase stops classifier work while the newly indexed catalog remains available. Retry markers preserve unfinished classifier targets for a later scan.
 
 ### B. Virtual Archive Inspection (`server/src/services/archive.ts`)
-- Inspects `.zip` headers and compressed bytes in memory with `adm-zip`; only changed entries are decompressed, one archive at a time. Resource limits protect entry count, declared sizes, and compression ratio. No temporary source extraction is used.
+- Reads `.zip` archives through a file descriptor with `yauzl`: only the central directory and the entry being processed are held in memory, so archive size is unbounded. Only changed entries are decompressed, one archive at a time. Resource limits protect entry count and the declared sizes and compression ratio of indexable media entries; other entries (such as PSD sources) are never read. No temporary source extraction is used.
+- Entry reads for previews, copies, and classifiers go through a small cache of open archive directories (`getZipEntryBuffer`, `getZipRootDirectory`), which closes idle archives. Scanner inventories own their file descriptor and must be closed.
 - Virtual path syntax: `Archive.zip#/inner/folder/sprite.png`.
 - Sets `is_archive_entry = 1`, storing the archive's disk path in `archive_path` and entry path in `archive_entry_path`.
-- Thumbnail buffers are staged during scans; serving an original archive entry reads its buffer into memory on request.
+- Thumbnail buffers are staged during scans; serving an original archive entry reads only that entry into memory on request.
 
 ### C. Sequential Stacking Engine (`server/src/services/stacker.ts`)
 - **Animation Sequences**: Uses regex heuristics to identify frame suffixes (`_01`, `_frame1`, `_001`) with matching base names in the same folder.

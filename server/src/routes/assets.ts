@@ -121,7 +121,7 @@ export async function assetsRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Archive entry unavailable' });
       }
       try {
-        archiveBuffer = getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath) ?? undefined;
+        archiveBuffer = (await getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath)) ?? undefined;
       } catch (error) {
         if (isMissingFileError(error)) {
           return reply.status(404).send({ error: 'Archive missing on disk' });

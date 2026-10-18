@@ -27,7 +27,7 @@ describe('Archive Service', () => {
   });
 
   describe('isArchiveFile', () => {
-    it('should identify zip files', () => {
+    it('should identify zip files', async () => {
       expect(isArchiveFile('pack.zip')).toBe(true);
       expect(isArchiveFile('/path/to/archive.ZIP')).toBe(true);
       expect(isArchiveFile('bundle.tar.gz')).toBe(false);
@@ -90,43 +90,45 @@ describe('Archive Service', () => {
   });
 
   describe('getZipEntryBuffer', () => {
-    it('should retrieve entry buffer when file exists inside zip', () => {
+    it('should retrieve entry buffer when file exists inside zip', async () => {
       const zipPath = path.join(tempDir, 'sample.zip');
-      const textContent = 'Hello from zip';
       createTestZipArchive(zipPath, [
-        { name: 'hello.txt', content: textContent },
+        { name: 'sprites/hello.png', content: TINY_PNG_BUFFER },
+        { name: 'hello.txt', content: 'Hello from zip' },
       ]);
 
-      const buf = getZipEntryBuffer(zipPath, 'hello.txt');
+      const buf = await getZipEntryBuffer(zipPath, 'sprites/hello.png');
       expect(buf).toBeInstanceOf(Buffer);
-      expect(buf!.toString('utf8')).toBe(textContent);
+      expect(buf!.equals(TINY_PNG_BUFFER)).toBe(true);
+      // Entries that are never indexed are not served.
+      expect(await getZipEntryBuffer(zipPath, 'hello.txt')).toBeNull();
     });
 
-    it('should return null if archive does not exist on disk', () => {
-      const buf = getZipEntryBuffer('/non/existent/path.zip', 'file.png');
+    it('should return null if archive does not exist on disk', async () => {
+      const buf = await getZipEntryBuffer('/non/existent/path.zip', 'file.png');
       expect(buf).toBeNull();
     });
 
-    it('should return null if entry does not exist inside zip', () => {
+    it('should return null if entry does not exist inside zip', async () => {
       const zipPath = path.join(tempDir, 'sample.zip');
       createTestZipArchive(zipPath, [{ name: 'foo.png', content: TINY_PNG_BUFFER }]);
 
-      const buf = getZipEntryBuffer(zipPath, 'bar.png');
+      const buf = await getZipEntryBuffer(zipPath, 'bar.png');
       expect(buf).toBeNull();
     });
   });
 
   describe('getZipRootDirectory', () => {
-    it('should return the single top-level directory', () => {
+    it('should return the single top-level directory', async () => {
       const zipPath = createTestZipArchive(path.join(tempDir, 'single.zip'), [
         { name: 'Pack/a.png', content: TINY_PNG_BUFFER },
         { name: 'Pack/sub/b.png', content: TINY_PNG_BUFFER },
         { name: '.DS_Store', content: 'junk' },
       ]);
-      expect(getZipRootDirectory(zipPath)).toBe('Pack');
+      expect(await getZipRootDirectory(zipPath)).toBe('Pack');
     });
 
-    it('should return null for mixed roots or root-level files', () => {
+    it('should return null for mixed roots or root-level files', async () => {
       const mixed = createTestZipArchive(path.join(tempDir, 'mixed.zip'), [
         { name: 'a/x.png', content: TINY_PNG_BUFFER },
         { name: 'b/y.png', content: TINY_PNG_BUFFER },
@@ -135,12 +137,12 @@ describe('Archive Service', () => {
         { name: 'Pack/x.png', content: TINY_PNG_BUFFER },
         { name: 'y.png', content: TINY_PNG_BUFFER },
       ]);
-      expect(getZipRootDirectory(mixed)).toBeNull();
-      expect(getZipRootDirectory(rootFile)).toBeNull();
+      expect(await getZipRootDirectory(mixed)).toBeNull();
+      expect(await getZipRootDirectory(rootFile)).toBeNull();
     });
 
-    it('should return null for a missing archive', () => {
-      expect(getZipRootDirectory(path.join(tempDir, 'missing.zip'))).toBeNull();
+    it('should return null for a missing archive', async () => {
+      expect(await getZipRootDirectory(path.join(tempDir, 'missing.zip'))).toBeNull();
     });
   });
 });

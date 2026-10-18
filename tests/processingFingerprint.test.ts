@@ -81,7 +81,7 @@ describe('processing fingerprint', () => {
     try {
       const zipPath = path.join(tempDir, 'Pack.zip');
       createTestZipArchive(zipPath, [{ name: 'detailed.png', content: png }]);
-      const inventory = openZipArchive(zipPath, 'Pack.zip', 'hash');
+      const inventory = await openZipArchive(zipPath, 'Pack.zip', 'hash');
       const entry = inventory.entries[0];
       const lowArchive = await inventory.processEntry(entry, { quality: 15 });
       const highArchive = await inventory.processEntry(entry, { quality: 95 });

@@ -34,7 +34,7 @@ export async function loadAssetBuffer(asset: Asset): Promise<Buffer | null> {
       archiveDisk = path.resolve(libraryPath, archiveDisk);
     }
     if (archiveDisk && fs.existsSync(archiveDisk)) {
-      return getZipEntryBuffer(archiveDisk, asset.archiveEntryPath);
+      return await getZipEntryBuffer(archiveDisk, asset.archiveEntryPath);
     }
     return null;
   }

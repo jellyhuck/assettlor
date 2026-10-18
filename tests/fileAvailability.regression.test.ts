@@ -120,8 +120,8 @@ describe('file and stack availability responses', () => {
   });
 
   it('reports an archive filesystem read failure as 500 before range headers', async () => {
-    const originalStat = fs.statSync.bind(fs);
-    vi.spyOn(fs, 'statSync').mockImplementation((candidate) => {
+    const originalStat = fs.promises.stat.bind(fs.promises);
+    vi.spyOn(fs.promises, 'stat').mockImplementation(async (candidate) => {
       if (String(candidate) === zipPath) {
         throw Object.assign(new Error('read failed'), { code: 'EIO' });
       }

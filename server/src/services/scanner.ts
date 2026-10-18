@@ -344,11 +344,17 @@ async function runScanLibrary(
       }
       if (archive) {
         try {
-          const opened = openZipArchive(absolutePath, displayPath(root, absolutePath), `${stats.size}:${stats.mtimeMs}`);
-          for (const descriptor of opened.entries) {
-            if (seenIds.has(descriptor.id)) continue;
-            seenIds.add(descriptor.id);
-            await processInventoryItem({ kind: 'zip', sourceDirectory: root, archivePath: absolutePath, inventory: opened, entry: descriptor });
+          const opened = await openZipArchive(
+            absolutePath, displayPath(root, absolutePath), `${stats.size}:${stats.mtimeMs}`, {}, cancelled
+          );
+          try {
+            for (const descriptor of opened.entries) {
+              if (seenIds.has(descriptor.id)) continue;
+              seenIds.add(descriptor.id);
+              await processInventoryItem({ kind: 'zip', sourceDirectory: root, archivePath: absolutePath, inventory: opened, entry: descriptor });
+            }
+          } finally {
+            opened.close();
           }
         } catch (error) {
           if (error instanceof ScanCancelledError || error instanceof ArchiveCancelledError || cancelRequested) {

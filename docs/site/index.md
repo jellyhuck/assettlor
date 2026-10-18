@@ -30,7 +30,7 @@ your machine.
 | Archives | `.zip` |
 
 ZIP entries use virtual paths such as `RetroPack.zip#/sprites/hero.png` and
-are read in memory without extracting the library to disk. Assettlor generates
+are read in place without extracting the library to disk. Assettlor generates
 WebP thumbnails and groups matching animation frames and audio variations.
 
 Image decoding is limited to 16 million pixels. Thumbnails apply EXIF

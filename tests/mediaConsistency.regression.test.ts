@@ -177,7 +177,7 @@ describe('image preview consistency', () => {
     createTestZipArchive(zipPath, fixtures.map(({ name, bytes }) => ({
       name: `nested/${name}`, content: bytes,
     })));
-    const inventory = openZipArchive(zipPath, 'assets.zip', 'fixture');
+    const inventory = await openZipArchive(zipPath, 'assets.zip', 'fixture');
     expect(inventory.entries).toHaveLength(fixtures.length);
 
     for (const { name, bytes } of fixtures) {

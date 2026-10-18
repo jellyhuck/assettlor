@@ -182,7 +182,7 @@ async function planAssetCopy(asset: Asset, destDir: string, targetDir: string): 
     }
     let archiveBuffer: Buffer | null;
     try {
-      archiveBuffer = getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath);
+      archiveBuffer = await getZipEntryBuffer(asset.archivePath, asset.archiveEntryPath);
     } catch (error) {
       if (isMissingFilesystemError(error)) {
         missingSource(`Archive source is missing: ${asset.id}`);
@@ -296,7 +296,7 @@ async function stageDiskSource(asset: Asset, stagePath: string): Promise<void> {
 async function readArchiveSource(asset: Asset): Promise<Buffer> {
   let buffer: Buffer | null;
   try {
-    buffer = getZipEntryBuffer(asset.archivePath!, asset.archiveEntryPath!);
+    buffer = await getZipEntryBuffer(asset.archivePath!, asset.archiveEntryPath!);
   } catch (error) {
     if (isMissingFilesystemError(error)) {
       missingSource(`Archive source disappeared: ${asset.id}`);

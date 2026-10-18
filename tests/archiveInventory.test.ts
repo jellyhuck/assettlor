@@ -39,7 +39,7 @@ describe('ZIP archive inventory', () => {
       { name: 'notes/readme.txt', content: 'not indexed' },
     ]);
 
-    const inventory = openZipArchive(archivePath, 'Pack.zip', 'outer-hash');
+    const inventory = await openZipArchive(archivePath, 'Pack.zip', 'outer-hash');
     expect(inventory.entries.map((entry) => entry.entryName).sort()).toEqual([
       'audio/jump.wav', 'sprites/broken.png', 'sprites/good.png',
     ]);
@@ -66,7 +66,7 @@ describe('ZIP archive inventory', () => {
     ]);
   });
 
-  it('keeps unchanged members stable when another member changes', () => {
+  it('keeps unchanged members stable when another member changes', async () => {
     const archivePath = path.join(tempDir, 'Pack.zip');
     const fixedDate = new Date('2020-01-02T03:04:06.000Z');
     function writeArchive(changedContent: string): void {
@@ -81,11 +81,11 @@ describe('ZIP archive inventory', () => {
 
     writeArchive('AAAA');
     const firstSize = fs.statSync(archivePath).size;
-    const first = openZipArchive(archivePath, 'Pack.zip', 'archive-v1');
+    const first = await openZipArchive(archivePath, 'Pack.zip', 'archive-v1');
 
     writeArchive('BBBB');
     expect(fs.statSync(archivePath).size).toBe(firstSize);
-    const second = openZipArchive(archivePath, 'Another Display/Pack.zip', 'archive-v2');
+    const second = await openZipArchive(archivePath, 'Another Display/Pack.zip', 'archive-v2');
 
     expect(second.entries[0].hash).not.toBe(first.entries[0].hash);
     expect(second.entries[1].hash).toBe(first.entries[1].hash);
@@ -98,7 +98,7 @@ describe('ZIP archive inventory', () => {
     createTestZipArchive(archivePath, [
       { name: 'broken.png', content: Buffer.from('not a PNG') },
     ]);
-    const inventory = openZipArchive(archivePath, 'Pack.zip', 'hash');
+    const inventory = await openZipArchive(archivePath, 'Pack.zip', 'hash');
     await expect(inventory.processEntry(inventory.entries[0], {
       isCancelled: () => true,
     })).rejects.toBeInstanceOf(ArchiveCancelledError);
@@ -116,7 +116,7 @@ describe('ZIP archive inventory', () => {
     bytes.writeUInt32LE(0, localHeader);
     fs.writeFileSync(archivePath, bytes);
 
-    const inventory = openZipArchive(archivePath, 'Pack.zip', 'hash');
+    const inventory = await openZipArchive(archivePath, 'Pack.zip', 'hash');
     expect(inventory.entries).toHaveLength(2);
     const broken = inventory.entries.find((entry) => entry.entryName === 'a-broken.png')!;
     const good = inventory.entries.find((entry) => entry.entryName === 'z-good.png')!;
@@ -128,44 +128,40 @@ describe('ZIP archive inventory', () => {
     expect(items.map((item) => item.entryName)).toEqual(['z-good.png']);
   });
 
-  it('rejects excessive ZIP file size and entry counts before processing', () => {
+  it('rejects excessive entry counts before processing', async () => {
     const archivePath = path.join(tempDir, 'Pack.zip');
     createTestZipArchive(archivePath, [
       { name: 'one.png', content: TINY_PNG_BUFFER },
       { name: 'two.png', content: TINY_PNG_BUFFER },
     ]);
-    const size = fs.statSync(archivePath).size;
 
-    expect(() => openZipArchive(archivePath, 'Pack.zip', 'hash', {
-      maxArchiveBytes: size - 1,
-    })).toThrow(ArchiveResourceLimitError);
-    expect(() => openZipArchive(archivePath, 'Pack.zip', 'hash', {
+    await expect(openZipArchive(archivePath, 'Pack.zip', 'hash', {
       maxEntries: 1,
-    })).toThrow(ArchiveResourceLimitError);
+    })).rejects.toThrow(ArchiveResourceLimitError);
   });
 
-  it('checks declared per-entry, aggregate, and compression-ratio limits', () => {
+  it('checks declared per-entry, aggregate, and compression-ratio limits', async () => {
     const archivePath = path.join(tempDir, 'Pack.zip');
     createTestZipArchive(archivePath, [
       { name: 'one.png', content: Buffer.alloc(128) },
       { name: 'two.png', content: Buffer.alloc(128) },
     ]);
 
-    expect(() => openZipArchive(archivePath, 'Pack.zip', 'hash', {
+    await expect(openZipArchive(archivePath, 'Pack.zip', 'hash', {
       maxEntryUncompressedBytes: 127,
-    })).toThrow(ArchiveResourceLimitError);
-    expect(() => openZipArchive(archivePath, 'Pack.zip', 'hash', {
+    })).rejects.toThrow(ArchiveResourceLimitError);
+    await expect(openZipArchive(archivePath, 'Pack.zip', 'hash', {
       maxTotalUncompressedBytes: 255,
-    })).toThrow(ArchiveResourceLimitError);
-    expect(() => openZipArchive(archivePath, 'Pack.zip', 'hash', {
+    })).rejects.toThrow(ArchiveResourceLimitError);
+    await expect(openZipArchive(archivePath, 'Pack.zip', 'hash', {
       maxEntryCompressedBytes: 1,
-    })).toThrow(ArchiveResourceLimitError);
-    expect(() => openZipArchive(archivePath, 'Pack.zip', 'hash', {
+    })).rejects.toThrow(ArchiveResourceLimitError);
+    await expect(openZipArchive(archivePath, 'Pack.zip', 'hash', {
       maxCompressionRatio: 2,
-    })).toThrow(ArchiveResourceLimitError);
+    })).rejects.toThrow(ArchiveResourceLimitError);
   });
 
-  it('ignores the size of entries that are never inflated', () => {
+  it('ignores the size of entries that are never inflated', async () => {
     const archivePath = path.join(tempDir, 'Pack.zip');
     createTestZipArchive(archivePath, [
       { name: 'Pack/sprite.png', content: TINY_PNG_BUFFER },
@@ -176,17 +172,63 @@ describe('ZIP archive inventory', () => {
     bytes.writeUInt32LE(DEFAULT_ARCHIVE_LIMITS.maxEntryUncompressedBytes + 1, centralName - 46 + 24);
     fs.writeFileSync(archivePath, bytes);
 
-    const inventory = openZipArchive(archivePath, 'Pack.zip', 'hash', {
+    const inventory = await openZipArchive(archivePath, 'Pack.zip', 'hash', {
       maxEntryUncompressedBytes: 1024,
       maxTotalUncompressedBytes: 1024,
       maxCompressionRatio: 2,
     });
     expect(inventory.entries.map((entry) => entry.entryName)).toEqual(['Pack/sprite.png']);
-    expect(getZipEntryBuffer(archivePath, 'Pack/sprite.png')).toEqual(TINY_PNG_BUFFER);
-    expect(() => getZipEntryBuffer(archivePath, 'Pack/PSDs/Source.psd')).toThrow(ArchiveResourceLimitError);
+    expect(await getZipEntryBuffer(archivePath, 'Pack/sprite.png')).toEqual(TINY_PNG_BUFFER);
+    // Only indexable media entries are served.
+    expect(await getZipEntryBuffer(archivePath, 'Pack/PSDs/Source.psd')).toBeNull();
+    inventory.close();
   });
 
-  it('rejects a forged oversized header before on-demand extraction', () => {
+  it('skips an unsafe entry name without failing its siblings', async () => {
+    const archivePath = path.join(tempDir, 'Pack.zip');
+    createTestZipArchive(archivePath, [
+      { name: 'xx/evil.png', content: TINY_PNG_BUFFER },
+      { name: 'good.png', content: TINY_PNG_BUFFER },
+    ]);
+    const bytes = fs.readFileSync(archivePath);
+    for (let at = bytes.indexOf('xx/evil.png'); at >= 0; at = bytes.indexOf('xx/evil.png', at + 1)) {
+      bytes.write('..', at, 'latin1');
+    }
+    fs.writeFileSync(archivePath, bytes);
+
+    const inventory = await openZipArchive(archivePath, 'Pack.zip', 'hash');
+    expect(inventory.entries.map((entry) => entry.entryName)).toEqual(['good.png']);
+    inventory.close();
+  });
+
+  it('rejects an entry whose data fails its CRC-32 check', async () => {
+    const archivePath = path.join(tempDir, 'Pack.zip');
+    createTestZipArchive(archivePath, [{ name: 'one.png', content: TINY_PNG_BUFFER }]);
+    const bytes = fs.readFileSync(archivePath);
+    const centralHeader = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    bytes.writeUInt32LE((bytes.readUInt32LE(centralHeader + 16) ^ 1) >>> 0, centralHeader + 16);
+    fs.writeFileSync(archivePath, bytes);
+
+    await expect(getZipEntryBuffer(archivePath, 'one.png')).rejects.toThrow(/CRC-32/);
+  });
+
+  it('rereads a cached archive rewritten in place with the same size and mtime', async () => {
+    const archivePath = path.join(tempDir, 'Pack.zip');
+    const fixedDate = new Date('2020-01-02T03:04:06.000Z');
+    function writeArchive(content: string): void {
+      const zip = new AdmZip();
+      zip.addFile('sprite.png', Buffer.from(content)).header.time = fixedDate;
+      zip.writeZip(archivePath);
+      fs.utimesSync(archivePath, fixedDate, fixedDate);
+    }
+
+    writeArchive('AAAA');
+    expect((await getZipEntryBuffer(archivePath, 'sprite.png'))!.toString()).toBe('AAAA');
+    writeArchive('BBBB');
+    expect((await getZipEntryBuffer(archivePath, 'sprite.png'))!.toString()).toBe('BBBB');
+  });
+
+  it('rejects a forged oversized header before on-demand extraction', async () => {
     const archivePath = path.join(tempDir, 'Pack.zip');
     createTestZipArchive(archivePath, [{ name: 'one.png', content: TINY_PNG_BUFFER }]);
     const bytes = fs.readFileSync(archivePath);
@@ -195,7 +237,7 @@ describe('ZIP archive inventory', () => {
     bytes.writeUInt32LE(DEFAULT_ARCHIVE_LIMITS.maxEntryUncompressedBytes + 1, centralHeader + 24);
     fs.writeFileSync(archivePath, bytes);
 
-    expect(() => openZipArchive(archivePath, 'Pack.zip', 'hash')).toThrow(ArchiveResourceLimitError);
-    expect(() => getZipEntryBuffer(archivePath, 'one.png')).toThrow(ArchiveResourceLimitError);
+    await expect(openZipArchive(archivePath, 'Pack.zip', 'hash')).rejects.toThrow(ArchiveResourceLimitError);
+    await expect(getZipEntryBuffer(archivePath, 'one.png')).rejects.toThrow(ArchiveResourceLimitError);
   });
 });

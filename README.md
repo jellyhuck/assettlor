@@ -14,7 +14,7 @@
 - **Real-Time Progress via SSE**: Live updates streamed to the UI as files are scanned and indexed.
 
 ### 2. Virtual Archive Inspection (`.zip`)
-- **Zero Disk Extraction**: Inspects `.zip` archives directly in memory using `adm-zip` without decompressing to disk.
+- **Zero Disk Extraction**: Reads `.zip` archives in place with random-access reads, decompressing only the entry it needs and never extracting to disk.
 - **Virtual Paths**: Items indexed as `Archive.zip#/path/to/sprite.png`.
 - **Cached Thumbnails & On-Demand Files**: Builds thumbnails during scanning, then extracts archive entry buffers when serving the original file.
 - **Auto-Archive Tagging**: Tags every asset with the archive name and interior folder structure.
@@ -154,7 +154,7 @@ assettlor/
 │   │       ├── stacker.ts       # Sequential animation & audio variation stacker
 │   │       ├── image.ts         # Sharp image processor, TGA/BMP decoder, WebP thumbnails
 │   │       ├── audio.ts         # Music-metadata extractor & audio artwork generator
-│   │       ├── archive.ts       # In-memory AdmZip inspector & virtual streaming
+│   │       ├── archive.ts       # Random-access ZIP inspector & virtual streaming
 │   │       └── copier.ts        # Copy to active project service
 ├── client/
 │   ├── src/

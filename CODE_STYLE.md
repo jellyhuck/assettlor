@@ -37,7 +37,7 @@ Guidelines for authoring code in Assettlor. Agents and developers must adhere to
   - WAL mode (`PRAGMA journal_mode = WAL;`) is mandatory for high-concurrency local reading.
 - **File & Stream Handling**:
   - Stream large files via `fs.createReadStream` supporting HTTP 206 Partial Content range requests (see `routes/assets.ts`).
-  - Virtual zip entries must be extracted directly to memory buffers via AdmZip; never write temporary files to disk during inspection or streaming.
+  - Virtual zip entries must be extracted directly to memory buffers via `archive.ts` helpers; never write temporary files to disk during inspection or streaming.
 
 ---
 

@@ -58,11 +58,11 @@ export function looksLikeHashName(name: string): boolean {
 }
 
 /** Hash-named archives fall back to their single root directory when it has a real name. */
-export function extractArchiveCandidate(asset: Asset): string {
+export async function extractArchiveCandidate(asset: Asset): Promise<string> {
   const baseName = extractArchiveBaseName(asset.archivePath || asset.path);
   if (!baseName || !looksLikeHashName(baseName)) return baseName;
   try {
-    const root = getZipRootDirectory(asset.archivePath || asset.absolutePath);
+    const root = await getZipRootDirectory(asset.archivePath || asset.absolutePath);
     if (root && !looksLikeHashName(root)) return root;
   } catch {
     // Unreadable archives keep their file name as the candidate.
@@ -240,9 +240,9 @@ const extractStep: ClassifierStep<PackClassifierSettings, PackIntermediateState>
   id: 'extract-name',
   name: 'Extract Pack Candidate',
   description: 'Extracts candidate pack name from archive name (or its root directory when the name is a hash) or directory hierarchy.',
-  execute: ({ asset, settings, intermediate }) => {
+  execute: async ({ asset, settings, intermediate }) => {
     if (asset.isArchiveEntry) {
-      const raw = extractArchiveCandidate(asset);
+      const raw = await extractArchiveCandidate(asset);
       if (!raw) {
         intermediate.skipped = true;
         intermediate.skipReason = 'Could not determine archive base name';
