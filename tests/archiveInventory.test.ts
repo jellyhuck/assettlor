@@ -165,6 +165,27 @@ describe('ZIP archive inventory', () => {
     })).toThrow(ArchiveResourceLimitError);
   });
 
+  it('ignores the size of entries that are never inflated', () => {
+    const archivePath = path.join(tempDir, 'Pack.zip');
+    createTestZipArchive(archivePath, [
+      { name: 'Pack/sprite.png', content: TINY_PNG_BUFFER },
+      { name: 'Pack/PSDs/Source.psd', content: Buffer.alloc(4096) },
+    ]);
+    const bytes = fs.readFileSync(archivePath);
+    const centralName = bytes.indexOf(Buffer.from('Pack/PSDs/Source.psd'), bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])));
+    bytes.writeUInt32LE(DEFAULT_ARCHIVE_LIMITS.maxEntryUncompressedBytes + 1, centralName - 46 + 24);
+    fs.writeFileSync(archivePath, bytes);
+
+    const inventory = openZipArchive(archivePath, 'Pack.zip', 'hash', {
+      maxEntryUncompressedBytes: 1024,
+      maxTotalUncompressedBytes: 1024,
+      maxCompressionRatio: 2,
+    });
+    expect(inventory.entries.map((entry) => entry.entryName)).toEqual(['Pack/sprite.png']);
+    expect(getZipEntryBuffer(archivePath, 'Pack/sprite.png')).toEqual(TINY_PNG_BUFFER);
+    expect(() => getZipEntryBuffer(archivePath, 'Pack/PSDs/Source.psd')).toThrow(ArchiveResourceLimitError);
+  });
+
   it('rejects a forged oversized header before on-demand extraction', () => {
     const archivePath = path.join(tempDir, 'Pack.zip');
     createTestZipArchive(archivePath, [{ name: 'one.png', content: TINY_PNG_BUFFER }]);

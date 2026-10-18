@@ -45,6 +45,17 @@ describe('Image Service', () => {
   });
 
   describe('processImageBuffer - PNG', () => {
+    it('thumbnails a large GUI template above 16 megapixels', async () => {
+      const large = await sharp({
+        create: { width: 4500, height: 4300, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 1 } },
+      }).png({ compressionLevel: 1 }).toBuffer();
+
+      const result = await processImageBuffer(large, '.png');
+      expect(result.metadata.width).toBe(4500);
+      expect(result.metadata.height).toBe(4300);
+      expect((await sharp(result.thumbnailBuffer).metadata()).format).toBe('webp');
+    });
+
     it('should process a valid PNG buffer and produce WebP thumbnail', async () => {
       const result = await processImageBuffer(TINY_PNG_BUFFER, '.png');
       expect(result).toBeDefined();

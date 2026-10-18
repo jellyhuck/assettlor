@@ -38,7 +38,11 @@ export interface DecodedRaster {
   channels: number;
 }
 
-const MAX_SOURCE_PIXELS = 16_000_000;
+// The BMP and TGA decoders hold the full RGBA raster in memory (twice, briefly).
+const MAX_SOURCE_PIXELS = 8192 * 8192;
+// Sharp decodes on demand while resizing, so it can accept larger textures.
+// This matches Sharp's own default limit.
+const MAX_SHARP_INPUT_PIXELS = 16384 * 16384;
 
 export function decodeBmpBuffer(buffer: Buffer): DecodedRaster {
   // bmp-js allocates its output while parsing. Check the dimensions first so a
@@ -226,7 +230,7 @@ export async function processImageBuffer(
   const image = sharp(buffer, {
     page: 0,
     pages: 1,
-    limitInputPixels: MAX_SOURCE_PIXELS,
+    limitInputPixels: MAX_SHARP_INPUT_PIXELS,
   });
   const sharpMeta = await image.metadata();
   const swapsAxes = [5, 6, 7, 8].includes(sharpMeta.orientation ?? 1);

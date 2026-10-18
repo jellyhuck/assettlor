@@ -81,6 +81,24 @@ function assertWithinLimit(value: number, max: number, description: string): voi
   }
 }
 
+function assertEntryWithinLimits(entry: ZipEntry, limits: ArchiveResourceLimits): void {
+  const { compressedSize, size } = entry.header;
+  assertWithinLimit(compressedSize, limits.maxEntryCompressedBytes, `ZIP entry ${entry.entryName} compressed size`);
+  assertWithinLimit(size, limits.maxEntryUncompressedBytes, `ZIP entry ${entry.entryName} uncompressed size`);
+  if (size > 0 && (compressedSize === 0 || size / compressedSize > limits.maxCompressionRatio)) {
+    throw new ArchiveResourceLimitError(`ZIP entry ${entry.entryName} exceeds the compression ratio limit`);
+  }
+}
+
+// Only these entries are ever read or inflated. Others, such as PSD sources,
+// stay in the compressed archive and do not count against inflation limits.
+function isIndexableMediaEntry(entry: ZipEntry): boolean {
+  if (entry.isDirectory) return false;
+  if (entry.entryName.includes('__MACOSX') || entry.name.startsWith('.')) return false;
+  const extension = path.extname(entry.name).toLowerCase();
+  return isSupportedImageExtension(extension) || isSupportedAudioExtension(extension);
+}
+
 function loadBoundedArchive(
   archiveAbsolutePath: string,
   limits: ArchiveResourceLimits
@@ -99,17 +117,14 @@ function loadBoundedArchive(
   let totalUncompressedBytes = 0;
   for (const entry of entries) {
     const { compressedSize, size } = entry.header;
-    assertWithinLimit(compressedSize, limits.maxEntryCompressedBytes, `ZIP entry ${entry.entryName} compressed size`);
-    assertWithinLimit(size, limits.maxEntryUncompressedBytes, `ZIP entry ${entry.entryName} uncompressed size`);
-
+    // Every declared entry must fit inside the file, inflated or not.
     totalCompressedBytes += compressedSize;
-    totalUncompressedBytes += size;
     assertWithinLimit(totalCompressedBytes, archiveSize, 'ZIP total declared compressed size');
-    assertWithinLimit(totalUncompressedBytes, limits.maxTotalUncompressedBytes, 'ZIP total declared uncompressed size');
+    if (!isIndexableMediaEntry(entry)) continue;
 
-    if (size > 0 && (compressedSize === 0 || size / compressedSize > limits.maxCompressionRatio)) {
-      throw new ArchiveResourceLimitError(`ZIP entry ${entry.entryName} exceeds the compression ratio limit`);
-    }
+    assertEntryWithinLimits(entry, limits);
+    totalUncompressedBytes += size;
+    assertWithinLimit(totalUncompressedBytes, limits.maxTotalUncompressedBytes, 'ZIP total declared uncompressed size');
   }
 
   return entries;
@@ -156,14 +171,11 @@ export function openZipArchive(
   const seenPaths = new Set<string>();
 
   for (const zipEntry of zipEntries) {
-    if (zipEntry.isDirectory) continue;
-    if (zipEntry.entryName.includes('__MACOSX') || zipEntry.name.startsWith('.')) continue;
+    if (!isIndexableMediaEntry(zipEntry)) continue;
 
     const filename = zipEntry.name;
     const extension = path.extname(filename).toLowerCase();
     const isImage = isSupportedImageExtension(extension);
-    const isAudio = isSupportedAudioExtension(extension);
-    if (!isImage && !isAudio) continue;
 
     const entryName = zipEntry.entryName;
     const virtualPath = `${relativeArchivePath}#/${entryName}`;
@@ -270,6 +282,7 @@ export function getZipEntryBuffer(archiveAbsolutePath: string, internalPath: str
   const entries = loadBoundedArchive(archiveAbsolutePath, DEFAULT_ARCHIVE_LIMITS);
   const entry = entries.find((candidate) => candidate.entryName === internalPath);
   if (!entry || entry.isDirectory) return null;
+  assertEntryWithinLimits(entry, DEFAULT_ARCHIVE_LIMITS);
   const buffer = entry.getData();
   if (buffer.length !== entry.header.size) {
     throw new Error(`ZIP entry ${internalPath} size differs from its header`);
