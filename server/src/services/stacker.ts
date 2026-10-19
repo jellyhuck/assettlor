@@ -29,6 +29,8 @@ interface PatternGroup {
 // Sparse sequences are intentional: frames 1 and 3 form a stack with indices 0 and 1.
 const NUMBERED_PATTERN = /^(.*?)(?:[-_ .]|frame|f|#)*?(\d{1,4})$/i;
 const LETTER_PATTERN = /^(.*?)[-_ .]([a-zA-Z])$/i;
+// Images accept only an underscore so names like "Button A" or "icon-b" stay standalone.
+const IMAGE_LETTER_PATTERN = /^(.*?)_([a-zA-Z])$/;
 
 function humanizeName(raw: string): string {
   return raw
@@ -76,11 +78,15 @@ function addToGroup(
   asset: AssetCandidate,
   type: PatternGroup['type'],
   baseName: string,
-  sequenceIndex: number
+  sequenceIndex: number,
+  sequenceKind?: 'lettered'
 ): void {
   if (!baseName) return;
   // JSON tuple encoding keeps fields unambiguous even when paths contain separators.
-  const identity = JSON.stringify([type, sourceContext(asset), mediaContext(asset), baseName]);
+  // The kind is appended only when set so existing stack IDs stay stable.
+  const fields: unknown[] = [type, sourceContext(asset), mediaContext(asset), baseName];
+  if (sequenceKind) fields.push(sequenceKind);
+  const identity = JSON.stringify(fields);
   let group = groups.get(identity);
   if (!group) {
     group = { identity, type, baseName, items: [] };
@@ -94,9 +100,15 @@ function planStacks(assets: AssetCandidate[], settings: StackingSettings): Plann
   for (const asset of assets) {
     const stem = path.parse(asset.name).name;
     if (asset.category === 'image' && settings.autoStackAnimations) {
-      const match = stem.match(NUMBERED_PATTERN);
-      if (!match) continue;
-      addToGroup(groups, asset, 'animation', match[1].toLowerCase().replace(/[-_ .]+$/, ''), Number(match[2]));
+      const numbered = stem.match(NUMBERED_PATTERN);
+      const lettered = stem.match(IMAGE_LETTER_PATTERN);
+      if (numbered) {
+        addToGroup(groups, asset, 'animation', numbered[1].toLowerCase().replace(/[-_ .]+$/, ''), Number(numbered[2]));
+      } else if (lettered) {
+        // Lettered frames group apart from numbered ones; "a" is frame 1.
+        const letterIndex = lettered[2].toLowerCase().charCodeAt(0) - 96;
+        addToGroup(groups, asset, 'animation', lettered[1].toLowerCase().replace(/[-_ .]+$/, ''), letterIndex, 'lettered');
+      }
     } else if (asset.category === 'audio' && settings.autoStackAudio) {
       const numbered = stem.match(NUMBERED_PATTERN);
       const lettered = stem.match(LETTER_PATTERN);

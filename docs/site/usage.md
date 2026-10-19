@@ -48,8 +48,9 @@ you type; unsupported clauses are searched as literal text.
 
 ## Preview stacks and media
 
-Sequential image names such as `Logo_Spin_01.png` through `Logo_Spin_04.png`
-can form an animation stack. Numbered or lettered audio variants such as
+Sequential image names such as `Logo_Spin_01.png` through `Logo_Spin_04.png`,
+or underscore-lettered names such as `Rock_A.png` and `Rock_B.png`, can form an
+animation stack. Numbered or lettered audio variants such as
 `click_01.wav` and `click_02.wav`, or `Chime_A.wav` and `Chime_B.wav`, can form
 an audio variation stack.
 

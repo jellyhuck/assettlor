@@ -172,6 +172,38 @@ describe('stack rebuild regressions', () => {
     expect(stacks()).toEqual([]);
   });
 
+  it('stacks underscore-lettered images in letter order', () => {
+    addAsset('rock_c', 'props/Rock_C.png');
+    addAsset('rock_a', 'props/Rock_A.png');
+    addAsset('rock_b', 'props/Rock_B.png');
+    addAsset('icon_a', 'props/icon-a.png');
+    addAsset('icon_b', 'props/icon-b.png');
+    addAsset('tree_a', 'props/tree_a.png');
+
+    expect(runStackingEngine().animationStacksCreated).toBe(1);
+    const [rock] = stacks();
+    expect(rock.name).toBe('Rock');
+    expect(rock.type).toBe('animation');
+    expect(JSON.parse(rock.metadata).frameRange).toEqual([1, 3]);
+    expect(getStackAssets(rock.id).map((asset) => asset.id)).toEqual(['rock_a', 'rock_b', 'rock_c']);
+  });
+
+  it('keeps lettered and numbered images with one base name in separate stacks', () => {
+    addAsset('walk_1', 'sprites/walk_01.png');
+    addAsset('walk_2', 'sprites/walk_02.png');
+    addAsset('walk_a', 'sprites/walk_a.png');
+    addAsset('walk_b', 'sprites/walk_b.png');
+
+    expect(runStackingEngine().animationStacksCreated).toBe(2);
+    const members = stacks()
+      .map((stack) => getStackAssets(stack.id).map((asset) => asset.id))
+      .sort((left, right) => left[0].localeCompare(right[0]));
+    expect(members).toEqual([
+      ['walk_1', 'walk_2'],
+      ['walk_a', 'walk_b'],
+    ]);
+  });
+
   it('rolls back the entire rebuild when a stack write fails', () => {
     addAsset('walk_1', 'sprites/walk_01.png');
     addAsset('walk_2', 'sprites/walk_02.png');

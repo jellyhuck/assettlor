@@ -60,7 +60,7 @@ A navigation and reference guide for understanding subsystem implementations and
 - Thumbnail buffers are staged during scans; serving an original archive entry reads only that entry into memory on request.
 
 ### C. Sequential Stacking Engine (`server/src/services/stacker.ts`)
-- **Animation Sequences**: Uses regex heuristics to identify frame suffixes (`_01`, `_frame1`, `_001`) with matching base names in the same folder.
+- **Animation Sequences**: Uses regex heuristics to identify frame suffixes (`_01`, `_frame1`, `_001`) or underscore letters (`_a`, `_b`) with matching base names in the same folder. Lettered and numbered frames of one base name form separate stacks.
 - **Audio Variations**: Identifies numbered or lettered sound variants (`laser_01`, `laser_02` or `hit_a`, `hit_b`).
 - Records stacks in `stacks` table and links member assets via `stack_id` and `stack_index`.
 
