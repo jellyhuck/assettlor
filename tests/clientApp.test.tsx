@@ -205,6 +205,7 @@ describe('App catalog and live request lifecycle', () => {
   afterEach(async () => {
     if (view) await view.unmount();
     vi.unstubAllGlobals();
+    window.localStorage.clear();
     FakeEventSource.reset();
   });
 

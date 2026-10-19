@@ -28,6 +28,7 @@ import { SoundIcon, MusicPlateIcon } from './AudioIcons';
 import { useToast } from './Toast';
 import { CopyModal } from './CopyModal';
 import { createRequestGate, errorMessage, isAbortError, requestJson, expectArray, expectRecord } from '../lib/requestLifecycle';
+import { isBoolean, usePersistentState } from '../lib/persistentState';
 
 type StackItem = AssetStack & { isStack: true };
 type MemberState = { key: string; phase: 'ready' | 'error'; assets: Asset[]; error: string | null };
@@ -153,8 +154,8 @@ export function Inspector({
 }: InspectorProps) {
   const { showToast } = useToast();
 
-  const [pixelated, setPixelated] = useState(true);
-  const [checkerboard, setCheckerboard] = useState(true);
+  const [pixelated, setPixelated] = usePersistentState('previewPixelated', true, isBoolean);
+  const [checkerboard, setCheckerboard] = usePersistentState('previewCheckerboard', true, isBoolean);
   const [memberState, setMemberState] = useState<MemberState | null>(null);
   const [selectedMember, setSelectedMember] = useState<{ stackId: string; id: string } | null>(null);
   const [viewChoice, setViewChoice] = useState<{

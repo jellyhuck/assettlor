@@ -25,9 +25,17 @@ import { CopyModal } from './components/CopyModal';
 import { ClassifierModal } from './components/ClassifierModal';
 import { createRequestGate, errorMessage, isAbortError, requestJson } from './lib/requestLifecycle';
 import { parseScanStatus } from './lib/useScanStatus';
+import { isBoolean, oneOf, usePersistentState } from './lib/persistentState';
 
 type CatalogItem = Asset | (AssetStack & { isStack: true });
 type CatalogPhase = 'loading' | 'ready' | 'error';
+type SortField = 'name' | 'size' | 'mtime' | 'resolution' | 'duration' | 'bpm' | 'width' | 'height';
+type SortOrder = 'asc' | 'desc';
+
+const isViewMode = oneOf<ViewMode>('grid', 'list');
+const isCardZoom = oneOf<CardZoom>('small', 'medium', 'large');
+const isSortField = oneOf<SortField>('name', 'size', 'mtime', 'resolution', 'duration', 'bpm', 'width', 'height');
+const isSortOrder = oneOf<SortOrder>('asc', 'desc');
 type CatalogState = {
   key: string;
   items: CatalogItem[];
@@ -163,13 +171,11 @@ function MainApp() {
   const selectedBpm = activeFilters.bpm;
 
   // View & Sort State
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  const [isStackedView, setIsStackedView] = useState<boolean>(true);
-  const [cardZoom, setCardZoom] = useState<CardZoom>('medium');
-  const [sortBy, setSortBy] = useState<
-    'name' | 'size' | 'mtime' | 'resolution' | 'duration' | 'bpm' | 'width' | 'height'
-  >('name');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [viewMode, setViewMode] = usePersistentState<ViewMode>('viewMode', 'grid', isViewMode);
+  const [isStackedView, setIsStackedView] = usePersistentState('stackedView', true, isBoolean);
+  const [cardZoom, setCardZoom] = usePersistentState<CardZoom>('cardZoom', 'medium', isCardZoom);
+  const [sortBy, setSortBy] = usePersistentState<SortField>('sortBy', 'name', isSortField);
+  const [sortOrder, setSortOrder] = usePersistentState<SortOrder>('sortOrder', 'asc', isSortOrder);
 
   // Selection & Inspector State
   const [selectedItem, setSelectedItem] = useState<CatalogItem | null>(null);
