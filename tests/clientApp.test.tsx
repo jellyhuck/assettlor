@@ -94,10 +94,10 @@ vi.mock('../client/src/components/SettingsModal.tsx', () => ({
 vi.mock('../client/src/components/ClassifierModal.tsx', () => ({ ClassifierModal: () => null }));
 vi.mock('../client/src/components/CopyModal.tsx', () => ({ CopyModal: () => null }));
 
-const settings = {
+const settings: AppSettings = {
   libraryPath: '/tmp/library', libraryPaths: ['/tmp/library'],
   activeProjectPath: '', projectPaths: [], thumbnailQuality: 80,
-  autoStackAnimations: true, autoStackAudio: true, defaultFps: 12,
+  autoStackAnimations: true, autoStackAudio: true, defaultFps: 12, catalogPaging: 'load-more',
 };
 
 function asset(index: number, name = 'Same name'): Asset {
@@ -173,9 +173,9 @@ describe('App catalog and live request lifecycle', () => {
     view = await mountReact(strict ? <StrictMode><App /></StrictMode> : <App />);
   }
 
-  async function resolveBootstrap(items: Item[], total = items.length) {
+  async function resolveBootstrap(items: Item[], total = items.length, appSettings: AppSettings = settings) {
     await act(async () => {
-      requests('/api/settings').at(-1)!.resolveJson(settings);
+      requests('/api/settings').at(-1)!.resolveJson(appSettings);
       requests('/api/tags').at(-1)!.resolveJson([]);
       requests('/api/formats').at(-1)!.resolveJson([]);
       requests('/api/resolutions').at(-1)!.resolveJson([]);
@@ -293,6 +293,48 @@ describe('App catalog and live request lifecycle', () => {
     await act(async () => { oldPage.resolveJson(catalogPage(items.slice(100, 200), 2, 250)); });
     expect(itemIds()).toEqual(['asset-900']);
     expect(view!.container.querySelector('[data-testid="loaded-count"]')?.textContent).toBe('1/1');
+  });
+
+  it('replaces results page by page when numbered pages are configured', async () => {
+    const items = Array.from({ length: 250 }, (_, index) => asset(index));
+    await mount();
+    await resolveBootstrap(items.slice(0, 100), 250, { ...settings, catalogPaging: 'pages' });
+    expect(catalogRequests()).toHaveLength(1);
+    expect(view!.container.textContent).not.toContain('Load more');
+    expect(view!.container.textContent).toContain('1–100 of 250');
+    expect(view!.container.querySelector('[data-testid="loaded-count"]')?.textContent).toBe('0/250');
+    expect(button('Previous page').disabled).toBe(true);
+
+    await click(button('Next page'));
+    expect(query(latestCatalog(), 'page')).toBe('2');
+    expect(itemIds()).toHaveLength(100);
+    await act(async () => { latestCatalog().resolveJson(catalogPage(items.slice(100, 200), 2, 250)); });
+    expect(itemIds()).toHaveLength(100);
+    expect(itemIds()[0]).toBe('asset-100');
+    expect(button('Page 2').getAttribute('aria-current')).toBe('page');
+
+    await click(button('Page 3'));
+    expect(query(latestCatalog(), 'page')).toBe('3');
+    await act(async () => { latestCatalog().resolveJson(catalogPage(items.slice(200), 3, 250)); });
+    expect(itemIds()).toHaveLength(50);
+    expect(view!.container.textContent).toContain('201–250 of 250');
+    expect(button('Next page').disabled).toBe(true);
+
+    await click(button('Audio category'));
+    expect(query(latestCatalog(), 'category')).toBe('audio');
+    expect(query(latestCatalog(), 'page')).toBe('1');
+  });
+
+  it('moves to the last remaining page when the index shrinks under the current page', async () => {
+    const items = Array.from({ length: 250 }, (_, index) => asset(index));
+    await mount();
+    await resolveBootstrap(items.slice(0, 100), 250, { ...settings, catalogPaging: 'pages' });
+    await click(button('Page 3'));
+    await act(async () => { latestCatalog().resolveJson(catalogPage([], 3, 150)); });
+    expect(query(latestCatalog(), 'page')).toBe('2');
+    await act(async () => { latestCatalog().resolveJson(catalogPage(items.slice(100, 150), 2, 150)); });
+    expect(itemIds()).toHaveLength(50);
+    expect(button('Page 2').getAttribute('aria-current')).toBe('page');
   });
 
   it('keeps one stream through query edits and notifies once per observed scan', async () => {

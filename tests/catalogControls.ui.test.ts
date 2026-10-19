@@ -15,6 +15,7 @@ const emptySettings: ComponentProps<typeof Sidebar>['settings'] = {
   autoStackAnimations: true,
   autoStackAudio: true,
   defaultFps: 12,
+  catalogPaging: 'load-more',
 };
 
 function sidebarProps(overrides: Partial<ComponentProps<typeof Sidebar>> = {}): ComponentProps<typeof Sidebar> {

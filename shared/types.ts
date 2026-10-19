@@ -153,7 +153,11 @@ export interface AppSettings {
   autoStackAnimations: boolean;
   autoStackAudio: boolean;
   defaultFps: number;
+  /** How the main catalog reaches results past the first page. */
+  catalogPaging: CatalogPaging;
 }
+
+export type CatalogPaging = 'load-more' | 'pages';
 
 export interface CopyAssetRequest {
   assetId?: string;

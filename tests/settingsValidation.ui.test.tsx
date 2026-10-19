@@ -10,7 +10,7 @@ const appSettings: AppSettings = {
   libraryPath: '/library/one', libraryPaths: ['/library/one'],
   activeProjectPath: '/project/one', projectPaths: ['/project/one'],
   thumbnailQuality: 80, autoStackAnimations: true,
-  autoStackAudio: true, defaultFps: 12,
+  autoStackAudio: true, defaultFps: 12, catalogPaging: 'load-more',
 };
 
 const classifierSettings = {

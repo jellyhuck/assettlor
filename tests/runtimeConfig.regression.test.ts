@@ -119,6 +119,8 @@ describe('durable runtime configuration', () => {
     { defaultFps: 61 },
     { autoStackAnimations: 'false' },
     { autoStackAudio: 1 },
+    { catalogPaging: 'infinite' },
+    { catalogPaging: true },
   ])('rejects invalid settings update %j without changing state', async (payload) => {
     const app = await buildServer({ initDb: false, logger: false });
     try {

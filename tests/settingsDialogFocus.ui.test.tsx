@@ -9,7 +9,7 @@ import { ToastProvider } from '../client/src/components/Toast.js';
 const app = {
   libraryPath: '/library', libraryPaths: ['/library'],
   activeProjectPath: '/project', projectPaths: ['/project'],
-  thumbnailQuality: 80, autoStackAnimations: true, autoStackAudio: true, defaultFps: 12,
+  thumbnailQuality: 80, autoStackAnimations: true, autoStackAudio: true, defaultFps: 12, catalogPaging: 'load-more',
 };
 const classifiers = {
   bpm: { enabled: true, minBpm: 60, maxBpm: 200, minDurationSeconds: 1, maxAnalysisSeconds: 45 },

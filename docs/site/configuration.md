@@ -67,6 +67,8 @@ pipeline:
   auto_stack_animations: true
   auto_stack_audio: true
   default_fps: 12
+ui:
+  catalog_paging: load-more
 ```
 
 | Setting | Behavior |
@@ -82,6 +84,7 @@ pipeline:
 | `pipeline.auto_stack_animations` | Group detected image sequences; default `true` |
 | `pipeline.auto_stack_audio` | Group detected audio variations; default `true` |
 | `pipeline.default_fps` | Animation playback rate, an integer from 1 to 60; default 12 |
+| `ui.catalog_paging` | How the main view reaches results beyond the first 100: `load-more` appends them with a Load more button, `pages` shows numbered pages; default `load-more` |
 
 The effective data directory contains `index.db` and `thumbnails/`. If the
 configured directory's final component is `data`, `cache`, or `.assettlor`,

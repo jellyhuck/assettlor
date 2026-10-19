@@ -73,6 +73,7 @@ describe('Shared Data Types and Contracts', () => {
       autoStackAnimations: true,
       autoStackAudio: true,
       defaultFps: 12,
+      catalogPaging: 'load-more',
     };
 
     expect(settings.libraryPaths).toHaveLength(2);

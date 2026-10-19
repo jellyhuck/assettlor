@@ -16,6 +16,8 @@ previously indexed assets until a successful scan can reconcile them.
 
 Use category, tag, and format filters in the sidebar and search in the top bar.
 The gallery offers stacked and flat views, sorting, and **Load more** paging.
+To browse numbered pages of 100 results instead, set **Paging** to
+**Numbered pages** under **Catalog Results** in Settings.
 Open an asset to inspect its dimensions, audio metadata, tags, and source path.
 
 ![Browsing assets in the library catalog](screenshots/overview.png)

@@ -23,6 +23,7 @@ import { Inspector } from './components/Inspector';
 import { SettingsModal } from './components/SettingsModal';
 import { CopyModal } from './components/CopyModal';
 import { ClassifierModal } from './components/ClassifierModal';
+import { Pagination } from './components/Pagination';
 import { createRequestGate, errorMessage, isAbortError, requestJson } from './lib/requestLifecycle';
 import { parseScanStatus } from './lib/useScanStatus';
 import { isBoolean, oneOf, usePersistentState } from './lib/persistentState';
@@ -36,9 +37,11 @@ const isViewMode = oneOf<ViewMode>('grid', 'list');
 const isCardZoom = oneOf<CardZoom>('small', 'medium', 'large');
 const isSortField = oneOf<SortField>('name', 'size', 'mtime', 'resolution', 'duration', 'bpm', 'width', 'height');
 const isSortOrder = oneOf<SortOrder>('asc', 'desc');
+const PAGE_SIZE = 100;
 type CatalogState = {
   key: string;
   items: CatalogItem[];
+  page: number;
   total: number;
   totalPages: number;
   nextPage: number | null;
@@ -66,6 +69,7 @@ const defaultSettings: AppSettings = {
   autoStackAnimations: true,
   autoStackAudio: true,
   defaultFps: 12,
+  catalogPaging: 'load-more',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -124,7 +128,8 @@ function parseSettings(value: unknown): AppSettings {
     || !Array.isArray(value.projectPaths) || !value.projectPaths.every((path) => typeof path === 'string')
     || typeof value.thumbnailQuality !== 'number' || !Number.isFinite(value.thumbnailQuality)
     || typeof value.defaultFps !== 'number' || !Number.isFinite(value.defaultFps)
-    || typeof value.autoStackAnimations !== 'boolean' || typeof value.autoStackAudio !== 'boolean') {
+    || typeof value.autoStackAnimations !== 'boolean' || typeof value.autoStackAudio !== 'boolean'
+    || (value.catalogPaging !== 'load-more' && value.catalogPaging !== 'pages')) {
     throw new Error('The server returned invalid settings');
   }
   return value as unknown as AppSettings;
@@ -204,8 +209,9 @@ function MainApp() {
   const [facetsLoading, setFacetsLoading] = useState(false);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [loadingPage, setLoadingPage] = useState<{ key: string; page: number } | null>(null);
+  const [pageSelection, setPageSelection] = useState({ key: '', page: 1 });
   const [catalog, setCatalog] = useState<CatalogState>({
-    key: '', items: [], total: 0, totalPages: 1, nextPage: null,
+    key: '', items: [], page: 1, total: 0, totalPages: 1, nextPage: null,
     phase: 'loading', pageError: null, revision: 0, refresh: 0,
   });
 
@@ -233,10 +239,13 @@ function MainApp() {
   const supersededTerminalStartRef = useRef<number | null>(null);
   const scanEventRevisionRef = useRef(0);
 
+  const paginated = settings.catalogPaging === 'pages';
   const queryKey = useMemo(() => JSON.stringify({
     selectedCategory, debouncedSearch: debouncedSearch.trim(),
     isStackedView, sortBy, sortOrder,
   }), [selectedCategory, debouncedSearch, isStackedView, sortBy, sortOrder]);
+  // Any change to the query returns paged results to the first page.
+  const requestedPage = paginated && pageSelection.key === queryKey ? pageSelection.page : 1;
   const queryKeyRef = useRef(queryKey);
   useEffect(() => { queryKeyRef.current = queryKey; }, [queryKey]);
   useEffect(() => { scanStatusRef.current = scanStatus; }, [scanStatus]);
@@ -247,7 +256,7 @@ function MainApp() {
   const items = currentCatalog?.items ?? [];
   const totalCount = currentCatalog?.total ?? 0;
   const loading = !currentCatalog || currentCatalog.refresh !== catalogRefresh
-    || currentCatalog.phase === 'loading'
+    || currentCatalog.phase === 'loading' || currentCatalog.page !== requestedPage
     || searchQuery.trim() !== debouncedSearch.trim();
   const pageLoading = loadingPage?.key === queryKey && loadingPage.page === currentCatalog?.nextPage;
   const selectedKey = selectedItem ? catalogIdentity(selectedItem) : null;
@@ -401,16 +410,22 @@ function MainApp() {
     params.set('isStackedView', String(isStackedView));
     params.set('sortBy', sortBy);
     params.set('sortOrder', sortOrder);
-    params.set('page', '1');
-    params.set('limit', '100');
+    params.set('page', String(requestedPage));
+    params.set('limit', String(PAGE_SIZE));
 
     requestJson(`/api/assets?${params.toString()}`, parseCatalog, { signal: request.signal })
       .then((data) => {
         if (!request.isCurrent(queryKeyRef.current)) return;
-        if (data.page !== 1) throw new Error('The server returned the wrong catalog page');
+        if (data.page !== requestedPage) throw new Error('The server returned the wrong catalog page');
+        if (data.page > data.totalPages) {
+          // The index shrank under a later page; show the new last page instead.
+          setPageSelection({ key: queryKey, page: data.totalPages });
+          return;
+        }
         setCatalog((previous) => ({
           key: queryKey,
           items: uniqueItems(data.items),
+          page: data.page,
           total: data.total,
           totalPages: data.totalPages,
           nextPage: data.page < data.totalPages && data.items.length > 0 ? data.page + 1 : null,
@@ -424,13 +439,18 @@ function MainApp() {
       .catch((error: unknown) => {
         if (!request.isCurrent(queryKeyRef.current) || isAbortError(error)) return;
         setCatalog((previous) => previous.key === queryKey
-          ? { ...previous, phase: 'error', pageError: errorMessage(error), refresh: catalogRefresh }
-          : { key: queryKey, items: [], total: 0, totalPages: 1, nextPage: null,
+          ? { ...previous, page: requestedPage, phase: 'error', pageError: errorMessage(error),
+            refresh: catalogRefresh }
+          : { key: queryKey, items: [], page: requestedPage, total: 0, totalPages: 1, nextPage: null,
             phase: 'error', pageError: errorMessage(error), revision: previous.revision,
             refresh: catalogRefresh });
       });
     return () => gate.invalidate();
-  }, [queryKey, catalogRefresh, selectedCategory, debouncedSearch, isStackedView, sortBy, sortOrder]);
+  }, [queryKey, requestedPage, catalogRefresh, selectedCategory, debouncedSearch, isStackedView, sortBy, sortOrder]);
+
+  const goToPage = useCallback((page: number) => {
+    setPageSelection({ key: queryKey, page });
+  }, [queryKey]);
 
   const loadMore = useCallback(() => {
     if (!currentCatalog || loading || currentCatalog.phase !== 'ready'
@@ -447,7 +467,7 @@ function MainApp() {
     params.set('sortBy', sortBy);
     params.set('sortOrder', sortOrder);
     params.set('page', String(page));
-    params.set('limit', '100');
+    params.set('limit', String(PAGE_SIZE));
     setLoadingPage({ key: queryKey, page });
     setCatalog((previous) => ({ ...previous, pageError: null }));
     requestJson(`/api/assets?${params.toString()}`, parseCatalog, { signal: request.signal })
@@ -770,7 +790,7 @@ function MainApp() {
             setSortOrder(o);
           }}
           totalItems={totalCount}
-          loadedItems={items.length}
+          loadedItems={paginated ? undefined : items.length}
           loading={loading}
         />
 
@@ -812,9 +832,18 @@ function MainApp() {
           loading={loading}
           searchQuery={searchQuery}
           onClearSearch={() => handleSearchChange('')}
-          queryKey={queryKey}
+          queryKey={`${queryKey}#${currentCatalog?.page ?? 1}`}
         />
-        {currentCatalog && currentCatalog.phase === 'ready' && !loading && (currentCatalog.nextPage || currentCatalog.pageError) && (
+        {paginated && currentCatalog && currentCatalog.totalPages > 1 && (
+          <Pagination
+            page={requestedPage}
+            totalPages={currentCatalog.totalPages}
+            total={totalCount}
+            pageSize={PAGE_SIZE}
+            onPageChange={goToPage}
+          />
+        )}
+        {!paginated && currentCatalog && currentCatalog.phase === 'ready' && !loading && (currentCatalog.nextPage || currentCatalog.pageError) && (
           <div className="shrink-0 border-t border-[#242438] bg-[#151524] px-4 py-2 flex items-center justify-center gap-3 text-xs" role="status">
             <span className="text-slate-400">{items.length} of {totalCount} results loaded</span>
             {currentCatalog.pageError && <span className="text-rose-300">Page failed: {currentCatalog.pageError}</span>}
@@ -875,6 +904,7 @@ function MainApp() {
         }}
         onSettingsSaved={(newSettings) => {
           setSettings(newSettings);
+          setPageSelection({ key: '', page: 1 });
           const paths = newSettings.libraryPaths.filter((path) => path.trim());
           if (paths.length === 0) {
             queuedSettingsScanRef.current = null;

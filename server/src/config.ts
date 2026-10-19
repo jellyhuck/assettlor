@@ -3,6 +3,7 @@ import os from 'os';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import YAML from 'yaml';
+import type { CatalogPaging } from '../../shared/types.js';
 
 export interface ServerYamlConfig {
   port?: number;
@@ -18,6 +19,12 @@ export interface PipelineYamlConfig {
   default_fps?: number;
 }
 
+export const CATALOG_PAGING_MODES: readonly CatalogPaging[] = ['load-more', 'pages'];
+
+export interface UiYamlConfig {
+  catalog_paging?: CatalogPaging;
+}
+
 export interface AppYamlConfig {
   server?: ServerYamlConfig;
   data_dir?: string;
@@ -25,6 +32,7 @@ export interface AppYamlConfig {
   projects?: string[];
   classifiers?: Record<string, Record<string, unknown>>;
   pipeline?: PipelineYamlConfig;
+  ui?: UiYamlConfig;
 }
 
 export interface ServerConfig {
@@ -96,6 +104,9 @@ export function createDefaultYamlConfig(): AppYamlConfig {
       auto_stack_animations: true,
       auto_stack_audio: true,
       default_fps: 12,
+    },
+    ui: {
+      catalog_paging: 'load-more',
     },
   };
 }
@@ -204,6 +215,7 @@ function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
   const defaults = createDefaultYamlConfig();
   const serverInput = input.server === undefined ? {} : requireRecord(input.server, 'server');
   const pipelineInput = input.pipeline === undefined ? {} : requireRecord(input.pipeline, 'pipeline');
+  const uiInput = input.ui === undefined ? {} : requireRecord(input.ui, 'ui');
   const classifiersInput = input.classifiers === undefined
     ? {}
     : requireRecord(input.classifiers, 'classifiers');
@@ -232,6 +244,11 @@ function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
     }
   }
 
+  const ui = { ...defaults.ui, ...uiInput };
+  if (!(CATALOG_PAGING_MODES as readonly unknown[]).includes(ui.catalog_paging)) {
+    throw new ConfigValidationError(`ui.catalog_paging must be one of ${CATALOG_PAGING_MODES.join(', ')}`);
+  }
+
   const dataDir = input.data_dir === undefined
     ? defaults.data_dir
     : resolveConfigPath(requireString(input.data_dir, 'data_dir'), configDir);
@@ -250,6 +267,7 @@ function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
     projects,
     classifiers,
     pipeline: pipeline as PipelineYamlConfig,
+    ui: ui as UiYamlConfig,
   };
 }
 
@@ -341,7 +359,7 @@ export function generateConfigFile(targetPath: string): string {
 export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
   const configDir = path.dirname(currentConfigFilePath);
   const input = requireRecord(partial, 'Configuration update');
-  for (const field of ['server', 'pipeline', 'classifiers'] as const) {
+  for (const field of ['server', 'pipeline', 'classifiers', 'ui'] as const) {
     if (input[field] !== undefined) requireRecord(input[field], field);
   }
   const candidate = normalizeYamlConfig({
@@ -350,6 +368,7 @@ export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
     server: { ...currentYamlConfig.server, ...partial.server },
     classifiers: { ...currentYamlConfig.classifiers, ...partial.classifiers },
     pipeline: { ...currentYamlConfig.pipeline, ...partial.pipeline },
+    ui: { ...currentYamlConfig.ui, ...partial.ui },
   }, configDir);
 
   if (!isMemoryOnly) {

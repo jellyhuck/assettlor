@@ -13,7 +13,7 @@ vi.mock('../client/src/components/AudioWaveformPlayer.tsx', () => ({
 const settings: AppSettings = {
   libraryPath: '/tmp/library', libraryPaths: ['/tmp/library'], activeProjectPath: '',
   projectPaths: [], thumbnailQuality: 80, autoStackAnimations: true,
-  autoStackAudio: true, defaultFps: 12,
+  autoStackAudio: true, defaultFps: 12, catalogPaging: 'load-more',
 };
 
 function asset(id: string, name = id, stackId?: string, category: 'image' | 'audio' = 'image'): Asset {

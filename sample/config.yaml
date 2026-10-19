@@ -45,3 +45,5 @@ pipeline:
   auto_stack_animations: true
   auto_stack_audio: true
   default_fps: 12
+ui:
+  catalog_paging: load-more

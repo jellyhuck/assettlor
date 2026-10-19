@@ -40,7 +40,8 @@ function parseAppSettings(value: unknown): AppSettings {
     || !Array.isArray(data.libraryPaths) || !data.libraryPaths.every((path) => typeof path === 'string')
     || !Array.isArray(data.projectPaths) || !data.projectPaths.every((path) => typeof path === 'string')
     || typeof data.thumbnailQuality !== 'number' || typeof data.defaultFps !== 'number'
-    || typeof data.autoStackAnimations !== 'boolean' || typeof data.autoStackAudio !== 'boolean') {
+    || typeof data.autoStackAnimations !== 'boolean' || typeof data.autoStackAudio !== 'boolean'
+    || (data.catalogPaging !== 'load-more' && data.catalogPaging !== 'pages')) {
     throw new Error('The app settings response has an unexpected shape');
   }
   return data as unknown as AppSettings;
@@ -87,6 +88,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
     autoStackAnimations: true,
     autoStackAudio: true,
     defaultFps: 12,
+    catalogPaging: 'load-more',
   });
   const [persistedSettings, setPersistedSettings] = useState<AppSettings | null>(null);
   const [newProjectPath, setNewProjectPath] = useState('');
@@ -893,6 +895,28 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                     onChange={(e) => setSettings({ ...settings, defaultFps: Number(e.target.value) })}
                     className="w-full accent-indigo-500 cursor-pointer"
                   />
+                </div>
+
+                {/* Catalog Display */}
+                <div className="pt-2 border-t border-[#25253c] space-y-2">
+                  <span className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                    Catalog Results
+                  </span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <label htmlFor="catalog-paging" className="text-sm font-medium text-slate-200">Paging</label>
+                      <p className="text-xs text-slate-400">Load more results in one list, or browse numbered pages of 100</p>
+                    </div>
+                    <select
+                      id="catalog-paging"
+                      value={settings.catalogPaging}
+                      onChange={(e) => setSettings({ ...settings, catalogPaging: e.target.value as AppSettings['catalogPaging'] })}
+                      className="shrink-0 bg-[#181829] border border-[#2c2c45] rounded-lg px-2 py-1.5 text-xs text-slate-200 cursor-pointer"
+                    >
+                      <option value="load-more">Load more</option>
+                      <option value="pages">Numbered pages</option>
+                    </select>
+                  </div>
                 </div>
               </>
             ) : (

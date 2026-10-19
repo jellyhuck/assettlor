@@ -96,6 +96,7 @@ describe('Database Service', () => {
       expect(settings.autoStackAnimations).toBe(true);
       expect(settings.autoStackAudio).toBe(true);
       expect(settings.defaultFps).toBe(12);
+      expect(settings.catalogPaging).toBe('load-more');
       expect(settings.libraryPath).toBe('');
     });
 
@@ -104,9 +105,11 @@ describe('Database Service', () => {
         thumbnailQuality: 95,
         autoStackAnimations: false,
         defaultFps: 24,
+        catalogPaging: 'pages',
       });
 
       expect(updated.thumbnailQuality).toBe(95);
+      expect(updated.catalogPaging).toBe('pages');
       expect(updated.autoStackAnimations).toBe(false);
       expect(updated.defaultFps).toBe(24);
 
@@ -114,6 +117,7 @@ describe('Database Service', () => {
       expect(refetched.thumbnailQuality).toBe(95);
       expect(refetched.autoStackAnimations).toBe(false);
       expect(refetched.defaultFps).toBe(24);
+      expect(refetched.catalogPaging).toBe('pages');
     });
   });
 

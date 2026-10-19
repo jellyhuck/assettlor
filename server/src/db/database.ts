@@ -378,6 +378,7 @@ export function getAppSettings(): AppSettings {
     autoStackAnimations: pipeline.auto_stack_animations !== false,
     autoStackAudio: pipeline.auto_stack_audio !== false,
     defaultFps: Number(pipeline.default_fps ?? 12),
+    catalogPaging: cfg.ui?.catalog_paging ?? 'load-more',
   };
 }
 
@@ -460,6 +461,9 @@ export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
 
   if (hasPipelineUpdates) {
     updates.pipeline = pipeline;
+  }
+  if (settings.catalogPaging !== undefined) {
+    updates.ui = { ...currentCfg.ui, catalog_paging: settings.catalogPaging };
   }
 
   saveConfigFile(updates);

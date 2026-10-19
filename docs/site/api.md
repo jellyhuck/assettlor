@@ -140,7 +140,7 @@ keep the connection active.
 
 Application settings include `libraryPath`, `libraryPaths`, `activeProjectPath`,
 `projectPaths`, `thumbnailQuality`, `autoStackAnimations`, `autoStackAudio`,
-and `defaultFps`. These API field names differ from the YAML names in
+`defaultFps`, and `catalogPaging` (`load-more` or `pages`). These API field names differ from the YAML names in
 [Configuration](configuration.md).
 
 Classifier IDs are `bpm`, `sprite`, and `pack`. A run body specifies

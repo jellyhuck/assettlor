@@ -9,7 +9,7 @@ const appSettings = {
   libraryPath: '/library', libraryPaths: ['/library'],
   activeProjectPath: '/project', projectPaths: ['/project'],
   thumbnailQuality: 80, autoStackAnimations: true,
-  autoStackAudio: true, defaultFps: 12,
+  autoStackAudio: true, defaultFps: 12, catalogPaging: 'load-more',
 };
 
 const classifier = (id: string) => ({
