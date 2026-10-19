@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Asset, AssetStack, AppSettings } from '../shared/types.js';
 import { createDeferredFetch, deferred } from '../client/tests/asyncFixtures.js';
@@ -101,6 +102,17 @@ describe('inspector request identity', () => {
     await act(async () => pending.requests[0].resolveJson([asset('a1', 'A one')]));
     expect(view.container.textContent).toContain('Solo');
     expect(view.container.textContent).not.toContain('A one');
+    await view.unmount();
+  });
+
+  it('loads stack members and parent stacks under StrictMode effect replay', async () => {
+    const pending = createDeferredFetch();
+    vi.stubGlobal('fetch', pending.fetcher);
+    const view = await mountReact(<StrictMode>{renderInspector(stack('A', asset('a1', 'A one')))}</StrictMode>);
+    await view.render(<StrictMode>{renderInspector(asset('b', 'B', 'parent-b'))}</StrictMode>);
+    const parentRequest = pending.requests.findLast((request) => request.url === '/api/stacks/parent-b')!;
+    await act(async () => parentRequest.resolveJson(stack('parent-b', asset('b', 'B'))));
+    expect(view.container.textContent).toContain('Stack parent-b');
     await view.unmount();
   });
 

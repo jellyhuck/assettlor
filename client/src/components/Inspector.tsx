@@ -289,11 +289,6 @@ export function Inspector({
     }
   }, [isAddingTag]);
 
-  useEffect(() => () => {
-    memberGate.current.dispose();
-    parentGate.current.dispose();
-  }, []);
-
   if (!item) return null;
 
   // Active content asset when browsing stack members separately or viewing selected frame

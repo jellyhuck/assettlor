@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, click, mountReact } from '../client/tests/reactDomHarness.js';
 import { AudioWaveformPlayer } from '../client/src/components/AudioWaveformPlayer.js';
@@ -218,6 +219,18 @@ describe('AudioWaveformPlayer media lifecycle', () => {
     });
     expect(view.container.textContent).not.toMatch(/Infinity|NaN/);
     await view.unmount();
+  });
+
+  it('reattaches the audio source when StrictMode replays the media effect', async () => {
+    const current = asset('strict');
+    const view = await mountReact(<StrictMode><AudioWaveformPlayer asset={current} /></StrictMode>);
+    const audio = view.container.querySelector('audio')!;
+    expect(mockWaves).toHaveLength(2);
+    expect(mockWaves[0].destroy).toHaveBeenCalledOnce();
+    expect(mockWaves[1].options.media).toBe(audio);
+    expect(audio.getAttribute('src')).toBe(current.fileUrl);
+    await view.unmount();
+    expect(audio.hasAttribute('src')).toBe(false);
   });
 
   it('remounts on a same-ID source revision and cleans up on unmount', async () => {

@@ -89,6 +89,9 @@ function AudioWaveformSession({ asset, onRetry }: { asset: Asset; onRetry: () =>
     const audio = audioRef.current;
     const container = containerRef.current;
     if (!audio || !container) return;
+    // StrictMode replays this effect on the same element after cleanup detached its
+    // source, and WaveSurfer skips reloading because currentSrc still matches the URL.
+    if (!audio.hasAttribute('src')) audio.src = asset.fileUrl;
 
     const session: PlaybackSession = { audio, waveform: null, active: true, playRequest: 0 };
     sessionRef.current = session;
