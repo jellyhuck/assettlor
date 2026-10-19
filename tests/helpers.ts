@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import AdmZip from 'adm-zip';
-import { closeDatabase, initDatabase } from '../server/src/db/database.js';
+import { addAssetTags, closeDatabase, initDatabase, upsertAsset } from '../server/src/db/database.js';
 
 export function createTempDir(prefix = 'assettlor-test-'): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -22,6 +22,13 @@ export function cleanupTempDir(dir: string): void {
       // ignore
     }
   }
+}
+
+/** Index an asset, then assign its fixture tags as the user would. */
+export function upsertTaggedAsset(asset: Parameters<typeof upsertAsset>[0] & { tags?: string[] }): void {
+  const { tags = [], ...indexed } = asset;
+  upsertAsset(indexed);
+  if (tags.length > 0) addAssetTags(indexed.id, tags);
 }
 
 export function createTestZipArchive(destPath: string, files: { name: string; content: Buffer | string }[]): string {

@@ -30,7 +30,7 @@ import {
   addTagsToStack,
   removeTagsFromStack,
 } from '../server/src/db/database.js';
-import { createTempDir, cleanupTempDir } from './helpers.js';
+import { createTempDir, cleanupTempDir, upsertTaggedAsset } from './helpers.js';
 
 describe('Database Service', () => {
   let tempDir: string;
@@ -123,7 +123,7 @@ describe('Database Service', () => {
 
   describe('upsertAsset & Asset Retrieval', () => {
     it('should insert a new asset and retrieve it with tags and metadata', () => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'asset_1',
         path: 'sprites/hero.png',
         absolutePath: path.join(tempDir, 'sprites/hero.png'),
@@ -136,9 +136,9 @@ describe('Database Service', () => {
         isArchiveEntry: false,
         metadata: { width: 32, height: 32, format: 'png' },
         tags: [
-          { tag: 'pixel-art', source: 'auto' },
-          { tag: 'character', source: 'folder' },
-          { tag: '   ', source: 'auto' }, // empty tag should be ignored
+          'pixel-art',
+          'character',
+          '   ', // empty tag should be ignored
         ],
       });
 
@@ -160,7 +160,7 @@ describe('Database Service', () => {
     });
 
     it('should update asset on path conflict', () => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'asset_1',
         path: 'sprites/hero.png',
         absolutePath: path.join(tempDir, 'sprites/hero.png'),
@@ -171,10 +171,10 @@ describe('Database Service', () => {
         mtime: 100,
         hash: 'h1',
         isArchiveEntry: false,
-        tags: [{ tag: 'tag1', source: 'auto' }],
+        tags: ['tag1'],
       });
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'asset_1_mod',
         path: 'sprites/hero.png',
         absolutePath: path.join(tempDir, 'sprites/hero.png'),
@@ -185,7 +185,6 @@ describe('Database Service', () => {
         mtime: 200,
         hash: 'h2',
         isArchiveEntry: false,
-        tags: [{ tag: 'tag2', source: 'auto' }],
       });
 
       const asset = getAssetByPath('sprites/hero.png');
@@ -193,7 +192,7 @@ describe('Database Service', () => {
       expect(asset!.name).toBe('hero_renamed.png');
       expect(asset!.size).toBe(2048);
       expect(asset!.hash).toBe('h2');
-      expect(asset!.tags).toEqual(['tag2']);
+      expect(asset!.tags).toEqual(['tag1']);
     });
 
     it('should handle corrupted metadata JSON gracefully', () => {
@@ -226,7 +225,7 @@ describe('Database Service', () => {
 
   describe('getAllTags & getAllFormats', () => {
     it('should aggregate tags with counts and sources', () => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'a1',
         path: 'a1.png',
         absolutePath: '/a1.png',
@@ -238,12 +237,12 @@ describe('Database Service', () => {
         hash: 'h1',
         isArchiveEntry: false,
         tags: [
-          { tag: 'sfx', source: 'folder' },
-          { tag: 'game', source: 'auto' },
+          'sfx',
+          'game',
         ],
       });
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'a2',
         path: 'a2.png',
         absolutePath: '/a2.png',
@@ -254,7 +253,7 @@ describe('Database Service', () => {
         mtime: 10,
         hash: 'h2',
         isArchiveEntry: false,
-        tags: [{ tag: 'sfx', source: 'folder' }],
+        tags: ['sfx'],
       });
 
       const tags = getAllTags();
@@ -378,7 +377,7 @@ describe('Database Service', () => {
 
   describe('Stack Management', () => {
     beforeEach(() => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'frame_1',
         path: 'walk_01.png',
         absolutePath: '/walk_01.png',
@@ -389,9 +388,9 @@ describe('Database Service', () => {
         mtime: 100,
         hash: 'h1',
         isArchiveEntry: false,
-        tags: [{ tag: 'knight', source: 'auto' }],
+        tags: ['knight'],
       });
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'frame_2',
         path: 'walk_02.png',
         absolutePath: '/walk_02.png',
@@ -402,7 +401,7 @@ describe('Database Service', () => {
         mtime: 100,
         hash: 'h2',
         isArchiveEntry: false,
-        tags: [{ tag: 'animated', source: 'auto' }],
+        tags: ['animated'],
       });
     });
 
@@ -467,7 +466,7 @@ describe('Database Service', () => {
       const thumbPath = path.join(tempDir, '.assettlor/thumbnails/old_thumb.webp');
       fs.writeFileSync(thumbPath, 'dummy thumb');
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'removable',
         path: 'deleted.png',
         absolutePath: '/deleted.png',
@@ -479,7 +478,7 @@ describe('Database Service', () => {
         hash: 'h',
         isArchiveEntry: false,
         thumbnailPath: thumbPath,
-        tags: [{ tag: 'temp', source: 'auto' }],
+        tags: ['temp'],
       });
 
       upsertAsset({
@@ -506,7 +505,7 @@ describe('Database Service', () => {
 
   describe('queryAssets - Comprehensive Search, Filters, Sorting & Pagination', () => {
     beforeEach(() => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'img_k1',
         path: 'chars/Knight_Walk_01.png',
         absolutePath: '/chars/Knight_Walk_01.png',
@@ -518,10 +517,10 @@ describe('Database Service', () => {
         hash: 'hk1',
         isArchiveEntry: false,
         metadata: { width: 64, height: 64 },
-        tags: [{ tag: 'knight', source: 'folder' }, { tag: 'pixel-art', source: 'auto' }],
+        tags: ['knight', 'pixel-art'],
       });
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'img_k2',
         path: 'chars/Knight_Walk_02.png',
         absolutePath: '/chars/Knight_Walk_02.png',
@@ -533,10 +532,10 @@ describe('Database Service', () => {
         hash: 'hk2',
         isArchiveEntry: false,
         metadata: { width: 64, height: 64 },
-        tags: [{ tag: 'knight', source: 'folder' }],
+        tags: ['knight'],
       });
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'snd_laser',
         path: 'sfx/laser_gun.wav',
         absolutePath: '/sfx/laser_gun.wav',
@@ -547,7 +546,7 @@ describe('Database Service', () => {
         mtime: 3000,
         hash: 'hs1',
         isArchiveEntry: false,
-        tags: [{ tag: 'laser', source: 'auto' }, { tag: 'sfx', source: 'folder' }],
+        tags: ['laser', 'sfx'],
       });
 
       createStack({
@@ -718,7 +717,7 @@ describe('Database Service', () => {
     });
 
     it('should filter queryAssets by resolution parameter', () => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'img_hd_1',
         path: 'backgrounds/forest.png',
         absolutePath: '/backgrounds/forest.png',
@@ -730,7 +729,7 @@ describe('Database Service', () => {
         hash: 'h_hd',
         isArchiveEntry: false,
         metadata: { width: 1920, height: 1080 },
-        tags: [{ tag: 'env', source: 'auto' }],
+        tags: ['env'],
       });
 
       // Exact resolution: 64x64 matches img_k1 and img_k2
@@ -1068,7 +1067,7 @@ describe('Database Service', () => {
 
   describe('Asset & Stack Tag Assignment and Removal', () => {
     beforeEach(() => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'asset_tag_1',
         path: 'sprites/hero.png',
         absolutePath: path.join(tempDir, 'sprites/hero.png'),
@@ -1079,10 +1078,10 @@ describe('Database Service', () => {
         mtime: 100,
         hash: 'h_tag_1',
         isArchiveEntry: false,
-        tags: [{ tag: 'pixel-art', source: 'auto' }],
+        tags: ['pixel-art'],
       });
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'asset_tag_2',
         path: 'sprites/enemy.png',
         absolutePath: path.join(tempDir, 'sprites/enemy.png'),
@@ -1093,7 +1092,7 @@ describe('Database Service', () => {
         mtime: 100,
         hash: 'h_tag_2',
         isArchiveEntry: false,
-        tags: [{ tag: 'monster', source: 'auto' }],
+        tags: ['monster'],
       });
     });
 

@@ -4,9 +4,9 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import YAML from 'yaml';
 
-type DatabaseApi = Pick<typeof import('../server/src/db/database.js'), 'getDatabase' | 'queryAssets'>;
+type DatabaseApi = Pick<typeof import('../server/src/db/database.js'), 'addAssetTags' | 'getDatabase' | 'queryAssets'>;
 
-async function verifyPipeline(sampleDir: string, projectDir: string, { getDatabase, queryAssets }: DatabaseApi) {
+async function verifyPipeline(sampleDir: string, projectDir: string, { addAssetTags, getDatabase, queryAssets }: DatabaseApi) {
   const { scanLibrary } = await import('../server/src/services/scanner.js');
   const { copyAssetToProject } = await import('../server/src/services/copier.js');
 
@@ -20,15 +20,18 @@ async function verifyPipeline(sampleDir: string, projectDir: string, { getDataba
   const db = getDatabase();
   const assetCount = (db.prepare('SELECT COUNT(*) as count FROM assets').get() as { count: number }).count;
   const stackCount = (db.prepare('SELECT COUNT(*) as count FROM stacks').get() as { count: number }).count;
-  const tagCount = (db.prepare('SELECT COUNT(DISTINCT tag) as count FROM tags').get() as { count: number }).count;
+  const tagCount = (db.prepare('SELECT COUNT(*) as count FROM tags').get() as { count: number }).count;
 
   console.log(`Indexed assets: ${assetCount}`);
   console.log(`Detected stacks: ${stackCount}`);
-  console.log(`Extracted tags: ${tagCount}`);
 
   if (assetCount === 0) {
     throw new Error('Assertion failed: No assets indexed!');
   }
+  if (tagCount !== 0) {
+    throw new Error(`Assertion failed: Scanning generated ${tagCount} tags; tags are reserved for users`);
+  }
+  console.log('✓ Scanning generated no tags');
 
   // 2. Test virtual archive inspection
   console.log('\n--- 2. Testing Virtual Zip Archive Inspection ---');
@@ -101,15 +104,19 @@ async function verifyPipeline(sampleDir: string, projectDir: string, { getDataba
     console.log(`✓ Search "${st.query}": ${sRes.items.length} stacked, ${fRes.items.length} flat, 0 duplicates`);
   }
 
-  // 4c. Test Tag Filtering Engine
+  // 4c. Test Tag Filtering Engine on user-assigned tags
   console.log('\n--- 4c. Testing Tag Filtering Engine ---');
+  const idsUnder = (folder: string) => (db.prepare('SELECT id FROM assets WHERE path LIKE ? ORDER BY path')
+    .all(`%${folder}/%`) as { id: string }[]).map((row) => row.id);
+  for (const id of idsUnder('items/coins')) addAssetTags(id, ['coins']);
+  // Tag one non-representative frame; the stack still matches through its member.
+  addAssetTags(idsUnder('characters/knight').at(-1)!, ['hero']);
   const tagTests = [
-    { tag: 'pixel-art', expectedStacked: 2 },
-    { tag: '#pixel-art', expectedStacked: 2 },
-    { tag: 'RetroPack', expectedStacked: 4 },
-    { tag: '#retropack', expectedStacked: 4 },
-    { tag: 'animated', expectedStacked: 1 },
-    { tag: '#coins', expectedStacked: 3 },
+    { tag: 'coins', expectedStacked: 3 },
+    { tag: '#Coins', expectedStacked: 3 },
+    { tag: 'hero', expectedStacked: 1 },
+    { tag: '#hero', expectedStacked: 1 },
+    { tag: 'pixel-art', expectedStacked: 0 },
   ];
 
   for (const tt of tagTests) {

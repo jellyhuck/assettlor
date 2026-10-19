@@ -17,9 +17,9 @@
 - **Zero Disk Extraction**: Reads `.zip` archives in place with random-access reads, decompressing only the entry it needs and never extracting to disk.
 - **Virtual Paths**: Items indexed as `Archive.zip#/path/to/sprite.png`.
 - **Cached Thumbnails & On-Demand Files**: Builds thumbnails during scanning, then extracts archive entry buffers when serving the original file.
-- **Auto-Archive Tagging**: Tags every asset with the archive name and interior folder structure.
+- **Archive-Aware Filters**: Find archive entries with `is:archive` and `path:`, and attribute them to packs by archive name.
 
-### 3. Automatic Tagging & Stacking Engine
+### 3. Stacking Engine
 - **Image Sequence Stacking**: Automatically detects frame sequences (e.g. `Logo_Spin_01.png` ... `04.png`, `Transition_01.png` ... `06.png`, or lettered `Rock_A.png`, `Rock_B.png`) and consolidates them into single animation cards with frame counts.
 - **Flipbook Animation Player**: Interactive playback in the inspector with Play/Pause, FPS slider (1-60 fps), frame timeline scrubber, and hover cycle.
 - **Audio Variation Stacking**: Groups audio variations (e.g. `click_01.wav`, `click_02.wav` or `Chime_A.wav`, `Chime_B.wav`) with instant variant switcher.

@@ -17,15 +17,12 @@ classifiers:
     maxBpm: 200
     minDurationSeconds: 1
     maxAnalysisSeconds: 45
-    applyBpmTag: false
-    applyTempoTag: false
   sprite:
     enabled: true
     minConfidence: 0.5
     enableVisualAnalysis: true
     enablePathAnalysis: true
     enableStackAnalysis: true
-    applySpriteTag: false
   pack:
     enabled: true
     inferFromArchive: true
@@ -36,8 +33,6 @@ classifiers:
     stripVersionSuffix: true
     stripAffixes: false
     caseConvention: as-is
-    applyTag: false
-    tagPrefix: "pack:"
     targetArchives: []
     targetDirectories: []
 pipeline:

@@ -8,8 +8,6 @@ import {
   getAssetById,
   findAssetsByScope,
   updateAssetMetadata,
-  addAssetTags,
-  removeAssetTagsBySource,
   getClassifierSettings,
   updateClassifierSettings,
 } from '../server/src/db/database.js';
@@ -69,7 +67,7 @@ describe('Classifier Subsystem & BPM Classifier', () => {
         'probe-audio',
         'decode-pcm',
         'analyze-tempo',
-        'apply-metadata-tags',
+        'persist-metadata',
       ]);
     });
   });
@@ -93,8 +91,6 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       const customSettings = {
         minBpm: 75,
         maxBpm: 180,
-        applyBpmTag: false,
-        tempoTagPrefix: 'tempo:',
       };
 
       saveClassifierSettings('bpm', customSettings);
@@ -102,12 +98,10 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       const rawPersisted = getClassifierSettings('bpm');
       expect(rawPersisted).toBeDefined();
       expect(rawPersisted?.minBpm).toBe(75);
-      expect(rawPersisted?.tempoTagPrefix).toBe('tempo:');
 
       const effective = getEffectiveClassifierSettings(bpmClassifier);
       expect(effective.minBpm).toBe(75);
       expect(effective.maxBpm).toBe(180);
-      expect(effective.applyBpmTag).toBe(false);
       // default should be preserved if not overridden
       expect(effective.minDurationSeconds).toBe(DEFAULT_BPM_SETTINGS.minDurationSeconds);
     });
@@ -204,25 +198,12 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       expect(audioResults.every((a) => a.category === 'audio')).toBe(true);
     });
 
-    it('updateAssetMetadata and tag helpers should update database properly', () => {
+    it('updateAssetMetadata should merge into existing metadata', () => {
       const updated = updateAssetMetadata('asset_audio_1', { bpm: 128, tempoDescription: 'fast-tempo' });
       expect(updated).toBeDefined();
       expect(updated?.metadata.bpm).toBe(128);
       expect(updated?.metadata.tempoDescription).toBe('fast-tempo');
       expect(updated?.metadata.duration).toBe(1.0); // Preserved previous metadata!
-
-      addAssetTags('asset_audio_1', [
-        { tag: 'bpm:128', source: 'classifier:bpm' },
-        { tag: 'fast-tempo', source: 'classifier:bpm' },
-      ]);
-
-      const assetWithTags = getAssetById('asset_audio_1');
-      expect(assetWithTags?.tags).toContain('bpm:128');
-      expect(assetWithTags?.tags).toContain('fast-tempo');
-
-      removeAssetTagsBySource('asset_audio_1', 'classifier:bpm');
-      const assetCleared = getAssetById('asset_audio_1');
-      expect(assetCleared?.tags).not.toContain('bpm:128');
     });
   });
 
@@ -260,7 +241,6 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.bpm).toBe(120);
       expect(detail.result?.tempoDescription).toBe('fast-tempo');
-      expect(detail.tagsAdded).toEqual([]);
 
       // Verify database updated: metadata saved, no tags assigned
       const updated = getAssetById('asset_dance');
@@ -302,41 +282,6 @@ describe('Classifier Subsystem & BPM Classifier', () => {
       // Verify thumbnail was not modified or overwritten
       const thumbAfter = fs.readFileSync(thumbPath);
       expect(thumbAfter.equals(initialThumbData)).toBe(true);
-    });
-
-    it('should respect applyBpmTag: true and applyTempoTag: true when explicitly requested', async () => {
-      const rhythmicWav = createTestBpmWavBuffer(120, 5, 22050);
-      const filePath = path.join(tempLibraryDir, 'dance_loop_tagged.wav');
-      fs.writeFileSync(filePath, rhythmicWav);
-
-      upsertAsset({
-        id: 'asset_dance_tagged',
-        path: 'music/dance_loop_tagged.wav',
-        absolutePath: filePath,
-        name: 'dance_loop_tagged.wav',
-        extension: '.wav',
-        category: 'audio',
-        size: rhythmicWav.length,
-        mtime: Date.now(),
-        hash: 'h_dance_tagged',
-        isArchiveEntry: false,
-        metadata: { duration: 5.0, sampleRate: 22050 },
-      });
-
-      await runClassifier(bpmClassifier, {
-        targetType: 'asset',
-        targetValue: 'asset_dance_tagged',
-        settingsOverride: {
-          applyBpmTag: true,
-          applyTempoTag: true,
-          tempoTagPrefix: 'tempo:',
-        },
-      });
-
-      const updated = getAssetById('asset_dance_tagged');
-      expect(updated?.metadata.bpm).toBe(120);
-      expect(updated?.tags).toContain('bpm:120');
-      expect(updated?.tags).toContain('tempo:fast-tempo');
     });
 
     it('should skip audio under minDurationSeconds threshold', async () => {

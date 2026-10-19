@@ -180,6 +180,7 @@ export function initDatabase(dataDirInput?: string): Database.Database {
     }
     migrateTagProvenance(db);
     migrateCanonicalAssetIds(db);
+    migrateAutomatedTags(db);
   } catch (err) {
     db.close();
     throw err;
@@ -217,6 +218,46 @@ function migrateTagProvenance(db: Database.Database): void {
       CREATE INDEX idx_tags_tag ON tags(tag);
       CREATE INDEX idx_tags_asset_id ON tags(asset_id);
     `);
+  })();
+}
+
+/**
+ * Tags are reserved for user assignment. Earlier versions also wrote folder,
+ * archive, extension, category, filename-heuristic, and classifier tags; drop
+ * them, first recording classifier ownership as metadata provenance so a later
+ * inconclusive run still clears the values that classifier wrote.
+ */
+function migrateAutomatedTags(db: Database.Database): void {
+  const automated = "source IN ('folder', 'archive', 'extension', 'category', 'auto') OR source LIKE 'classifier:%'";
+  if (!db.prepare(`SELECT 1 FROM tags WHERE ${automated} LIMIT 1`).get()) return;
+  db.transaction(() => {
+    const owners = db.prepare(`
+      SELECT DISTINCT t.asset_id, t.source, a.metadata
+      FROM tags t JOIN assets a ON a.id = t.asset_id
+      WHERE t.source IN ('classifier:bpm', 'classifier:pack')
+    `).all() as { asset_id: string; source: string; metadata: string | null }[];
+    const metadataByAsset = new Map<string, AssetMetadata>();
+    for (const owner of owners) {
+      let metadata = metadataByAsset.get(owner.asset_id);
+      if (!metadata) {
+        try {
+          metadata = owner.metadata ? JSON.parse(owner.metadata) as AssetMetadata : {};
+        } catch {
+          metadata = {};
+        }
+        metadataByAsset.set(owner.asset_id, metadata);
+      }
+      const provenance = metadata.classifierProvenance || {};
+      if (owner.source === 'classifier:bpm') {
+        provenance.bpm ??= { previousBpm: null, previousTempoDescription: null };
+      } else {
+        provenance.pack ??= { previousPack: null };
+      }
+      metadata.classifierProvenance = provenance;
+    }
+    const updateMetadata = db.prepare('UPDATE assets SET metadata = ? WHERE id = ?');
+    for (const [assetId, metadata] of metadataByAsset) updateMetadata.run(JSON.stringify(metadata), assetId);
+    db.prepare(`DELETE FROM tags WHERE ${automated}`).run();
   })();
 }
 
@@ -553,7 +594,6 @@ export function upsertAsset(asset: {
   sourceDirectory?: string | null;
   thumbnailPath?: string | null;
   metadata?: AssetMetadata;
-  tags?: { tag: string; source: string }[];
 }): void {
   const db = getDatabase();
   const now = Date.now();
@@ -585,13 +625,6 @@ export function upsertAsset(asset: {
       metadata = excluded.metadata,
       updated_at = excluded.updated_at
   `);
-
-  const deleteScannerTagsStmt = db.prepare(`
-    DELETE FROM tags WHERE asset_id = ?
-      AND source IN ('folder', 'archive', 'extension', 'category', 'auto')
-  `);
-  const deleteClassifierTagsStmt = db.prepare("DELETE FROM tags WHERE asset_id = ? AND source LIKE 'classifier:%'");
-  const insertTagStmt = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
 
   const tx = db.transaction(() => {
     const pathOwner = db.prepare('SELECT id, absolute_path, archive_entry_path FROM assets WHERE path = ?').get(asset.path) as
@@ -639,17 +672,6 @@ export function upsertAsset(asset: {
       now,
       now
     );
-
-    if (contentChanged) deleteClassifierTagsStmt.run(asset.id);
-    if (asset.tags !== undefined) {
-      deleteScannerTagsStmt.run(asset.id);
-      for (const t of asset.tags) {
-        if (t.tag && t.tag.trim().length > 0) {
-          const clean = t.tag.replace(/^#/, '').trim();
-          if (clean) insertTagStmt.run(asset.id, clean, t.source || 'auto');
-        }
-      }
-    }
   });
 
   tx();
@@ -1325,8 +1347,7 @@ export function finalizeClassifierAsset(
   asset: Asset,
   classifierId: 'bpm' | 'sprite' | 'pack',
   outcome: 'classified' | 'no-result',
-  metadataUpdates: Partial<AssetMetadata>,
-  tags: string[]
+  metadataUpdates: Partial<AssetMetadata>
 ): boolean {
   const db = getDatabase();
   return db.transaction(() => {
@@ -1354,14 +1375,12 @@ export function finalizeClassifierAsset(
         metadata = {};
       }
     }
-    const ownedPrior = Boolean(db.prepare('SELECT 1 FROM tags WHERE asset_id = ? AND source = ? LIMIT 1')
-      .get(asset.id, `classifier:${classifierId}`));
     if (classifierId === 'bpm') {
       const provenance = { ...(metadata.classifierProvenance || {}) };
       if (outcome === 'classified' && !provenance.bpm) {
         provenance.bpm = {
-          previousBpm: ownedPrior ? null : metadata.bpm ?? null,
-          previousTempoDescription: ownedPrior ? null : metadata.tempoDescription ?? null,
+          previousBpm: metadata.bpm ?? null,
+          previousTempoDescription: metadata.tempoDescription ?? null,
         };
       } else if (outcome === 'no-result') {
         if (provenance.bpm) {
@@ -1370,10 +1389,6 @@ export function finalizeClassifierAsset(
           if (provenance.bpm.previousTempoDescription === null) delete metadata.tempoDescription;
           else metadata.tempoDescription = provenance.bpm.previousTempoDescription;
           delete provenance.bpm;
-        } else if (ownedPrior) {
-          // A legacy generated tag establishes ownership without metadata provenance.
-          delete metadata.bpm;
-          delete metadata.tempoDescription;
         }
       }
       if (Object.keys(provenance).length) metadata.classifierProvenance = provenance;
@@ -1381,15 +1396,12 @@ export function finalizeClassifierAsset(
     } else if (classifierId === 'pack') {
       const provenance = { ...(metadata.classifierProvenance || {}) };
       if (outcome === 'classified' && !provenance.pack) {
-        provenance.pack = { previousPack: ownedPrior ? null : metadata.pack ?? null };
+        provenance.pack = { previousPack: metadata.pack ?? null };
       } else if (outcome === 'no-result') {
         if (provenance.pack) {
           if (provenance.pack.previousPack === null) delete metadata.pack;
           else metadata.pack = provenance.pack.previousPack;
           delete provenance.pack;
-        } else if (ownedPrior) {
-          // A legacy generated tag establishes ownership of its pack value.
-          delete metadata.pack;
         }
       }
       if (Object.keys(provenance).length) metadata.classifierProvenance = provenance;
@@ -1400,10 +1412,6 @@ export function finalizeClassifierAsset(
     }
     Object.assign(metadata, metadataUpdates);
 
-    db.prepare('DELETE FROM tags WHERE asset_id = ? AND source = ?')
-      .run(asset.id, `classifier:${classifierId}`);
-    const insertTag = db.prepare('INSERT OR IGNORE INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
-    for (const tag of tags) insertTag.run(asset.id, tag, `classifier:${classifierId}`);
     db.prepare('UPDATE assets SET metadata = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(metadata), Math.max(Date.now(), row.updated_at + 1), asset.id);
     return true;
@@ -1603,11 +1611,6 @@ export function removeTagsFromStack(
   const memberIds = memberAssets.map((a) => a.id);
   removeTagsFromAssets(memberIds, tags);
   return getStackById(stackId);
-}
-
-export function removeAssetTagsBySource(assetId: string, source: string): void {
-  const db = getDatabase();
-  db.prepare('DELETE FROM tags WHERE asset_id = ? AND source = ?').run(assetId, source);
 }
 
 export function findAssetsByScope(scope: {

@@ -6,7 +6,7 @@ import {
   queryAssets,
   upsertAsset,
 } from '../server/src/db/database.js';
-import { cleanupTempDir, createTempDir } from './helpers.js';
+import { cleanupTempDir, createTempDir, upsertTaggedAsset } from './helpers.js';
 
 describe('query predicate composition', () => {
   let tempDir: string;
@@ -20,7 +20,7 @@ describe('query predicate composition', () => {
       category: 'audio' | 'image',
       metadata: { bpm?: number; tempoDescription?: string },
       tag: string
-    ) => upsertAsset({
+    ) => upsertTaggedAsset({
       id,
       path: `${id}.${category === 'audio' ? 'wav' : 'png'}`,
       absolutePath: `/${id}.${category === 'audio' ? 'wav' : 'png'}`,

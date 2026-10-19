@@ -7,7 +7,7 @@ import {
 } from '../server/src/db/database.js';
 import { preprocessSearchQuery } from '../server/src/services/filterParser.js';
 import { formatFilterToken, parseFiltersFromQuery, updateSearchFilter } from '../shared/filterSync.js';
-import { cleanupTempDir, createTempDir } from './helpers.js';
+import { cleanupTempDir, createTempDir, upsertTaggedAsset } from './helpers.js';
 
 describe('literal search labels', () => {
   let tempDir: string;
@@ -37,7 +37,7 @@ describe('literal search labels', () => {
       for (const kind of ['tag', 'pack'] as const) {
         const id = `${kind}_${index}`;
         const isTag = kind === 'tag';
-        upsertAsset({
+        upsertTaggedAsset({
           id,
           path: `${id}.${isTag ? 'png' : 'wav'}`,
           absolutePath: `${tempDir}/${id}.${isTag ? 'png' : 'wav'}`,
@@ -49,7 +49,7 @@ describe('literal search labels', () => {
           hash: id,
           isArchiveEntry: false,
           metadata: isTag ? {} : { pack: label },
-          tags: isTag ? [{ tag: label, source: 'user' }] : [],
+          tags: isTag ? [label] : [],
         });
       }
     }

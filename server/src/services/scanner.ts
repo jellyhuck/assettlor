@@ -184,21 +184,6 @@ async function contentHash(filePath: string): Promise<string> {
   return digest.digest('hex');
 }
 
-function scannerTags(displayPath: string, extension: string, category: 'image' | 'audio', filename: string):
-  { tag: string; source: string }[] {
-  const tags: { tag: string; source: string }[] = [];
-  for (const segment of path.posix.dirname(displayPath).split('/').filter(Boolean)) {
-    if (segment !== '.') tags.push({ tag: segment, source: 'folder' });
-  }
-  tags.push({ tag: extension.replace('.', ''), source: 'extension' });
-  tags.push({ tag: category, source: 'category' });
-  const lower = filename.toLowerCase();
-  if (/(walk|run|attack|anim)/.test(lower)) tags.push({ tag: 'animated', source: 'auto' });
-  if (/(ui|button|hud|icon)/.test(lower)) tags.push({ tag: 'ui', source: 'auto' });
-  if (/(pixel|tile)/.test(lower)) tags.push({ tag: 'pixel-art', source: 'auto' });
-  return tags;
-}
-
 function removeUnusedThumbnails(): void {
   const thumbnailDir = getThumbnailsDir();
   const rows = getDatabase().prepare('SELECT thumbnail_path FROM assets WHERE thumbnail_path IS NOT NULL').all() as
@@ -442,13 +427,6 @@ async function runScanLibrary(
         thumbnailFingerprint: fingerprint,
         metadataProcessingVersion: metadataVersion,
       };
-      const tags = isZip
-        ? item.entry.tags
-        : scannerTags(item.displayPath, item.extension, item.category, path.basename(item.absolutePath));
-      if (!isZip && item.category === 'image' &&
-          metadata.width && metadata.width <= 64 && metadata.height && metadata.height <= 64) {
-        tags.push({ tag: 'pixel-art', source: 'auto' });
-      }
       await fs.promises.writeFile(stagedPath, processed.thumbnailBuffer);
       throwIfCancelled();
       pending.push({
@@ -467,7 +445,6 @@ async function runScanLibrary(
         sourceDirectory,
         thumbnailPath: finalPath,
         metadata,
-        tags,
         stagedThumbnailPath: stagedPath,
         classificationRelevant: !cached || cached.hash !== hash || cached.path !== currentPath ||
           cached.metadata.metadataProcessingVersion !== metadataVersion,

@@ -57,7 +57,7 @@ function parseClassifierInfo(value: unknown, id: string): ClassifierInfo {
       enablePathAnalysis: 'boolean', enableStackAnalysis: 'boolean' },
     pack: { enabled: 'boolean', inferFromArchive: 'boolean', inferFromDirectory: 'boolean',
       directoryStrategy: 'string', directoryDepth: 'number', cleanSeparators: 'boolean',
-      stripVersionSuffix: 'boolean', stripAffixes: 'boolean', caseConvention: 'string', applyTag: 'boolean' },
+      stripVersionSuffix: 'boolean', stripAffixes: 'boolean', caseConvention: 'string' },
   };
   if (data.id !== id || !Array.isArray(data.steps)
     || !data.steps.every((step) => {
@@ -128,8 +128,6 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
     stripVersionSuffix: true,
     stripAffixes: false,
     caseConvention: 'as-is',
-    applyTag: false,
-    tagPrefix: 'pack:',
     targetArchives: [],
     targetDirectories: [],
   });
@@ -1298,34 +1296,6 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                           checked={packSettings.stripVersionSuffix}
                           onChange={(e) => setPackSettings({ ...packSettings, stripVersionSuffix: e.target.checked })}
                           className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="flex items-center justify-between p-2 rounded bg-[#181829] border border-[#25253a]">
-                        <div>
-                          <span className="font-medium text-slate-200">Apply Database Tag</span>
-                          <p className="text-[10px] text-slate-400">Create tag on classified assets</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          aria-label="Apply database tag"
-                          checked={packSettings.applyTag}
-                          onChange={(e) => setPackSettings({ ...packSettings, applyTag: e.target.checked })}
-                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-slate-400 mb-1">Tag Prefix</label>
-                        <input
-                          type="text"
-                          aria-label="Tag prefix"
-                          value={packSettings.tagPrefix || ''}
-                          onChange={(e) => setPackSettings({ ...packSettings, tagPrefix: e.target.value })}
-                          placeholder="e.g. pack: (leave blank for raw name)"
-                          className="w-full bg-[#181829] border border-[#2c2c45] rounded-lg px-3 py-1.5 font-mono text-slate-200"
                         />
                       </div>
                     </div>

@@ -49,7 +49,7 @@ A navigation and reference guide for understanding subsystem implementations and
 - Verifies disk content with SHA-256 and compares ZIP entry compressed-byte fingerprints with cache records in `index.db`; unchanged assets skip media decoding. Processing fingerprints include thumbnail options and renderer versions.
 - Emits real-time Server-Sent Events (`SSE`) for UI progress feedback via `routes/scan.ts`.
 - Generates image WebP thumbnails within 400×400 pixels without enlargement; audio artwork is 400×240 pixels. Canonical source and ZIP-entry identities use bounded SHA-256 IDs independent of display prefixes. Versioned cache files under `<data_dir>/thumbnails/` include the asset ID, content fingerprint, and processing fingerprint. A scan stages replacements before updating SQLite, and removes unreferenced thumbnails after commit.
-- Records completed and failed traversal scopes, preserving rows and thumbnails for offline roots, unreadable subtrees, and failed archives. Configured root removal is reconciled only after an explicit configuration change and successful scan admission. Scanner-owned tags refresh on reindex; user tags remain attached to the asset ID.
+- Records completed and failed traversal scopes, preserving rows and thumbnails for offline roots, unreadable subtrees, and failed archives. Configured root removal is reconciled only after an explicit configuration change and successful scan admission. The scanner writes no tags; user tags remain attached to the asset ID across reindexing.
 - Cancelling before index publication removes staged thumbnails and leaves prior rows intact. Automatic classifiers run after index publication; cancelling that phase stops classifier work while the newly indexed catalog remains available. Retry markers preserve unfinished classifier targets for a later scan.
 
 ### B. Virtual Archive Inspection (`server/src/services/archive.ts`)
@@ -74,7 +74,7 @@ A navigation and reference guide for understanding subsystem implementations and
 - Database file: `<data_dir>/index.db` (configured via `config.yaml`, defaulting to `~/.config/assetlor/data/index.db` or `sample/.assettlor/index.db`).
 - `assets`: Main table containing path, category, format, dimensions, audio metadata, hash, virtual zip flags.
 - `stacks`: Stored animation and audio variation stacks.
-- `tags`: Indexed tags with fast lookup index.
+- `tags`: User-assigned tags with fast lookup index. Scanner and classifier results live in asset columns and metadata, not tags.
 - Configuration: Stored separately in `config.yaml` (`libraries`, `projects`, `classifiers`, `server`, `pipeline`).
 - `npm run dev` loads `sample/config.yaml`; `npm start` defaults to `~/.config/assetlor/config.yaml`. `--config`, `ASSETTLOR_CONFIG`, and `CONFIG_PATH` select another file. `--generate-config <path>` (handled by `runCli()` in `index.ts`) writes a fresh config and exits; `ASSETTLOR_CONF_DATA_DIR` and `ASSETTLOR_CONF_PORT` seed only newly created configs (`createInitialYamlConfig()`). Relative `data_dir`, `libraries`, and `projects` paths resolve from that file's directory.
 - The default bind host is `127.0.0.1`. `server.allowed_origins` permits specified cross-origin browser clients (including Vite in the sample config), while `server.allowed_hosts` admits additional HTTP Host names. The server rejects untrusted browser origins and Host names.

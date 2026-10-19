@@ -23,8 +23,6 @@ export const DEFAULT_PACK_SETTINGS: PackClassifierSettings = {
   stripVersionSuffix: true,
   stripAffixes: false,
   caseConvention: 'as-is',
-  applyTag: false,
-  tagPrefix: 'pack:',
   targetArchives: [],
   targetDirectories: [],
 };
@@ -35,7 +33,6 @@ export interface PackIntermediateState {
   source?: 'archive' | 'directory';
   rawName?: string;
   packName?: string;
-  tagsAdded: string[];
   error?: string;
 }
 
@@ -295,7 +292,7 @@ const normalizeStep: ClassifierStep<PackClassifierSettings, PackIntermediateStat
 
 /**
  * Step 4: Persist Metadata
- * Saves pack name into asset metadata and index.db tags (if explicitly requested).
+ * Saves pack name into asset metadata; the pack: filter queries it.
  */
 const persistStep: ClassifierStep<PackClassifierSettings, PackIntermediateState> = {
   id: 'persist-metadata',
@@ -315,7 +312,6 @@ export const packClassifier: Classifier<PackClassifierSettings, PackIntermediate
   steps: [probeStep, extractStep, normalizeStep, persistStep],
   createIntermediateState: () => ({
     skipped: false,
-    tagsAdded: [],
   }),
   createAssetResult: (asset: Asset, intermediate: PackIntermediateState): ClassifierAssetResult => {
     if (intermediate.packName) {
@@ -329,7 +325,6 @@ export const packClassifier: Classifier<PackClassifierSettings, PackIntermediate
           source: intermediate.source,
           rawName: intermediate.rawName,
         },
-        tagsAdded: intermediate.tagsAdded,
       };
     }
 
@@ -339,19 +334,13 @@ export const packClassifier: Classifier<PackClassifierSettings, PackIntermediate
       success: false,
       outcome: 'no-result',
       error: intermediate.error || intermediate.skipReason || 'Could not determine asset pack',
-      tagsAdded: [],
     };
   },
-  finalizeAsset: (asset, intermediate, settings, result) => {
+  finalizeAsset: (asset, intermediate, _settings, result) => {
     const classified = result.outcome === 'classified' && Boolean(intermediate.packName);
-    const tags = classified && settings.applyTag === true
-      ? [`${settings.tagPrefix !== undefined ? settings.tagPrefix : 'pack:'}${intermediate.packName}`]
-      : [];
-    const applied = finalizeClassifierAsset(
+    return finalizeClassifierAsset(
       asset, 'pack', classified ? 'classified' : 'no-result',
-      classified ? { pack: intermediate.packName } : {}, tags
+      classified ? { pack: intermediate.packName } : {}
     );
-    if (applied) result.tagsAdded = tags;
-    return applied;
   },
 };

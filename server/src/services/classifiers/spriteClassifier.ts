@@ -19,7 +19,6 @@ export const DEFAULT_SPRITE_SETTINGS: SpriteClassifierSettings = {
   enableVisualAnalysis: true,
   enablePathAnalysis: true,
   enableStackAnalysis: true,
-  applySpriteTag: false,
 };
 
 export const SPRITE_TAXONOMY: Record<'character' | 'object' | 'texture' | 'background', string[]> = {
@@ -71,7 +70,6 @@ export interface SpriteIntermediateState {
   };
   detectedCategory: SpriteCategory;
   confidence: number;
-  tagsAdded: string[];
   error?: string;
 }
 
@@ -397,10 +395,10 @@ const scoringStep: ClassifierStep<SpriteClassifierSettings, SpriteIntermediateSt
 
 /**
  * Step 5: Apply Metadata
- * Updates SQLite metadata for the classified asset; labels are accessible via sprite: keyword without tag assignments.
+ * Updates SQLite metadata for the classified asset; the sprite: filter queries it.
  */
 const persistStep: ClassifierStep<SpriteClassifierSettings, SpriteIntermediateState> = {
-  id: 'apply-metadata-tags',
+  id: 'persist-metadata',
   name: 'Persist Metadata',
   description: 'Saves spriteType and spriteConfidence to index.db.',
   // The engine finalizes every conclusive outcome, including skipped assets.
@@ -419,7 +417,6 @@ export const spriteClassifier: Classifier<SpriteClassifierSettings, SpriteInterm
     skipped: false,
     detectedCategory: 'unclassified',
     confidence: 0,
-    tagsAdded: [],
   }),
   createAssetResult: (asset: Asset, intermediate: SpriteIntermediateState): ClassifierAssetResult => {
     if (intermediate.skipped) {
@@ -429,7 +426,6 @@ export const spriteClassifier: Classifier<SpriteClassifierSettings, SpriteInterm
         success: false,
         outcome: 'no-result',
         error: intermediate.skipReason || 'Asset skipped',
-        tagsAdded: [],
       };
     }
 
@@ -443,22 +439,14 @@ export const spriteClassifier: Classifier<SpriteClassifierSettings, SpriteInterm
         confidence: intermediate.confidence,
         combinedScores: intermediate.combinedScores,
       },
-      tagsAdded: intermediate.tagsAdded,
     };
   },
-  finalizeAsset: (asset, intermediate, settings, result) => {
+  finalizeAsset: (asset, intermediate, _settings, result) => {
     const classified = result.outcome === 'classified';
-    const tags = classified && settings.applySpriteTag === true
-      ? [`${settings.spriteTagPrefix !== undefined ? settings.spriteTagPrefix : 'sprite:'}${intermediate.detectedCategory}`]
-      : [];
     const metadata = intermediate.skipped ? {} : {
       spriteType: intermediate.detectedCategory,
       spriteConfidence: intermediate.confidence,
     };
-    const applied = finalizeClassifierAsset(
-      asset, 'sprite', classified ? 'classified' : 'no-result', metadata, tags
-    );
-    if (applied) result.tagsAdded = tags;
-    return applied;
+    return finalizeClassifierAsset(asset, 'sprite', classified ? 'classified' : 'no-result', metadata);
   },
 };

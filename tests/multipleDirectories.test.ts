@@ -234,11 +234,11 @@ describe('Multiple Source and Project Directories', () => {
         // 3 stacks + 1 potion in zip = 4 items
         expect(stackedQuery.items).toHaveLength(4);
 
-        // Verify tags include folder tags and source library folder names
-        const allTags = db.prepare('SELECT DISTINCT tag FROM tags').all() as any[];
-        const tagNames = allTags.map((t) => t.tag);
-        expect(tagNames).toContain(prefix1);
-        expect(tagNames).toContain(prefix2);
+        // Library folder names prefix paths for the path filter; no tags are generated.
+        const paths = (db.prepare('SELECT path FROM assets').all() as { path: string }[]).map((row) => row.path);
+        expect(paths.some((assetPath) => assetPath.startsWith(`${prefix1}/`))).toBe(true);
+        expect(paths.some((assetPath) => assetPath.startsWith(`${prefix2}/`))).toBe(true);
+        expect(db.prepare('SELECT COUNT(*) AS count FROM tags').get()).toEqual({ count: 0 });
       } finally {
         cleanupTempDir(lib1);
         cleanupTempDir(lib2);

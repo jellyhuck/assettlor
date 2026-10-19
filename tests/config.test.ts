@@ -97,6 +97,27 @@ describe('Server Config & YAML Persistence', () => {
     expect(parsedAfter.classifiers.bpm.maxBpm).toBe(190);
   });
 
+  it('drops removed classifier tagging options from existing configuration files', () => {
+    const customConfigPath = path.join(tempDir, 'legacy-config.yaml');
+    fs.writeFileSync(customConfigPath, YAML.stringify({
+      classifiers: {
+        bpm: { minBpm: 70, applyBpmTag: true, applyTempoTag: true, tempoTagPrefix: 'tempo:' },
+        sprite: { minConfidence: 0.6, applySpriteTag: true, spriteTagPrefix: 'sprite:' },
+        pack: { enabled: true, applyTag: true, tagPrefix: 'pack:' },
+      },
+    }));
+    loadConfigFile(customConfigPath);
+
+    expect(getClassifierSettings('bpm')).toEqual({ minBpm: 70 });
+    expect(getClassifierSettings('sprite')).toEqual({ minConfidence: 0.6 });
+    expect(getClassifierSettings('pack')).toEqual({ enabled: true });
+
+    updateClassifierSettings('bpm', { maxBpm: 190 });
+    const classifiers = YAML.parse(fs.readFileSync(customConfigPath, 'utf-8')).classifiers;
+    expect(classifiers.bpm).toEqual({ minBpm: 70, maxBpm: 190 });
+    expect(classifiers.pack).toEqual({ enabled: true });
+  });
+
   it('keeps relative, home, and outside path spellings when saving unrelated settings', () => {
     const configDir = path.join(tempDir, 'conf');
     const customConfigPath = path.join(configDir, 'config.yaml');

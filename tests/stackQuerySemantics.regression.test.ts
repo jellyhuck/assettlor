@@ -4,15 +4,14 @@ import {
   createStack,
   initDatabase,
   queryAssets,
-  upsertAsset,
 } from '../server/src/db/database.js';
-import { cleanupTempDir, createTempDir } from './helpers.js';
+import { cleanupTempDir, createTempDir, upsertTaggedAsset } from './helpers.js';
 
 describe('stack query semantics', () => {
   let tempDir: string;
 
   const addAudio = (id: string, metadata: { bpm?: number }, tag?: string) => {
-    upsertAsset({
+    upsertTaggedAsset({
       id,
       path: `${id}.wav`,
       absolutePath: `/${id}.wav`,
@@ -24,7 +23,7 @@ describe('stack query semantics', () => {
       hash: id,
       isArchiveEntry: false,
       metadata,
-      tags: tag ? [{ tag, source: 'user' }] : [],
+      tags: tag ? [tag] : [],
     });
   };
 

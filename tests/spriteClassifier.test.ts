@@ -60,7 +60,7 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
         'analyze-visual-features',
         'analyze-context-signals',
         'score-classification',
-        'apply-metadata-tags',
+        'persist-metadata',
       ]);
     });
 
@@ -108,7 +108,6 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('character');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
-      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_knight');
       expect(updated?.metadata.spriteType).toBe('character');
@@ -145,46 +144,10 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('object');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
-      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_coin');
       expect(updated?.metadata.spriteType).toBe('object');
       expect(updated?.tags).toEqual([]);
-    });
-
-    it('should respect applySpriteTag: true when explicitly requested', async () => {
-      const knightPath = path.join(sampleAssetsDir, 'characters/knight/Knight_Walk_01.png');
-      const buffer = fs.readFileSync(knightPath);
-      const testPath = path.join(tempLibraryDir, 'Knight_Walk_Tagged.png');
-      fs.writeFileSync(testPath, buffer);
-
-      upsertAsset({
-        id: 'asset_knight_tagged',
-        path: 'characters/knight/Knight_Walk_Tagged.png',
-        absolutePath: testPath,
-        name: 'Knight_Walk_Tagged.png',
-        extension: '.png',
-        category: 'image',
-        size: buffer.length,
-        mtime: Date.now(),
-        hash: 'hash_knight_tagged',
-        isArchiveEntry: false,
-        metadata: { width: 64, height: 64 },
-      });
-
-      const res = await runClassifier(spriteClassifier, {
-        targetType: 'asset',
-        targetValue: 'asset_knight_tagged',
-        settingsOverride: {
-          applySpriteTag: true,
-          spriteTagPrefix: 'sprite:',
-        },
-      });
-
-      expect(res.details[0].tagsAdded).toEqual(['sprite:character']);
-      const updated = getAssetById('asset_knight_tagged');
-      expect(updated?.metadata.spriteType).toBe('character');
-      expect(updated?.tags).toContain('sprite:character');
     });
 
     it('should classify background image (dungeon_background.jpg)', async () => {
@@ -216,7 +179,6 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('background');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
-      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_bg');
       expect(updated?.metadata.spriteType).toBe('background');
@@ -252,7 +214,6 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('texture');
       expect(detail.result?.confidence).toBeGreaterThanOrEqual(0.5);
-      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_tile');
       expect(updated?.metadata.spriteType).toBe('texture');
@@ -261,7 +222,7 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
   });
 
   describe('Fallback to sprite:unclassified', () => {
-    it('should mark asset as unclassified and tag sprite:unclassified when confidence < minConfidence', async () => {
+    it('should mark asset as unclassified when confidence < minConfidence', async () => {
       const testPath = path.join(tempLibraryDir, 'unknown_123.png');
       fs.writeFileSync(testPath, TINY_PNG_BUFFER);
 
@@ -289,7 +250,6 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       const detail = res.details[0];
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('unclassified');
-      expect(detail.tagsAdded).toEqual([]);
 
       const updated = getAssetById('asset_unknown');
       expect(updated?.metadata.spriteType).toBe('unclassified');
@@ -332,7 +292,6 @@ describe('Sprite Classifier Subsystem (Todo #5)', () => {
       const detail = res.details[0];
       expect(detail.success).toBe(true);
       expect(detail.result?.spriteType).toBe('character');
-      expect(detail.tagsAdded).toEqual([]);
     });
 
     it('should trigger progress callbacks across all 5 steps', async () => {

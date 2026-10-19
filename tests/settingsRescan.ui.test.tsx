@@ -21,7 +21,7 @@ const classifier = (id: string) => ({
         enablePathAnalysis: true, enableStackAnalysis: true }
       : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
         directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
-        stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is', applyTag: false },
+        stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
 });
 
 const scanStatus = (

@@ -106,7 +106,7 @@ export interface AssetStack {
 export interface TagInfo {
   name: string;
   count: number;
-  source?: 'folder' | 'archive' | 'extension' | 'category' | 'user';
+  source?: string;
 }
 
 export interface FormatInfo {
@@ -296,16 +296,11 @@ export interface BpmClassifierSettings {
   maxBpm: number;
   minDurationSeconds: number;
   maxAnalysisSeconds: number;
-  applyBpmTag?: boolean;
-  applyTempoTag?: boolean;
-  tempoTagPrefix?: string;
 }
 
 export interface SpriteClassifierSettings {
   enabled: boolean;
   minConfidence: number; // 0.0 - 1.0, default 0.5
-  applySpriteTag?: boolean;
-  spriteTagPrefix?: string;
   enableVisualAnalysis: boolean;
   enablePathAnalysis: boolean;
   enableStackAnalysis: boolean;
@@ -321,8 +316,6 @@ export interface PackClassifierSettings {
   stripVersionSuffix: boolean;
   stripAffixes: boolean;
   caseConvention: 'as-is' | 'title' | 'lower' | 'upper';
-  applyTag: boolean;
-  tagPrefix?: string;
   targetArchives?: string[];
   targetDirectories?: string[];
 }
@@ -363,7 +356,6 @@ export interface ClassifierAssetResult {
   assetPath: string;
   success: boolean;
   result?: Record<string, unknown>;
-  tagsAdded?: string[];
   error?: string;
   retryable?: boolean;
   outcome?: 'classified' | 'no-result' | 'error';

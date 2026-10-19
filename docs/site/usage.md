@@ -67,8 +67,9 @@ and resetting the pan position. TGA images use converted thumbnails for display.
 
 The classifier interface exposes BPM analysis for audio, sprite classification
 for images, and pack inference from archives or directories. Each classifier
-has its own settings and can run against selected targets. Optional tag
-application is controlled in classifier settings. See
+has its own settings and can run against selected targets. Results are stored
+as asset metadata and queried with `bpm:`, `sprite:`, and `pack:` filters;
+classifiers never add tags. See
 [Configuration](configuration.md) for defaults and the [API reference](api.md)
 for programmatic runs.
 

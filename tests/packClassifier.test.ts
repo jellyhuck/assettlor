@@ -80,9 +80,9 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         cleanSeparators: true,
         stripVersionSuffix: true,
         stripAffixes: false,
-        applyTag: false,
-        tagPrefix: 'pack:',
       });
+      expect(info.settings).not.toHaveProperty('applyTag');
+      expect(info.settings).not.toHaveProperty('tagPrefix');
     });
   });
 
@@ -166,7 +166,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPath,
         archiveEntryPath: 'sprites/hero_01.png',
-        tags: [{ tag: 'RetroPack', source: 'archive' }],
       });
 
       upsertAsset({
@@ -182,7 +181,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPath,
         archiveEntryPath: 'sprites/hero_02.png',
-        tags: [{ tag: 'RetroPack', source: 'archive' }],
       });
 
       const runRes = await runClassifier(packClassifier, {
@@ -194,13 +192,11 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
 
       const asset1 = getAssetById('asset_zip_1');
       expect(asset1?.metadata.pack).toBe('RetroPack');
-      expect(asset1?.tags).toContain('RetroPack');
-      expect(asset1?.tags).not.toContain('pack:RetroPack');
+      expect(asset1?.tags).toEqual([]);
 
       const asset2 = getAssetById('asset_zip_2');
       expect(asset2?.metadata.pack).toBe('RetroPack');
-      expect(asset2?.tags).toContain('RetroPack');
-      expect(asset2?.tags).not.toContain('pack:RetroPack');
+      expect(asset2?.tags).toEqual([]);
     });
 
     it('should clean archive filenames with version suffixes and separators', async () => {
@@ -222,7 +218,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPath,
         archiveEntryPath: 'laser.wav',
-        tags: [],
       });
 
       const runRes = await runClassifier(packClassifier, {
@@ -260,7 +255,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPath,
         archiveEntryPath: entryName,
-        tags: [],
       });
       await runClassifier(packClassifier, { targetType: 'asset', targetValue: assetId });
       return getAssetById(assetId)?.metadata.pack;
@@ -321,7 +315,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         mtime: Date.now(),
         hash: 'hash_disk_1',
         isArchiveEntry: false,
-        tags: [],
       });
 
       const runRes = await runClassifier(packClassifier, {
@@ -350,7 +343,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         mtime: Date.now(),
         hash: 'hash_root_1',
         isArchiveEntry: false,
-        tags: [],
       });
 
       const runRes = await runClassifier(packClassifier, {
@@ -380,7 +372,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         mtime: Date.now(),
         hash: 'hash_cyber_1',
         isArchiveEntry: false,
-        tags: [],
       });
 
       // Run with directoryStrategy: 'enclosing'
@@ -418,7 +409,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPathA,
         archiveEntryPath: 'a.png',
-        tags: [],
       });
 
       upsertAsset({
@@ -434,7 +424,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPathB,
         archiveEntryPath: 'b.png',
-        tags: [],
       });
 
       const runRes = await runClassifier(packClassifier, {
@@ -471,7 +460,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPathA,
         archiveEntryPath: 'one.png',
-        tags: [],
       });
 
       upsertAsset({
@@ -487,7 +475,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPathB,
         archiveEntryPath: 'two.png',
-        tags: [],
       });
 
       // Override settings to only target PackOne
@@ -505,7 +492,7 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
       expect(getAssetById('asset_two')?.metadata.pack).toBeUndefined();
     });
 
-    it('should not add tags by default, but respect applyTag: true and custom tagPrefix when requested', async () => {
+    it('should record the pack in metadata without adding tags', async () => {
       const zipPath = path.join(tempLibraryDir, 'Bundle.zip');
       createTestZipArchive(zipPath, [{ name: 'item.png', content: TINY_PNG_BUFFER }]);
 
@@ -522,45 +509,16 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         isArchiveEntry: true,
         archivePath: zipPath,
         archiveEntryPath: 'item.png',
-        tags: [],
       });
 
-      // 1. By default, no tags are added
       await runClassifier(packClassifier, {
         targetType: 'asset',
         targetValue: 'asset_custom_tag',
       });
 
-      let asset = getAssetById('asset_custom_tag');
+      const asset = getAssetById('asset_custom_tag');
       expect(asset?.metadata.pack).toBe('Bundle');
-      expect(asset?.tags.length).toBe(0);
-
-      // 2. Explicitly enable tags with custom prefix
-      await runClassifier(packClassifier, {
-        targetType: 'asset',
-        targetValue: 'asset_custom_tag',
-        settingsOverride: {
-          applyTag: true,
-          tagPrefix: 'asset-pack:',
-        },
-      });
-
-      asset = getAssetById('asset_custom_tag');
-      expect(asset?.metadata.pack).toBe('Bundle');
-      expect(asset?.tags).toContain('asset-pack:Bundle');
-
-      // 3. Disable tags again (applyTag: false)
-      await runClassifier(packClassifier, {
-        targetType: 'asset',
-        targetValue: 'asset_custom_tag',
-        settingsOverride: {
-          applyTag: false,
-        },
-      });
-
-      asset = getAssetById('asset_custom_tag');
-      expect(asset?.metadata.pack).toBe('Bundle');
-      expect(asset?.tags.some((t) => t.includes('Bundle'))).toBe(false);
+      expect(asset?.tags).toEqual([]);
     });
   });
 
@@ -583,7 +541,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         archivePath: zipPath,
         archiveEntryPath: 'hero.png',
         metadata: { pack: 'RetroPack' },
-        tags: [{ tag: 'pack:RetroPack', source: 'classifier:pack' }],
       });
 
       upsertAsset({
@@ -598,7 +555,6 @@ describe('Pack Classifier Subsystem (Todo #6)', () => {
         hash: 'h_fantasy',
         isArchiveEntry: false,
         metadata: { pack: 'Fantasy Medieval' },
-        tags: [{ tag: 'pack:Fantasy Medieval', source: 'classifier:pack' }],
       });
     });
 

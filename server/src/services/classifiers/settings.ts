@@ -8,10 +8,10 @@ export class ClassifierSettingsError extends Error {
 }
 
 const booleanKeys: Record<string, string[]> = {
-  bpm: ['enabled', 'applyBpmTag', 'applyTempoTag'],
-  sprite: ['enabled', 'applySpriteTag', 'enableVisualAnalysis', 'enablePathAnalysis', 'enableStackAnalysis'],
+  bpm: ['enabled'],
+  sprite: ['enabled', 'enableVisualAnalysis', 'enablePathAnalysis', 'enableStackAnalysis'],
   pack: ['enabled', 'inferFromArchive', 'inferFromDirectory', 'cleanSeparators',
-    'stripVersionSuffix', 'stripAffixes', 'applyTag'],
+    'stripVersionSuffix', 'stripAffixes'],
 };
 
 const numberKeys: Record<string, string[]> = {
@@ -21,9 +21,9 @@ const numberKeys: Record<string, string[]> = {
 };
 
 const stringKeys: Record<string, string[]> = {
-  bpm: ['tempoTagPrefix'],
-  sprite: ['spriteTagPrefix'],
-  pack: ['tagPrefix', 'directoryStrategy', 'caseConvention'],
+  bpm: [],
+  sprite: [],
+  pack: ['directoryStrategy', 'caseConvention'],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

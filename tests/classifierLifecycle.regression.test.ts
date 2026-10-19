@@ -22,6 +22,7 @@ import {
   cleanupTempDir,
   createTempDir,
   createTestWavBuffer,
+  upsertTaggedAsset,
 } from './helpers.js';
 
 describe('Classifier result lifecycle', () => {
@@ -44,7 +45,15 @@ describe('Classifier result lifecycle', () => {
     return rows.map((row) => row.source);
   }
 
-  it('clears a no-result pack and its generated tag while keeping an identical user tag', async () => {
+  /** Write tag rows from before tags were reserved for users, then reopen to migrate them. */
+  function seedLegacyTags(rows: [assetId: string, tag: string, source: string][]): void {
+    const insert = getDatabase().prepare('INSERT INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
+    for (const row of rows) insert.run(...row);
+    closeDatabase();
+    initDatabase(tempDir);
+  }
+
+  it('clears a no-result pack a legacy generated tag owned while keeping an identical user tag', async () => {
     const filePath = path.join(tempDir, 'loose.png');
     upsertAsset({
       id: 'loose',
@@ -58,16 +67,13 @@ describe('Classifier result lifecycle', () => {
       hash: 'loose-v1',
       isArchiveEntry: false,
       metadata: { pack: 'Old', width: 32 },
-      tags: [
-        { tag: 'pack:Old', source: 'classifier:pack' },
-        { tag: 'pack:Old', source: 'user' },
-      ],
     });
+    seedLegacyTags([['loose', 'pack:Old', 'classifier:pack'], ['loose', 'pack:Old', 'user']]);
+    expect(tagSources('loose', 'pack:Old')).toEqual(['user']);
 
     const run = await runClassifier(packClassifier, {
       targetType: 'asset',
       targetValue: 'loose',
-      settingsOverride: { applyTag: false },
     });
 
     expect(run.details[0].outcome).toBe('no-result');
@@ -103,9 +109,9 @@ describe('Classifier result lifecycle', () => {
     expect(getAssetById('embedded')?.metadata.pack).toBe('Embedded');
   });
 
-  it('replaces generated tags when the prefix changes and tagging is disabled', async () => {
+  it('records a classified pack in metadata without writing tags', async () => {
     const filePath = path.join(tempDir, 'Fantasy', 'item.png');
-    upsertAsset({
+    upsertTaggedAsset({
       id: 'item',
       path: 'Fantasy/item.png',
       absolutePath: filePath,
@@ -117,29 +123,17 @@ describe('Classifier result lifecycle', () => {
       hash: 'item-v1',
       isArchiveEntry: false,
       metadata: { pack: 'Old' },
-      tags: [
-        { tag: 'old-pack:Old', source: 'classifier:pack' },
-        { tag: 'curated', source: 'user' },
-      ],
+      tags: ['curated'],
     });
 
-    const tagged = await runClassifier(packClassifier, {
+    const run = await runClassifier(packClassifier, {
       targetType: 'asset',
       targetValue: 'item',
-      settingsOverride: { applyTag: true, tagPrefix: 'new-pack:' },
     });
-    expect(tagged.details[0].outcome).toBe('classified');
-    expect(tagSources('item', 'old-pack:Old')).toEqual([]);
-    expect(tagSources('item', 'new-pack:Fantasy')).toEqual(['classifier:pack']);
-
-    await runClassifier(packClassifier, {
-      targetType: 'asset',
-      targetValue: 'item',
-      settingsOverride: { applyTag: false },
-    });
-    expect(tagSources('item', 'new-pack:Fantasy')).toEqual([]);
-    expect(tagSources('item', 'curated')).toEqual(['user']);
+    expect(run.details[0].outcome).toBe('classified');
     expect(getAssetById('item')?.metadata.pack).toBe('Fantasy');
+    expect(getAssetById('item')?.tags).toEqual(['curated']);
+    expect(tagSources('item', 'curated')).toEqual(['user']);
   });
 
   it('clears old BPM results when a duration threshold makes analysis ineligible', async () => {
@@ -158,11 +152,8 @@ describe('Classifier result lifecycle', () => {
       hash: 'short-v1',
       isArchiveEntry: false,
       metadata: { bpm: 128, tempoDescription: 'fast-tempo', duration: 0.2 },
-      tags: [
-        { tag: 'bpm:128', source: 'classifier:bpm' },
-        { tag: 'favorite', source: 'user' },
-      ],
     });
+    seedLegacyTags([['short', 'bpm:128', 'classifier:bpm'], ['short', 'favorite', 'user']]);
 
     const run = await runClassifier(bpmClassifier, {
       targetType: 'asset',
@@ -225,7 +216,6 @@ describe('Classifier result lifecycle', () => {
       hash: 'missing-v1',
       isArchiveEntry: false,
       metadata: { bpm: 120, tempoDescription: 'fast-tempo' },
-      tags: [{ tag: 'bpm:120', source: 'classifier:bpm' }],
     });
 
     const run = await runClassifier(bpmClassifier, {
@@ -240,7 +230,7 @@ describe('Classifier result lifecycle', () => {
       bpm: 120,
       tempoDescription: 'fast-tempo',
     });
-    expect(tagSources('missing', 'bpm:120')).toEqual(['classifier:bpm']);
+    expect(getAssetById('missing')?.tags).toEqual([]);
   });
 
   it('infers a pack from its source root without reading a missing media file', async () => {
@@ -270,7 +260,7 @@ describe('Classifier result lifecycle', () => {
     expect(getAssetById('path-only')?.metadata.pack).toBe('Fantasy');
   });
 
-  it('removes an obsolete sprite tag when a stricter confidence threshold yields no result', async () => {
+  it('keeps a user sprite tag when a stricter confidence threshold yields no result', async () => {
     const fixturePath = path.resolve('sample/assets/characters/knight/Knight_Walk_01.png');
     const filePath = path.join(tempDir, 'Knight_Walk_01.png');
     const png = fs.readFileSync(fixturePath);
@@ -292,17 +282,16 @@ describe('Classifier result lifecycle', () => {
     const first = await runClassifier(spriteClassifier, {
       targetType: 'asset',
       targetValue: 'sprite',
-      settingsOverride: { applySpriteTag: true },
     });
     expect(first.details[0].outcome).toBe('classified');
     expect(getAssetById('sprite')?.metadata.spriteType).toBe('character');
-    expect(tagSources('sprite', 'sprite:character')).toEqual(['classifier:sprite']);
+    expect(getAssetById('sprite')?.tags).toEqual([]);
     addAssetTags('sprite', ['sprite:character']);
 
     const second = await runClassifier(spriteClassifier, {
       targetType: 'asset',
       targetValue: 'sprite',
-      settingsOverride: { minConfidence: 1, applySpriteTag: false },
+      settingsOverride: { minConfidence: 1 },
     });
 
     expect(second.details[0].outcome).toBe('no-result');

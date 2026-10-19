@@ -55,7 +55,6 @@ export interface ArchiveInventoryEntry {
   compressedSize: number;
   mtime: number;
   hash: string;
-  tags: { tag: string; source: string }[];
 }
 
 export interface ArchiveEntryItem extends ArchiveInventoryEntry {
@@ -205,27 +204,6 @@ async function readEntryData(zipfile: ZipFile, entry: Entry, entryName: string):
   return buffer;
 }
 
-function createEntryTags(
-  archiveBaseName: string,
-  entryName: string,
-  extension: string,
-  category: AssetCategory
-): ArchiveInventoryEntry['tags'] {
-  const tags: ArchiveInventoryEntry['tags'] = [
-    { tag: archiveBaseName, source: 'archive' },
-    { tag: extension.replace('.', ''), source: 'extension' },
-    { tag: category, source: 'category' },
-  ];
-
-  const dirSegments = path.posix.dirname(entryName).split('/').filter(Boolean);
-  for (const segment of dirSegments) {
-    if (segment !== '.' && segment.length > 1) {
-      tags.push({ tag: segment, source: 'folder' });
-    }
-  }
-  return tags;
-}
-
 /**
  * Read ZIP headers and compressed-byte fingerprints without inflating media.
  * Process one selected entry at a time after the caller checks its cache, and
@@ -242,7 +220,6 @@ export async function openZipArchive(
 ): Promise<ArchiveInventory> {
   const limits = { ...DEFAULT_ARCHIVE_LIMITS, ...limitOverrides };
   const { zipfile, mediaEntries } = await readZipDirectory(archiveAbsolutePath, limits);
-  const archiveBaseName = path.parse(archiveAbsolutePath).name;
   const entries: ArchiveInventoryEntry[] = [];
   const entryByDescriptor = new Map<ArchiveInventoryEntry, Entry>();
 
@@ -278,7 +255,6 @@ export async function openZipArchive(
         compressedSize: zipEntry.compressedSize,
         mtime: Number.isFinite(mtime) ? mtime : 0,
         hash,
-        tags: createEntryTags(archiveBaseName, entryName, extension, category),
       };
       entries.push(descriptor);
       entryByDescriptor.set(descriptor, zipEntry);

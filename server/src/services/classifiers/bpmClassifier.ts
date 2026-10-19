@@ -19,8 +19,6 @@ export const DEFAULT_BPM_SETTINGS: BpmClassifierSettings = {
   maxBpm: 200,
   minDurationSeconds: 1.0,
   maxAnalysisSeconds: 45.0,
-  applyBpmTag: false,
-  applyTempoTag: false,
 };
 
 export interface BpmIntermediateState {
@@ -31,7 +29,6 @@ export interface BpmIntermediateState {
   duration?: number;
   bpm?: number | null;
   tempoDescription?: string;
-  tagsAdded: string[];
   error?: string;
 }
 
@@ -191,10 +188,10 @@ const analyzeStep: ClassifierStep<BpmClassifierSettings, BpmIntermediateState> =
 
 /**
  * Step 4: Apply Metadata
- * Saves BPM and tempo description into asset metadata; labels are accessible via bpm: keyword without tag assignments.
+ * Saves BPM and tempo description into asset metadata; the bpm: filter queries them.
  */
 const persistStep: ClassifierStep<BpmClassifierSettings, BpmIntermediateState> = {
-  id: 'apply-metadata-tags',
+  id: 'persist-metadata',
   name: 'Persist Metadata',
   description: 'Saves calculated BPM and tempo description to index.db.',
   // The engine finalizes every conclusive outcome, including no tempo.
@@ -211,7 +208,6 @@ export const bpmClassifier: Classifier<BpmClassifierSettings, BpmIntermediateSta
   steps: [probeStep, decodeStep, analyzeStep, persistStep],
   createIntermediateState: () => ({
     skipped: false,
-    tagsAdded: [],
   }),
   createAssetResult: (asset: Asset, intermediate: BpmIntermediateState): ClassifierAssetResult => {
     if (intermediate.bpm !== null && intermediate.bpm !== undefined) {
@@ -225,7 +221,6 @@ export const bpmClassifier: Classifier<BpmClassifierSettings, BpmIntermediateSta
           tempoDescription: intermediate.tempoDescription,
           duration: intermediate.duration,
         },
-        tagsAdded: intermediate.tagsAdded,
       };
     }
 
@@ -235,21 +230,13 @@ export const bpmClassifier: Classifier<BpmClassifierSettings, BpmIntermediateSta
       success: false,
       outcome: 'no-result',
       error: intermediate.error || intermediate.skipReason || 'No BPM detected',
-      tagsAdded: [],
     };
   },
-  finalizeAsset: (asset, intermediate, settings, result) => {
+  finalizeAsset: (asset, intermediate, _settings, result) => {
     const classified = result.outcome === 'classified' && intermediate.bpm !== null && intermediate.bpm !== undefined;
-    const tags: string[] = [];
-    if (classified && settings.applyBpmTag === true) tags.push(`bpm:${intermediate.bpm}`);
-    if (classified && settings.applyTempoTag === true && intermediate.tempoDescription) {
-      tags.push(`${settings.tempoTagPrefix !== undefined ? settings.tempoTagPrefix : ''}${intermediate.tempoDescription}`);
-    }
-    const applied = finalizeClassifierAsset(
+    return finalizeClassifierAsset(
       asset, 'bpm', classified ? 'classified' : 'no-result',
-      classified ? { bpm: intermediate.bpm!, tempoDescription: intermediate.tempoDescription } : {}, tags
+      classified ? { bpm: intermediate.bpm!, tempoDescription: intermediate.tempoDescription } : {}
     );
-    if (applied) result.tagsAdded = tags;
-    return applied;
   },
 };

@@ -102,9 +102,9 @@ or API.
 
 | Classifier | Defaults |
 |---|---|
-| BPM | Enabled; 60–200 BPM; minimum duration 1 second; analyzes up to 45 seconds; BPM and tempo tags disabled |
-| Sprite | Enabled; minimum confidence 0.5; visual, path, and stack analysis enabled; sprite tags disabled |
-| Pack | Enabled; archive and directory inference enabled; top-directory strategy at depth 1; separator cleanup and version suffix removal enabled; preserves case; pack tags disabled |
+| BPM | Enabled; 60–200 BPM; minimum duration 1 second; analyzes up to 45 seconds |
+| Sprite | Enabled; minimum confidence 0.5; visual, path, and stack analysis enabled |
+| Pack | Enabled; archive and directory inference enabled; top-directory strategy at depth 1; separator cleanup and version suffix removal enabled; preserves case |
 
 The repository's [sample configuration](https://github.com/jellyhuck/assettlor/blob/main/sample/config.yaml)
 lists the available default classifier fields.

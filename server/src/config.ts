@@ -72,8 +72,6 @@ export function createDefaultYamlConfig(): AppYamlConfig {
         maxBpm: 200,
         minDurationSeconds: 1.0,
         maxAnalysisSeconds: 45.0,
-        applyBpmTag: false,
-        applyTempoTag: false,
       },
       sprite: {
         enabled: true,
@@ -81,7 +79,6 @@ export function createDefaultYamlConfig(): AppYamlConfig {
         enableVisualAnalysis: true,
         enablePathAnalysis: true,
         enableStackAnalysis: true,
-        applySpriteTag: false,
       },
       pack: {
         enabled: true,
@@ -93,8 +90,6 @@ export function createDefaultYamlConfig(): AppYamlConfig {
         stripVersionSuffix: true,
         stripAffixes: false,
         caseConvention: 'as-is',
-        applyTag: false,
-        tagPrefix: 'pack:',
         targetArchives: [],
         targetDirectories: [],
       },
@@ -210,6 +205,12 @@ export function createInitialYamlConfig(): AppYamlConfig {
   return initial;
 }
 
+const LEGACY_CLASSIFIER_TAG_KEYS: Record<string, string[]> = {
+  bpm: ['applyBpmTag', 'applyTempoTag', 'tempoTagPrefix'],
+  sprite: ['applySpriteTag', 'spriteTagPrefix'],
+  pack: ['applyTag', 'tagPrefix'],
+};
+
 function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
   const input = requireRecord(raw, 'Configuration');
   const defaults = createDefaultYamlConfig();
@@ -221,7 +222,10 @@ function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
     : requireRecord(input.classifiers, 'classifiers');
   const classifiers: Record<string, Record<string, unknown>> = { ...defaults.classifiers };
   for (const [name, settings] of Object.entries(classifiersInput)) {
-    classifiers[name] = requireRecord(settings, `classifiers.${name}`);
+    const record = { ...requireRecord(settings, `classifiers.${name}`) };
+    // Tags are reserved for user assignment; classifier tagging options were removed.
+    for (const key of LEGACY_CLASSIFIER_TAG_KEYS[name] ?? []) delete record[key];
+    classifiers[name] = record;
   }
 
   const server = { ...defaults.server, ...serverInput };

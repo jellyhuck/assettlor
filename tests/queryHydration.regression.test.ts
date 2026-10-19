@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  addAssetTags,
   closeDatabase,
   createStack,
   getDatabase,
@@ -35,15 +36,15 @@ describe('queryAssets page tag hydration', () => {
       mtime: 1,
       hash: id,
       isArchiveEntry: false,
-      tags,
     });
+    addAssetTags(id, tags);
   };
 
   it('loads all flat page tags with a bounded number of statements', () => {
     for (let index = 0; index < 200; index++) {
       addAsset(`flat_${String(index).padStart(3, '0')}`, [
         { tag: `tag-${index}`, source: 'user' },
-        { tag: `tag-${index}`, source: 'folder' },
+        { tag: `tag-${index}`, source: 'import' },
       ]);
     }
 
@@ -65,11 +66,11 @@ describe('queryAssets page tag hydration', () => {
       const memberId = `stack_${String(index).padStart(3, '0')}_member`;
       addAsset(repId, [
         { tag: `rep-${index}`, source: 'user' },
-        { tag: `shared-${index}`, source: 'folder' },
+        { tag: `shared-${index}`, source: 'import' },
       ]);
       addAsset(memberId, [
         { tag: `member-${index}`, source: 'user' },
-        { tag: `shared-${index}`, source: 'folder' },
+        { tag: `shared-${index}`, source: 'import' },
       ]);
       createStack({
         id: `stack_${String(index).padStart(3, '0')}`,

@@ -3,11 +3,10 @@ import {
   closeDatabase,
   initDatabase,
   queryAssets,
-  upsertAsset,
 } from '../server/src/db/database.js';
 import { compileFilterExpression } from '../server/src/services/filterParser.js';
 import { formatFilterToken } from '../shared/filterSync.js';
-import { cleanupTempDir, createTempDir } from './helpers.js';
+import { cleanupTempDir, createTempDir, upsertTaggedAsset } from './helpers.js';
 
 describe('search fallback semantics', () => {
   let tempDir: string;
@@ -24,7 +23,7 @@ describe('search fallback semantics', () => {
       tag?: string,
       size = 1,
       metadata: { bpm?: number; width?: number } = {}
-    ) => upsertAsset({
+    ) => upsertTaggedAsset({
       id,
       path: name,
       absolutePath: `${tempDir}/${name}`,
@@ -36,7 +35,7 @@ describe('search fallback semantics', () => {
       hash: id,
       isArchiveEntry: false,
       metadata,
-      tags: tag ? [{ tag, source: 'user' }] : [],
+      tags: tag ? [tag] : [],
     });
 
     add('coin_image', 'coin.png', '.png', 'coin', 1, { width: 64 });

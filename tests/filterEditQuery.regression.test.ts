@@ -3,16 +3,15 @@ import {
   closeDatabase,
   initDatabase,
   queryAssets,
-  upsertAsset,
 } from '../server/src/db/database.js';
 import { parseFiltersFromQuery, updateSearchFilter } from '../shared/filterSync.js';
-import { cleanupTempDir, createTempDir } from './helpers.js';
+import { cleanupTempDir, createTempDir, upsertTaggedAsset } from './helpers.js';
 
 describe('sidebar edits through real asset queries', () => {
   let tempDir: string;
 
   const addImage = (id: string, extension: string, width: number, tags: string[]) => {
-    upsertAsset({
+    upsertTaggedAsset({
       id,
       path: `coin_${id}${extension}`,
       absolutePath: `/coin_${id}${extension}`,
@@ -24,7 +23,7 @@ describe('sidebar edits through real asset queries', () => {
       hash: id,
       isArchiveEntry: false,
       metadata: { width, height: 128 },
-      tags: tags.map((tag) => ({ tag, source: 'user' })),
+      tags,
     });
   };
 

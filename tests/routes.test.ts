@@ -18,6 +18,7 @@ import {
   createTestWavBuffer,
   createTestBpmWavBuffer,
   createTestTgaBuffer,
+  upsertTaggedAsset,
 } from './helpers.js';
 
 describe('HTTP API Routes', () => {
@@ -58,7 +59,7 @@ describe('HTTP API Routes', () => {
       const diskThumb = path.join(tempLibraryDir, '.assettlor', 'thumbnails', 'hero_id.webp');
       fs.writeFileSync(diskThumb, TINY_PNG_BUFFER);
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'hero_id',
         path: 'hero.png',
         absolutePath: diskPng,
@@ -71,14 +72,14 @@ describe('HTTP API Routes', () => {
         isArchiveEntry: false,
         thumbnailPath: diskThumb,
         metadata: { width: 1, height: 1 },
-        tags: [{ tag: 'player', source: 'auto' }],
+        tags: ['player'],
       });
 
       const wavBuf = createTestWavBuffer(0.1, 8000);
       const diskWav = path.join(tempLibraryDir, 'laser.wav');
       fs.writeFileSync(diskWav, wavBuf);
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'laser_id',
         path: 'laser.wav',
         absolutePath: diskWav,
@@ -90,7 +91,7 @@ describe('HTTP API Routes', () => {
         hash: 'h_laser',
         isArchiveEntry: false,
         metadata: { duration: 0.1, bpm: 120 },
-        tags: [{ tag: 'sfx', source: 'auto' }],
+        tags: ['sfx'],
       });
     });
 
@@ -867,7 +868,6 @@ describe('HTTP API Routes', () => {
         payload: {
           minBpm: 65,
           maxBpm: 195,
-          applyTempoTag: true,
         },
       });
       expect(updateRes.statusCode).toBe(200);
@@ -882,6 +882,17 @@ describe('HTTP API Routes', () => {
         url: '/api/classifiers/bpm',
       });
       expect(getRes.json().settings.minBpm).toBe(65);
+    });
+
+    it('rejects the removed classifier tagging settings', async () => {
+      for (const [id, key] of [['bpm', 'applyTempoTag'], ['sprite', 'applySpriteTag'], ['pack', 'applyTag']]) {
+        const res = await app.inject({
+          method: 'PUT',
+          url: `/api/classifiers/${id}/settings`,
+          payload: { [key]: true },
+        });
+        expect(res.statusCode).toBe(400);
+      }
     });
 
     it('POST /api/classifiers/:id/run should execute classifier on target scope', async () => {
@@ -934,7 +945,7 @@ describe('HTTP API Routes', () => {
 
   describe('Tag Endpoints (/api/assets/:id/tags, /api/assets/tags, /api/stacks/:id/tags)', () => {
     beforeEach(() => {
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'route_tag_asset_1',
         path: 'sprites/knight.png',
         absolutePath: path.join(tempLibraryDir, 'sprites/knight.png'),
@@ -945,10 +956,10 @@ describe('HTTP API Routes', () => {
         mtime: 100,
         hash: 'h_rt_1',
         isArchiveEntry: false,
-        tags: [{ tag: 'pixel-art', source: 'auto' }],
+        tags: ['pixel-art'],
       });
 
-      upsertAsset({
+      upsertTaggedAsset({
         id: 'route_tag_asset_2',
         path: 'sprites/orc.png',
         absolutePath: path.join(tempLibraryDir, 'sprites/orc.png'),
@@ -959,7 +970,7 @@ describe('HTTP API Routes', () => {
         mtime: 100,
         hash: 'h_rt_2',
         isArchiveEntry: false,
-        tags: [{ tag: 'pixel-art', source: 'auto' }],
+        tags: ['pixel-art'],
       });
 
       createStack({

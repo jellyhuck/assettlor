@@ -9,7 +9,6 @@ import {
   initDatabase,
   addAssetTags,
   getAllTags,
-  removeAssetTagsBySource,
   upsertAsset,
 } from '../server/src/db/database.js';
 import { canonicalAssetId } from '../server/src/services/assetIdentity.js';
@@ -198,7 +197,7 @@ describe('Index identity and curation', () => {
     expect(canonicalIds.map((id) => getAssetById(id)!.path)).toEqual(displayPaths);
   });
 
-  it('keeps explicit tags when scanner and classifier ownership changes', () => {
+  it('keeps user tags when an asset is reindexed or its content changes', () => {
     const file = path.join(fixture, 'curated.png');
     const id = canonicalAssetId(file);
     const base = {
@@ -212,26 +211,41 @@ describe('Index identity and curation', () => {
       mtime: 1,
       isArchiveEntry: false,
     };
-    upsertAsset({ ...base, hash: 'one', metadata: { width: 32 }, tags: [
-      { tag: 'Favorite', source: 'auto' },
-      { tag: 'Animated', source: 'auto' },
-    ] });
-    addAssetTags(id, ['FAVORITE', { tag: 'Classified', source: 'classifier:sprite' }]);
-    upsertAsset({ ...base, hash: 'one', metadata: { height: 32 }, tags: [
-      { tag: 'favorite', source: 'auto' },
-    ] });
-    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).toEqual(
-      expect.arrayContaining(['favorite', 'classified'])
-    );
-    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).not.toContain('animated');
+    upsertAsset({ ...base, hash: 'one', metadata: { width: 32 } });
+    addAssetTags(id, ['Favorite', 'FAVORITE']);
+    upsertAsset({ ...base, hash: 'one', metadata: { height: 32 } });
+    expect(getAssetById(id)?.tags).toEqual(['Favorite']);
     expect(getAssetById(id)?.metadata).toMatchObject({ width: 32, height: 32 });
     expect(getAllTags().find((tag) => tag.name.toLowerCase() === 'favorite')?.count).toBe(1);
 
-    removeAssetTagsBySource(id, 'auto');
-    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).toContain('favorite');
-    upsertAsset({ ...base, hash: 'two', metadata: { width: 64 }, tags: [] });
-    expect(getAssetById(id)?.tags.map((tag) => tag.toLowerCase())).toEqual(['favorite']);
+    upsertAsset({ ...base, hash: 'two', metadata: { width: 64 } });
+    expect(getAssetById(id)?.tags).toEqual(['Favorite']);
     expect(getAssetById(id)?.metadata).toEqual({ width: 64 });
+  });
+
+  it('drops tags that earlier versions generated during scans and classification', () => {
+    const file = path.join(fixture, 'sprites', 'hero.png');
+    const id = canonicalAssetId(file);
+    upsertAsset({
+      id,
+      path: 'sprites/hero.png',
+      absolutePath: file,
+      name: 'hero.png',
+      extension: '.png',
+      category: 'image',
+      size: 10,
+      mtime: 1,
+      hash: 'one',
+      isArchiveEntry: false,
+    });
+    const insert = getDatabase().prepare('INSERT INTO tags (asset_id, tag, source) VALUES (?, ?, ?)');
+    for (const [tag, source] of [
+      ['Favorite', 'user'], ['imported', 'import'], ['sprites', 'folder'], ['png', 'extension'],
+      ['image', 'category'], ['RetroPack', 'archive'], ['ui', 'auto'], ['sprite:character', 'classifier:sprite'],
+    ]) insert.run(id, tag, source);
+    closeDatabase();
+    initDatabase(dataDir);
+    expect(getAssetById(id)?.tags.sort()).toEqual(['Favorite', 'imported']);
   });
 
   it('migrates legacy tag rows to independent case-insensitive sources', () => {
@@ -253,9 +267,8 @@ describe('Index identity and curation', () => {
     closeDatabase();
     initDatabase(dataDir);
     expect(getAssetById(id)?.tags).toEqual(['Favorite']);
-    addAssetTags(id, [{ tag: 'favorite', source: 'classifier:sprite' }]);
-    removeAssetTagsBySource(id, 'classifier:sprite');
-    expect(getAssetById(id)?.tags).toEqual(['Favorite']);
+    addAssetTags(id, [{ tag: 'favorite', source: 'import' }]);
+    expect(getAllTags()).toMatchObject([{ count: 1, source: 'user' }]);
   });
 
   it('preserves disk and ZIP curation through a full rescan', async () => {

@@ -36,7 +36,7 @@ describe('Archive Service', () => {
   });
 
   describe('inspectZipArchive', () => {
-    it('should extract images and audio entries from zip with tags and metadata', async () => {
+    it('should extract images and audio entries from zip with metadata and no tags', async () => {
       const zipPath = path.join(tempDir, 'MyPack.zip');
       createTestZipArchive(zipPath, [
         { name: 'sprites/hero.png', content: TINY_PNG_BUFFER },
@@ -60,24 +60,15 @@ describe('Archive Service', () => {
       expect(hero!.metadata.height).toBe(1);
       expect(hero!.thumbnailBuffer).toBeInstanceOf(Buffer);
 
-      // Verify tags on hero: archive name, folder, extension, category
-      const heroTagNames = hero!.tags.map((t) => t.tag);
-      expect(heroTagNames).toContain('MyPack');
-      expect(heroTagNames).toContain('sprites');
-      expect(heroTagNames).toContain('png');
-      expect(heroTagNames).toContain('image');
+      // Tags are reserved for user assignment; archive, folder, and type are filters.
+      expect(hero).not.toHaveProperty('tags');
 
       const jump = items.find((i) => i.filename === 'jump.wav');
       expect(jump).toBeDefined();
       expect(jump!.category).toBe('audio');
       expect(jump!.virtualPath).toBe('MyPack.zip#/audio/sfx/jump.wav');
       expect(jump!.metadata.sampleRate).toBe(8000);
-
-      const jumpTagNames = jump!.tags.map((t) => t.tag);
-      expect(jumpTagNames).toContain('MyPack');
-      expect(jumpTagNames).toContain('audio');
-      expect(jumpTagNames).toContain('sfx');
-      expect(jumpTagNames).toContain('wav');
+      expect(jump).not.toHaveProperty('tags');
     });
 
     it('should return empty array for empty zip archive', async () => {
