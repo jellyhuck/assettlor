@@ -127,6 +127,8 @@ interface InspectorProps {
   onSelectDuration?: (duration: string | null) => void;
   onSelectBpm?: (bpm: string | null) => void;
   onSelectSprite?: (sprite: string | null) => void;
+  onSelectFolder?: (folder: string | null) => void;
+  selectedFolder?: string | null;
   onAssetUpdated?: (updatedAsset: Asset, updateSelection?: boolean) => void;
   onStackUpdated?: (updatedStack: AssetStack & { isStack: true }, updateSelection?: boolean) => void;
   availableTags?: TagInfo[];
@@ -147,6 +149,8 @@ export function Inspector({
   onSelectDuration,
   onSelectBpm,
   onSelectSprite,
+  onSelectFolder,
+  selectedFolder,
   onAssetUpdated,
   onStackUpdated,
   availableTags,
@@ -212,6 +216,7 @@ export function Inspector({
   const analyzingBpm = isPending('bpm');
   const classifyingSprite = isPending('sprite');
   const classifyingPack = isPending('pack');
+  const classifyingFolders = isPending('folder');
   const isTagSubmitting = isPending('tag-add');
   const applyTagsToStack = Boolean(stack && stackTagChoice?.stackId === stack.id && stackTagChoice.enabled);
   const parentStack = parentState?.key === parentKey ? parentState.parent : null;
@@ -329,12 +334,13 @@ export function Inspector({
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
   };
 
-  const handleRunClassifier = async (kind: 'bpm' | 'sprite' | 'pack') => {
+  const handleRunClassifier = async (kind: 'bpm' | 'sprite' | 'pack' | 'folder') => {
     const target = displayedAsset;
     if ((kind === 'bpm' && target.category !== 'audio')
       || (kind === 'sprite' && target.category !== 'image') || isPending(kind)) return;
     const scope = mutationScopeRef.current;
-    const title = kind === 'bpm' ? 'BPM Analysis' : kind === 'sprite' ? 'Sprite Classification' : 'Pack Classification';
+    const title = kind === 'bpm' ? 'BPM Analysis' : kind === 'sprite' ? 'Sprite Classification'
+      : kind === 'pack' ? 'Pack Classification' : 'Folder Classification';
     setPending(scope, kind, true);
     try {
       const run = await requestJson(`/api/classifiers/${kind}/run`, parseClassifierRun, {
@@ -358,7 +364,10 @@ export function Inspector({
           ? `${target.name}: ${detail.result?.bpm ?? 'detected'} BPM`
           : kind === 'sprite'
             ? `${target.name}: ${detail.result?.spriteType ?? 'classified'}`
-            : `${target.name}: ${detail.result?.pack ?? 'classified'}`;
+            : kind === 'pack'
+              ? `${target.name}: ${detail.result?.pack ?? 'classified'}`
+              : `${target.name}: ${Array.isArray(detail.result?.folders)
+                ? detail.result.folders.join(' / ') : 'classified'}`;
         showToast('success', title, description);
       } else if (detail.outcome === 'error') {
         showToast('error', `${title} Error`, `${target.name}: ${detail.error || 'Classification failed'}`);
@@ -375,6 +384,7 @@ export function Inspector({
   const handleAnalyzeBpm = () => { void handleRunClassifier('bpm'); };
   const handleClassifySprite = () => { void handleRunClassifier('sprite'); };
   const handleClassifyPack = () => { void handleRunClassifier('pack'); };
+  const handleClassifyFolders = () => { void handleRunClassifier('folder'); };
 
   const tagsList = availableTags && availableTags.length > 0 ? availableTags : localAvailableTags;
 
@@ -1072,6 +1082,58 @@ export function Inspector({
                         Classifying
                       </>
                     ) : displayedAsset.metadata.pack ? (
+                      'Re-classify'
+                    ) : (
+                      'Classify'
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Folders */}
+              <div className="flex justify-between gap-2 py-1 border-b border-[#202033] items-start">
+                <span className="text-slate-400 flex items-center gap-1 select-text shrink-0 pt-0.5">
+                  <Folder className="w-3.5 h-3.5 text-cyan-400" />
+                  Folders
+                </span>
+                <div className="flex flex-wrap justify-end items-center gap-1 select-text min-w-0">
+                  {displayedAsset.metadata.folders?.length ? (
+                    displayedAsset.metadata.folders.map((folder) => {
+                      const isSelected = selectedFolder?.toLowerCase() === folder.toLowerCase();
+                      return (
+                        <button
+                          key={folder}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => onSelectFolder?.(folder)}
+                          disabled={!onSelectFolder}
+                          title={`Filter library by folder:${folder}`}
+                          className={`font-mono px-1.5 py-0.5 rounded text-[11px] border truncate max-w-[150px] transition-colors cursor-pointer disabled:cursor-default ${
+                            isSelected
+                              ? 'bg-cyan-700/80 border-cyan-400 text-white font-semibold'
+                              : 'text-cyan-300 bg-cyan-950/40 border-cyan-500/40 hover:border-cyan-400'
+                          }`}
+                        >
+                          {folder}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <span className="text-slate-500 italic text-[11px] select-text">Not classified</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleClassifyFolders}
+                    disabled={classifyingFolders}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-[#202035] hover:bg-cyan-950/40 text-cyan-300 border border-[#3b3b5c] hover:border-cyan-500/50 rounded text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50 select-none"
+                    title="Run Folder Classifier on this asset"
+                  >
+                    {classifyingFolders ? (
+                      <>
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                        Classifying
+                      </>
+                    ) : displayedAsset.metadata.folders?.length ? (
                       'Re-classify'
                     ) : (
                       'Classify'

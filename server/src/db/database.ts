@@ -10,6 +10,7 @@ import type {
   FormatInfo,
   ResolutionInfo,
   BpmInfo,
+  FolderInfo,
   AppSettings,
   AssetQueryParams,
   AssetListResponse,
@@ -31,6 +32,7 @@ import {
   parseBpmClause,
   parseSpriteClause,
   parsePackClause,
+  parseFolderClause,
   composePredicates,
   parseWidthClause,
   parseHeightClause,
@@ -759,6 +761,19 @@ export function getAllBpms(): BpmInfo[] {
   }));
 }
 
+export function getAllFolders(): FolderInfo[] {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT MIN(f.value) as name, COUNT(DISTINCT a.id) as count
+    FROM assets a, json_each(CASE WHEN json_valid(a.metadata) THEN a.metadata END, '$.folders') f
+    WHERE f.type = 'text' AND f.value != ''
+    GROUP BY f.value COLLATE NOCASE
+    ORDER BY count DESC, name COLLATE NOCASE ASC
+  `).all() as { name: string; count: number }[];
+
+  return rows.map((r) => ({ name: r.name, count: r.count }));
+}
+
 export function clearStacks(): void {
   const db = getDatabase();
   db.transaction(() => {
@@ -1130,6 +1145,14 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     }
   }
 
+  if (params.folder && params.folder.trim()) {
+    const folderClause = parseFolderClause(params.folder.trim(), isStackedView);
+    if (folderClause && folderClause.sql) {
+      conditions.push(folderClause.sql);
+      args.push(...folderClause.args);
+    }
+  }
+
   if (params.width && params.width.trim()) {
     const widthClause = parseWidthClause(params.width.trim(), isStackedView);
     if (widthClause && widthClause.sql) {
@@ -1345,7 +1368,7 @@ export function updateAssetMetadata(assetId: string, metadataUpdates: Partial<As
 /** Finalize one classifier result only if the indexed asset is still the revision analyzed. */
 export function finalizeClassifierAsset(
   asset: Asset,
-  classifierId: 'bpm' | 'sprite' | 'pack',
+  classifierId: 'bpm' | 'sprite' | 'pack' | 'folder',
   outcome: 'classified' | 'no-result',
   metadataUpdates: Partial<AssetMetadata>
 ): boolean {
@@ -1406,6 +1429,9 @@ export function finalizeClassifierAsset(
       }
       if (Object.keys(provenance).length) metadata.classifierProvenance = provenance;
       else delete metadata.classifierProvenance;
+    } else if (classifierId === 'folder') {
+      // The classifier owns the folder list; a rerun replaces or clears it.
+      delete metadata.folders;
     } else if (outcome === 'no-result') {
       delete metadata.spriteType;
       delete metadata.spriteConfidence;

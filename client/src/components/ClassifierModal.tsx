@@ -14,6 +14,7 @@ import {
   Music,
   Image as ImageIcon,
   Package,
+  Folder,
   RefreshCw,
   Sliders,
 } from 'lucide-react';
@@ -29,6 +30,12 @@ import {
 } from './classifierModalData';
 import { createRequestGate, errorMessage, requestJson, type RequestGate } from '../lib/requestLifecycle';
 import { bindDialogFocus, isBackdropPress } from '../lib/dialogFocus';
+
+function accentTextClass(classifier: ClassifierInfo): string {
+  if (classifier.id === 'pack') return 'text-amber-400';
+  if (classifier.id === 'folder') return 'text-cyan-400';
+  return classifier.category === 'image' ? 'text-purple-400' : 'text-pink-400';
+}
 
 interface ClassifierModalProps {
   isOpen: boolean;
@@ -265,7 +272,7 @@ function ClassifierDialog({ onClose, selectedAsset, onRunComplete }: Omit<Classi
             {classifierLoadState === 'ready' && classifiers.length === 0 && (
               <p role="status" className="text-xs text-slate-400">No classifiers are available.</p>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {classifiers.map((clf) => (
                 <button
                   key={clf.id}
@@ -276,6 +283,8 @@ function ClassifierDialog({ onClose, selectedAsset, onRunComplete }: Omit<Classi
                     clf.id === selectedClassifierId
                       ? clf.id === 'pack'
                         ? 'bg-amber-950/30 border-amber-500/60 ring-1 ring-amber-500/30'
+                        : clf.id === 'folder'
+                        ? 'bg-cyan-950/30 border-cyan-500/60 ring-1 ring-cyan-500/30'
                         : clf.category === 'image'
                         ? 'bg-purple-950/30 border-purple-500/60 ring-1 ring-purple-500/30'
                         : 'bg-pink-950/30 border-pink-500/60 ring-1 ring-pink-500/30'
@@ -284,6 +293,8 @@ function ClassifierDialog({ onClose, selectedAsset, onRunComplete }: Omit<Classi
                 >
                   {clf.id === 'pack' ? (
                     <Package className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  ) : clf.id === 'folder' ? (
+                    <Folder className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
                   ) : clf.category === 'image' ? (
                     <ImageIcon className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
                   ) : (
@@ -307,13 +318,7 @@ function ClassifierDialog({ onClose, selectedAsset, onRunComplete }: Omit<Classi
           {currentClassifier && (
             <div className="space-y-2 bg-[#12121e] border border-[#232338] rounded-lg p-3.5">
               <div className="flex items-center justify-between text-xs font-medium text-slate-300">
-                <span className={`flex items-center gap-1.5 ${
-                  currentClassifier.id === 'pack'
-                    ? 'text-amber-400'
-                    : currentClassifier.category === 'image'
-                    ? 'text-purple-400'
-                    : 'text-pink-400'
-                }`}>
+                <span className={`flex items-center gap-1.5 ${accentTextClass(currentClassifier)}`}>
                   <Sliders className="w-3.5 h-3.5" />
                   Multi-Step Execution Pipeline
                 </span>
@@ -328,11 +333,7 @@ function ClassifierDialog({ onClose, selectedAsset, onRunComplete }: Omit<Classi
                     className="flex flex-col p-2 rounded-md bg-[#181829] border border-[#2a2a42] text-[11px]"
                   >
                     <div className={`flex items-center gap-1 text-[10px] font-mono font-bold mb-1 ${
-                      currentClassifier.id === 'pack'
-                        ? 'text-amber-400'
-                        : currentClassifier.category === 'image'
-                        ? 'text-purple-400'
-                        : 'text-pink-400'
+                      accentTextClass(currentClassifier)
                     }`}>
                       <span>Step {idx + 1}</span>
                     </div>
@@ -513,6 +514,11 @@ function ClassifierDialog({ onClose, selectedAsset, onRunComplete }: Omit<Classi
                     ) : item.success && typeof item.result?.pack === 'string' ? (
                       <span className="font-mono font-bold text-amber-300 truncate max-w-[180px]">
                         {item.result.pack}
+                      </span>
+                    ) : item.success && Array.isArray(item.result?.folders) ? (
+                      <span className="font-mono font-bold text-cyan-300 truncate max-w-[180px]"
+                        title={item.result.folders.join(' / ')}>
+                        {item.result.folders.join(' / ')}
                       </span>
                     ) : item.success ? (
                       <span className="text-[10px] text-emerald-400">Classified</span>

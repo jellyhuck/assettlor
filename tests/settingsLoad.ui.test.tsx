@@ -20,13 +20,15 @@ const classifier = (id: string) => ({
     : id === 'sprite'
       ? { enabled: true, minConfidence: 0.5, enableVisualAnalysis: true,
         enablePathAnalysis: true, enableStackAnalysis: true }
-      : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
-        directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
-        stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
+      : id === 'folder'
+        ? { enabled: true, includeArchiveFolders: true }
+        : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
+          directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
+          stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
 });
 
 const loadUrls = ['/api/scan/status', '/api/settings', '/api/classifiers/bpm',
-  '/api/classifiers/sprite', '/api/classifiers/pack'];
+  '/api/classifiers/sprite', '/api/classifiers/pack', '/api/classifiers/folder'];
 const scanStatus = { status: 'idle', libraryPath: '', scannedCount: 0, indexedCount: 0 };
 
 function content(open: boolean, onClose: () => void, onSettingsSaved: () => void) {
@@ -52,7 +54,7 @@ async function resolveLoads(requests: PendingFetch[], offset = 0, app = appSetti
   await act(async () => {
     requestFor(requests, '/api/scan/status', offset).resolveJson(scanStatus);
     requestFor(requests, '/api/settings', offset).resolveJson(app);
-    for (const id of ['bpm', 'sprite', 'pack']) {
+    for (const id of ['bpm', 'sprite', 'pack', 'folder']) {
       requestFor(requests, `/api/classifiers/${id}`, offset).resolveJson(classifier(id));
     }
   });
@@ -82,7 +84,7 @@ describe('SettingsModal initial draft loading', () => {
       await act(async () => {
         statusRequests[1].resolveJson(scanStatus);
         pending.requests.find((request) => request.url === '/api/settings')!.resolveJson(appSettings);
-        for (const id of ['bpm', 'sprite', 'pack']) {
+        for (const id of ['bpm', 'sprite', 'pack', 'folder']) {
           pending.requests.find((request) => request.url === `/api/classifiers/${id}`)!
             .resolveJson(classifier(id));
         }
@@ -107,10 +109,11 @@ describe('SettingsModal initial draft loading', () => {
         pending.requests[1].resolveJson(appSettings);
         pending.requests[2].resolveJson(classifier('bpm'));
         pending.requests[3].resolveJson(classifier('sprite'));
+        pending.requests[5].resolveJson(classifier('folder'));
       });
       expect(saveButton(view.container).disabled).toBe(true);
       await click(saveButton(view.container));
-      expect(pending.requests).toHaveLength(5);
+      expect(pending.requests).toHaveLength(6);
       expect(onSettingsSaved).not.toHaveBeenCalled();
       expect(onClose).not.toHaveBeenCalled();
 
@@ -121,7 +124,7 @@ describe('SettingsModal initial draft loading', () => {
     }
   });
 
-  it.each(['app', 'bpm', 'sprite', 'pack'] as const)(
+  it.each(['app', 'bpm', 'sprite', 'pack', 'folder'] as const)(
     'reports a failed %s load and retries that section without saving defaults', async (section) => {
       const pending = createDeferredFetch();
       vi.stubGlobal('fetch', pending.fetcher);
@@ -132,7 +135,7 @@ describe('SettingsModal initial draft loading', () => {
       try {
         await act(async () => {
           pending.requests[0].resolveJson(scanStatus);
-          for (const request of pending.requests.slice(1, 5)) {
+          for (const request of pending.requests.slice(1, 6)) {
             if (request.url === failedUrl) request.resolveJson({ error: `${section} unavailable` }, 503);
             else if (request.url === '/api/settings') request.resolveJson(appSettings);
             else request.resolveJson(classifier(request.url.split('/').pop()!));
@@ -143,10 +146,10 @@ describe('SettingsModal initial draft loading', () => {
         const retry = Array.from(view.container.querySelectorAll('button'))
           .find((button) => button.textContent?.trim() === `Retry ${section}`)!;
         await click(retry);
-        expect(pending.requests).toHaveLength(6);
-        expect(pending.requests[5].url).toBe(failedUrl);
+        expect(pending.requests).toHaveLength(7);
+        expect(pending.requests[6].url).toBe(failedUrl);
         await act(async () => {
-          pending.requests[5].resolveJson(section === 'app' ? appSettings : classifier(section));
+          pending.requests[6].resolveJson(section === 'app' ? appSettings : classifier(section));
         });
         expect(saveButton(view.container).disabled).toBe(false);
         expect(onSettingsSaved).not.toHaveBeenCalled();
@@ -164,7 +167,7 @@ describe('SettingsModal initial draft loading', () => {
       await act(async () => {
         pending.requests[0].resolveJson(scanStatus);
         pending.requests[1].resolveJson({ ...appSettings, libraryPaths: null });
-        for (const id of ['bpm', 'sprite', 'pack']) {
+        for (const id of ['bpm', 'sprite', 'pack', 'folder']) {
           requestFor(pending.requests, `/api/classifiers/${id}`).resolveJson(classifier(id));
         }
       });
@@ -173,7 +176,7 @@ describe('SettingsModal initial draft loading', () => {
       const retry = Array.from(view.container.querySelectorAll('button'))
         .find((button) => button.textContent?.trim() === 'Retry app')!;
       await click(retry);
-      await act(async () => { pending.requests[5].resolveJson(appSettings); });
+      await act(async () => { pending.requests[6].resolveJson(appSettings); });
       expect(saveButton(view.container).disabled).toBe(false);
     } finally {
       await view.unmount();
@@ -190,7 +193,7 @@ describe('SettingsModal initial draft loading', () => {
       await act(async () => {
         pending.requests[0].resolveJson(scanStatus);
         pending.requests[1].resolveJson(appSettings);
-        for (const id of ['bpm', 'sprite', 'pack']) {
+        for (const id of ['bpm', 'sprite', 'pack', 'folder']) {
           const info = classifier(id);
           requestFor(pending.requests, `/api/classifiers/${id}`).resolveJson(id === section
             ? { ...info, settings: { ...info.settings, [field]: 'invalid' } } : info);
@@ -210,12 +213,12 @@ describe('SettingsModal initial draft loading', () => {
     const onSettingsSaved = vi.fn();
     const view = await mountReact(content(true, onClose, onSettingsSaved));
     try {
-      expect(pending.requests).toHaveLength(5);
+      expect(pending.requests).toHaveLength(6);
       await view.render(content(false, onClose, onSettingsSaved));
       for (const request of pending.requests) expect(request.init?.signal?.aborted).toBe(true);
       await view.render(content(true, onClose, onSettingsSaved));
-      expect(pending.requests).toHaveLength(10);
-      await resolveLoads(pending.requests, 5, { ...appSettings, defaultFps: 24 });
+      expect(pending.requests).toHaveLength(12);
+      await resolveLoads(pending.requests, 6, { ...appSettings, defaultFps: 24 });
       expect(view.container.textContent).toContain('24 FPS');
 
       const slider = view.container.querySelector('input[type="range"]') as HTMLInputElement;
@@ -243,16 +246,17 @@ describe('SettingsModal initial draft loading', () => {
           settings: { ...classifier('bpm').settings, futureAlgorithm: 'v2' } });
         pending.requests[3].resolveJson(classifier('sprite'));
         pending.requests[4].resolveJson(classifier('pack'));
+        pending.requests[5].resolveJson(classifier('folder'));
       });
       const slider = view.container.querySelector('input[type="range"]') as HTMLInputElement;
       await setRange(slider, 30);
       await click(saveButton(view.container));
-      const appSave = requestFor(pending.requests, '/api/settings', 5);
+      const appSave = requestFor(pending.requests, '/api/settings', 6);
       expect(JSON.parse(String(appSave.init?.body))).toMatchObject({
         defaultFps: 30, futureSetting: { retain: 'yes' },
       });
       await act(async () => { appSave.resolveJson(extended); });
-      const bpmSave = requestFor(pending.requests, '/api/classifiers/bpm/settings', 5);
+      const bpmSave = requestFor(pending.requests, '/api/classifiers/bpm/settings', 6);
       expect(JSON.parse(String(bpmSave.init?.body))).toMatchObject({ futureAlgorithm: 'v2' });
       expect(onSettingsSaved).not.toHaveBeenCalled();
     } finally {
@@ -278,7 +282,7 @@ describe('SettingsModal initial draft loading', () => {
       await view.render(content(false, onClose, onSettingsSaved));
       await view.render(content(true, onClose, onSettingsSaved));
       expect(saveButton(view.container).disabled).toBe(true);
-      await resolveLoads(pending.requests, 5);
+      await resolveLoads(pending.requests, 6);
       expect(view.container.textContent).toContain('12 FPS');
       expect(pending.requests.every((request) => request.init?.method !== 'POST')).toBe(true);
       expect(onSettingsSaved).not.toHaveBeenCalled();

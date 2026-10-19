@@ -96,8 +96,8 @@ For example, `data_dir: ./library` stores the catalog in
 
 ## Classifier defaults
 
-Classifier settings live under `classifiers.bpm`, `classifiers.sprite`, and
-`classifiers.pack`. They can also be updated through the classifier interface
+Classifier settings live under `classifiers.bpm`, `classifiers.sprite`,
+`classifiers.pack`, and `classifiers.folder`. They can also be updated through the classifier interface
 or API.
 
 | Classifier | Defaults |
@@ -105,6 +105,7 @@ or API.
 | BPM | Enabled; 60–200 BPM; minimum duration 1 second; analyzes up to 45 seconds |
 | Sprite | Enabled; minimum confidence 0.5; visual, path, and stack analysis enabled |
 | Pack | Enabled; archive and directory inference enabled; top-directory strategy at depth 1; separator cleanup and version suffix removal enabled; preserves case |
+| Folder | Enabled; includes folders inside ZIP archives (`includeArchiveFolders`) |
 
 The repository's [sample configuration](https://github.com/jellyhuck/assettlor/blob/main/sample/config.yaml)
 lists the available default classifier fields.

@@ -36,7 +36,7 @@ A navigation and reference guide for understanding subsystem implementations and
 | `server/src/routes/` | Fastify route endpoints | `assets.ts` (queries, thumbnails, range file streaming), `stacks.ts` (stack details & frames), `scan.ts` (SSE progress & scan trigger), `settings.ts` (read/save config), `fs.ts` (local directory navigation). |
 | `server/src/services/` | Core business logic | `scanner.ts` (recursive directory scanning & SSE progress), `stacker.ts` (frame & audio sequence detection), `archive.ts` (virtual zip inspection & extraction), `image.ts` (sharp / TGA / BMP decoders, WebP thumbnails), `audio.ts` (metadata & audio artwork thumbnails), `copier.ts` (copy assets/stacks to target project). |
 | `client/src/` | Frontend React application | `App.tsx` (state root, SSE listener, search/filter sync), `main.tsx` (entry point), `index.css` (dark slate theme). |
-| `client/src/components/` | UI Components | `Sidebar.tsx` (categories, tags, formats, scan button), `TopBar.tsx` (search, stacked/flat toggle, card size), `AssetGrid.tsx` (responsive card grid), `AssetCard.tsx` (card preview & hover flipbook), `Inspector.tsx` (preview selection and metadata), `ImagePreview.tsx` (image fallback, zoom, and pan), `ImageThumbnail.tsx` (stack member thumbnail fallback), `FlipbookPlayer.tsx` (interactive sprite animation), `AudioWaveformPlayer.tsx` (wavesurfer player). |
+| `client/src/components/` | UI Components | `Sidebar.tsx` (categories, folders, tags, formats, scan button), `TopBar.tsx` (search, stacked/flat toggle, card size), `AssetGrid.tsx` (responsive card grid), `AssetCard.tsx` (card preview & hover flipbook), `Inspector.tsx` (preview selection and metadata), `ImagePreview.tsx` (image fallback, zoom, and pan), `ImageThumbnail.tsx` (stack member thumbnail fallback), `FlipbookPlayer.tsx` (interactive sprite animation), `AudioWaveformPlayer.tsx` (wavesurfer player). |
 | `scripts/` | Tooling & verification | `generate-sample-assets.ts` (builds test sprite sequences & zip archive), `test-pipeline.ts` (end-to-end integration test). |
 | `tests/` | Vitest test suites | Unit & integration tests for all services and routes (`db.test.ts`, `routes.test.ts`, `scanner.test.ts`, etc.). |
 
@@ -83,7 +83,7 @@ A navigation and reference guide for understanding subsystem implementations and
 
 ## 4. API Endpoints Reference
 
-- `GET /api/assets` - Paginated and filtered assets. Common query parameters: `category`, `tag`, `format`, `search`, `stackType`, `isStackedView`, `sortBy`, `sortOrder`, `page`, and `limit`; metadata filters also include `resolution`, `bpm`, `sprite`, `pack`, `width`, `height`, and `duration`.
+- `GET /api/assets` - Paginated and filtered assets. Common query parameters: `category`, `tag`, `format`, `search`, `stackType`, `isStackedView`, `sortBy`, `sortOrder`, `page`, and `limit`; metadata filters also include `resolution`, `bpm`, `sprite`, `pack`, `folder`, `width`, `height`, and `duration`.
 - In stacked `queryAssets` results, each direct parameter and each `AND` search predicate matches the representative or any member independently, so different predicates may match different members of one stack. Each member subquery stays correlated to its own stack; flat results require every predicate on the same asset.
 - `GET /api/assets/:id` - Detailed asset metadata and assigned tags.
 - `GET /api/assets/:id/thumbnail` - WebP thumbnail image.

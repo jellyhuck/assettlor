@@ -8,6 +8,7 @@ import {
   getAllFormats,
   getAllResolutions,
   getAllBpms,
+  getAllFolders,
   getAppSettings,
   addAssetTags,
   removeAssetTag,
@@ -238,6 +239,16 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     try {
       const bpms = getAllBpms();
       return reply.send(bpms);
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
+  // Get all subfolders recorded by the Folder Classifier
+  fastify.get('/api/folders', async (_req, reply) => {
+    try {
+      const folders = getAllFolders();
+      return reply.send(folders);
     } catch (err: any) {
       return reply.status(500).send({ error: err.message });
     }

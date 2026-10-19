@@ -12,18 +12,21 @@ const booleanKeys: Record<string, string[]> = {
   sprite: ['enabled', 'enableVisualAnalysis', 'enablePathAnalysis', 'enableStackAnalysis'],
   pack: ['enabled', 'inferFromArchive', 'inferFromDirectory', 'cleanSeparators',
     'stripVersionSuffix', 'stripAffixes'],
+  folder: ['enabled', 'includeArchiveFolders'],
 };
 
 const numberKeys: Record<string, string[]> = {
   bpm: ['minBpm', 'maxBpm', 'minDurationSeconds', 'maxAnalysisSeconds'],
   sprite: ['minConfidence'],
   pack: ['directoryDepth'],
+  folder: [],
 };
 
 const stringKeys: Record<string, string[]> = {
   bpm: [],
   sprite: [],
   pack: ['directoryStrategy', 'caseConvention'],
+  folder: [],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

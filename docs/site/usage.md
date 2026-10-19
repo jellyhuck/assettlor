@@ -29,11 +29,13 @@ Open an asset to inspect its dimensions, audio metadata, tags, and source path.
 | `tag:"pixel art"` | Match an exact tag |
 | `pack:"Retro Pack"` | Match an exact pack name |
 | `pack:retro*` | Match pack names with a wildcard |
+| `folder:coins` | Match assets with a `coins` subfolder in their path |
+| `folder:none` | Match assets directly in a library root |
 | `tag:target AND bpm:fast` | Combine tag and tempo filters |
 
 Quote names containing spaces, punctuation, or search operators. Inside quoted
 values, escape `"` and `\` with a backslash. Unquoted `*` acts as a wildcard
-only for `pack:` filters; `%` and `_` are literal characters.
+only for `pack:` and `folder:` filters; `%` and `_` are literal characters.
 
 Named BPM ranges are `slow` (below 80), `moderate` (80 to below 120), `fast`
 (120 to below 150), and `high` or `very-fast` (150 or above).
@@ -66,10 +68,16 @@ and resetting the pan position. TGA images use converted thumbnails for display.
 ## Classify assets
 
 The classifier interface exposes BPM analysis for audio, sprite classification
-for images, and pack inference from archives or directories. Each classifier
-has its own settings and can run against selected targets. Results are stored
-as asset metadata and queried with `bpm:`, `sprite:`, and `pack:` filters;
-classifiers never add tags. See
+for images, pack inference from archives or directories, and folder
+classification. Each classifier has its own settings and can run against
+selected targets. Results are stored as asset metadata and queried with `bpm:`,
+`sprite:`, `pack:`, and `folder:` filters; classifiers never add tags.
+
+The Folder Classifier records each subfolder between the library root and the
+asset, outermost first. For an archive entry such as
+`packs/Retro.zip#/tiles/grass.png`, the folders are `packs` and `tiles`; the
+archive itself is not a folder. The sidebar lists the recorded folders with
+their asset counts. See
 [Configuration](configuration.md) for defaults and the [API reference](api.md)
 for programmatic runs.
 

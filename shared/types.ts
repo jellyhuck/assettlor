@@ -32,6 +32,8 @@ export interface AudioMetadata {
 
 export type AssetMetadata = ImageMetadata & AudioMetadata & {
   pack?: string;
+  /** Subfolders of the asset's library-relative path, outermost first (Folder Classifier). */
+  folders?: string[];
   classifierProvenance?: {
     bpm?: { previousBpm: number | null; previousTempoDescription: string | null };
     pack?: { previousPack: string | null };
@@ -128,6 +130,11 @@ export interface BpmInfo {
   count: number;
 }
 
+export interface FolderInfo {
+  name: string;
+  count: number;
+}
+
 export type ScanStatusType = 'idle' | 'scanning' | 'completed' | 'error';
 
 export interface ScanProgressEvent {
@@ -206,6 +213,7 @@ export interface AssetQueryParams {
   bpm?: string;
   sprite?: string;
   pack?: string;
+  folder?: string;
   width?: string;
   height?: string;
   duration?: string;
@@ -318,6 +326,12 @@ export interface PackClassifierSettings {
   caseConvention: 'as-is' | 'title' | 'lower' | 'upper';
   targetArchives?: string[];
   targetDirectories?: string[];
+}
+
+export interface FolderClassifierSettings {
+  enabled: boolean;
+  /** Include folders inside ZIP archives in addition to the folders leading to the archive. */
+  includeArchiveFolders: boolean;
 }
 
 export type ClassifierTargetType = 'all' | 'asset' | 'directory' | 'archive';

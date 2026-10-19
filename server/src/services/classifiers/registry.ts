@@ -3,6 +3,7 @@ import { Classifier } from './types.js';
 import { spriteClassifier } from './spriteClassifier.js';
 import { bpmClassifier } from './bpmClassifier.js';
 import { packClassifier } from './packClassifier.js';
+import { folderClassifier } from './folderClassifier.js';
 import { getClassifierSettings, updateClassifierSettings } from '../../db/database.js';
 import { validateClassifierSettings } from './settings.js';
 
@@ -56,3 +57,4 @@ export function getClassifierInfo(classifier: Classifier): ClassifierInfo {
 registerClassifier(bpmClassifier);
 registerClassifier(spriteClassifier);
 registerClassifier(packClassifier);
+registerClassifier(folderClassifier);

@@ -19,9 +19,11 @@ const classifier = (id: string) => ({
     : id === 'sprite'
       ? { enabled: true, minConfidence: 0.5, enableVisualAnalysis: true,
         enablePathAnalysis: true, enableStackAnalysis: true }
-      : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
-        directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
-        stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
+      : id === 'folder'
+        ? { enabled: true, includeArchiveFolders: true }
+        : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
+          directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
+          stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
 });
 
 const scanStatus = (
@@ -60,6 +62,7 @@ describe('SettingsModal full rescan lifecycle', () => {
       '/api/classifiers/bpm': classifier('bpm'),
       '/api/classifiers/sprite': classifier('sprite'),
       '/api/classifiers/pack': classifier('pack'),
+      '/api/classifiers/folder': classifier('folder'),
       '/api/scan/status': status,
     };
     expect(batch.map((request) => request.url).sort()).toEqual(Object.keys(responseByUrl).sort());

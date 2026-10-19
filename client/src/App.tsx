@@ -7,6 +7,7 @@ import {
   FormatInfo,
   ResolutionInfo,
   BpmInfo,
+  FolderInfo,
   ScanProgressEvent,
   ViewMode,
   CardZoom,
@@ -174,6 +175,7 @@ function MainApp() {
   const selectedHeight = activeFilters.height;
   const selectedDuration = activeFilters.duration;
   const selectedBpm = activeFilters.bpm;
+  const selectedFolder = activeFilters.folder;
 
   // View & Sort State
   const [viewMode, setViewMode] = usePersistentState<ViewMode>('viewMode', 'grid', isViewMode);
@@ -204,6 +206,7 @@ function MainApp() {
   const [formats, setFormats] = useState<FormatInfo[]>([]);
   const [resolutions, setResolutions] = useState<ResolutionInfo[]>([]);
   const [bpms, setBpms] = useState<BpmInfo[]>([]);
+  const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [summary, setSummary] = useState(emptySummary);
   const [facetsError, setFacetsError] = useState<string | null>(null);
   const [facetsLoading, setFacetsLoading] = useState(false);
@@ -366,17 +369,21 @@ function MainApp() {
     const isBpm = (value: unknown): value is BpmInfo => isRecord(value)
       && typeof value.bpm === 'number' && typeof value.formatted === 'string'
       && typeof value.count === 'number';
+    const isFolder = (value: unknown): value is FolderInfo => isRecord(value)
+      && typeof value.name === 'string' && typeof value.count === 'number';
     Promise.all([
       requestJson('/api/tags', (value) => requireList(value, 'tags', isTag), { signal: request.signal }),
       requestJson('/api/formats', (value) => requireList(value, 'formats', isFormat), { signal: request.signal }),
       requestJson('/api/resolutions', (value) => requireList(value, 'resolutions', isResolution), { signal: request.signal }),
       requestJson('/api/bpms', (value) => requireList(value, 'BPM facets', isBpm), { signal: request.signal }),
-    ]).then(([nextTags, nextFormats, nextResolutions, nextBpms]) => {
+      requestJson('/api/folders', (value) => requireList(value, 'folders', isFolder), { signal: request.signal }),
+    ]).then(([nextTags, nextFormats, nextResolutions, nextBpms, nextFolders]) => {
       if (!request.isCurrent()) return;
       setTags(nextTags);
       setFormats(nextFormats);
       setResolutions(nextResolutions);
       setBpms(nextBpms);
+      setFolders(nextFolders);
       setFacetsError(null);
     }).catch((error: unknown) => {
       if (request.isCurrent() && !isAbortError(error)) setFacetsError(errorMessage(error));
@@ -753,10 +760,13 @@ function MainApp() {
         onSelectDuration={(dur) => handleFilterChange('duration', dur)}
         selectedBpm={selectedBpm}
         onSelectBpm={(bpm) => handleFilterChange('bpm', bpm)}
+        selectedFolder={selectedFolder}
+        onSelectFolder={(folder) => handleFilterChange('folder', folder)}
         tags={tags}
         formats={formats}
         resolutions={resolutions}
         bpms={bpms}
+        folders={folders}
         scanStatus={scanStatus}
         onTriggerScan={() => { void handleTriggerScan(); }}
         onCancelScan={() => { void handleCancelScan(); }}
@@ -874,6 +884,8 @@ function MainApp() {
           onSelectDuration={(dur) => toggleOrSetFilter('duration', dur)}
           onSelectBpm={(bpm) => toggleOrSetFilter('bpm', bpm)}
           onSelectSprite={(sprite) => toggleOrSetFilter('sprite', sprite)}
+          onSelectFolder={(folder) => toggleOrSetFilter('folder', folder)}
+          selectedFolder={selectedFolder}
           availableTags={tags}
           onAssetUpdated={(updatedAsset, updateSelection = true) => {
             if (updateSelection && selectedIdentityRef.current === `asset:${updatedAsset.id}`) {

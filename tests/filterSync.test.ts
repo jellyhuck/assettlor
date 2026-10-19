@@ -124,6 +124,7 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
         tag: null,
         sprite: null,
         pack: null,
+        folder: null,
       });
       expect(parseFiltersFromQuery('   ')).toEqual(res);
     });
@@ -431,6 +432,7 @@ describe('Filter and Search Bar Synchronization (shared/filterSync)', () => {
         tag: null,
         sprite: null,
         pack: null,
+        folder: null,
       });
     });
   });

@@ -22,7 +22,7 @@ export class AssetQueryValidationError extends Error {
 }
 
 const STRING_FILTERS = [
-  'category', 'tag', 'format', 'resolution', 'bpm', 'sprite', 'pack',
+  'category', 'tag', 'format', 'resolution', 'bpm', 'sprite', 'pack', 'folder',
   'width', 'height', 'duration', 'search', 'stackType',
 ] as const;
 

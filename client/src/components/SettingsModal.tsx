@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppSettings, BpmClassifierSettings, SpriteClassifierSettings, PackClassifierSettings, ClassifierInfo } from '../types';
+import { AppSettings, BpmClassifierSettings, SpriteClassifierSettings, PackClassifierSettings,
+  FolderClassifierSettings, ClassifierInfo } from '../types';
 import {
   Settings,
   Folder,
@@ -30,9 +31,9 @@ interface SettingsModalProps {
   onSettingsSaved: (settings: AppSettings) => void;
 }
 
-type SettingsSection = 'app' | 'bpm' | 'sprite' | 'pack';
+type SettingsSection = 'app' | 'bpm' | 'sprite' | 'pack' | 'folder';
 type LoadState = 'loading' | 'ready' | 'error';
-const sections: SettingsSection[] = ['app', 'bpm', 'sprite', 'pack'];
+const sections: SettingsSection[] = ['app', 'bpm', 'sprite', 'pack', 'folder'];
 
 function parseAppSettings(value: unknown): AppSettings {
   const data = expectRecord(value, 'app settings');
@@ -58,6 +59,7 @@ function parseClassifierInfo(value: unknown, id: string): ClassifierInfo {
     pack: { enabled: 'boolean', inferFromArchive: 'boolean', inferFromDirectory: 'boolean',
       directoryStrategy: 'string', directoryDepth: 'number', cleanSeparators: 'boolean',
       stripVersionSuffix: 'boolean', stripAffixes: 'boolean', caseConvention: 'string' },
+    folder: { enabled: 'boolean', includeArchiveFolders: 'boolean' },
   };
   if (data.id !== id || !Array.isArray(data.steps)
     || !data.steps.every((step) => {
@@ -134,16 +136,23 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
   const [persistedPackSettings, setPersistedPackSettings] = useState<PackClassifierSettings | null>(null);
   const [packClassifierInfo, setPackClassifierInfo] = useState<ClassifierInfo | null>(null);
 
+  const [folderSettings, setFolderSettings] = useState<FolderClassifierSettings>({
+    enabled: true,
+    includeArchiveFolders: true,
+  });
+  const [persistedFolderSettings, setPersistedFolderSettings] = useState<FolderClassifierSettings | null>(null);
+  const [folderClassifierInfo, setFolderClassifierInfo] = useState<ClassifierInfo | null>(null);
+
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [browserMode, setBrowserMode] = useState<'add_library' | 'add_project' | null>(null);
   const [loadState, setLoadState] = useState<Record<SettingsSection, LoadState>>({
-    app: 'loading', bpm: 'loading', sprite: 'loading', pack: 'loading',
+    app: 'loading', bpm: 'loading', sprite: 'loading', pack: 'loading', folder: 'loading',
   });
   const [loadErrors, setLoadErrors] = useState<Partial<Record<SettingsSection, string>>>({});
   const loadGates = useRef({
     app: createRequestGate(), bpm: createRequestGate(),
-    sprite: createRequestGate(), pack: createRequestGate(),
+    sprite: createRequestGate(), pack: createRequestGate(), folder: createRequestGate(),
   });
   const activeRef = useRef(true);
   const openSessionRef = useRef(0);
@@ -157,7 +166,8 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
   const dirty = ready && (JSON.stringify(settings) !== JSON.stringify(persistedSettings)
     || JSON.stringify(bpmSettings) !== JSON.stringify(persistedBpmSettings)
     || JSON.stringify(spriteSettings) !== JSON.stringify(persistedSpriteSettings)
-    || JSON.stringify(packSettings) !== JSON.stringify(persistedPackSettings));
+    || JSON.stringify(packSettings) !== JSON.stringify(persistedPackSettings)
+    || JSON.stringify(folderSettings) !== JSON.stringify(persistedFolderSettings));
 
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   const handleClose = useCallback(() => {
@@ -364,10 +374,14 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
           setSpriteClassifierInfo(info);
           setSpriteSettings(info.settings as unknown as SpriteClassifierSettings);
           setPersistedSpriteSettings(info.settings as unknown as SpriteClassifierSettings);
-        } else {
+        } else if (section === 'pack') {
           setPackClassifierInfo(info);
           setPackSettings(info.settings as unknown as PackClassifierSettings);
           setPersistedPackSettings(info.settings as unknown as PackClassifierSettings);
+        } else {
+          setFolderClassifierInfo(info);
+          setFolderSettings(info.settings as unknown as FolderClassifierSettings);
+          setPersistedFolderSettings(info.settings as unknown as FolderClassifierSettings);
         }
       }
       setLoadState((prev) => ({ ...prev, [section]: 'ready' }));
@@ -381,7 +395,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
   useEffect(() => {
     const gates = {
       app: createRequestGate(), bpm: createRequestGate(),
-      sprite: createRequestGate(), pack: createRequestGate(),
+      sprite: createRequestGate(), pack: createRequestGate(), folder: createRequestGate(),
     };
     const directoryGates = { library: createRequestGate(), project: createRequestGate() };
     loadGates.current = gates;
@@ -445,6 +459,14 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(packSettings),
+      });
+      savedSections++;
+
+      // 5. Save Folder classifier settings
+      await requestJson('/api/classifiers/folder/settings', expectRecord, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(folderSettings),
       });
       savedSections++;
 
@@ -1303,6 +1325,75 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                     <div className="pt-2 border-t border-[#232338]">
                       <div className="p-2.5 rounded-lg bg-[#181829] border border-[#25253a] text-slate-400 text-[11px] leading-relaxed">
                         <span className="font-semibold text-amber-300">Search Keywords:</span> Asset packs are accessible using special search queries like <code className="text-amber-400 font-mono">pack:RetroPack</code>, <code className="text-amber-400 font-mono">pack:retro*</code>, or <code className="text-amber-400 font-mono">pack:none</code>.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Folder Classifier Section */}
+                <div className="bg-[#12121e] border border-[#232338] rounded-xl p-4 space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#202033]">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-400">
+                        <Folder className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-200">Folder Classifier</h4>
+                        <p className="text-xs text-slate-400">
+                          Records the subfolders in each asset's library-relative path
+                        </p>
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <span className="text-xs font-medium text-slate-300">Auto-scan</span>
+                      <input
+                        type="checkbox"
+                        aria-label="Auto-scan folder classifier"
+                        checked={folderSettings.enabled}
+                        onChange={(e) => setFolderSettings({ ...folderSettings, enabled: e.target.checked })}
+                        className="w-4 h-4 rounded text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Multi-step Pipeline View */}
+                  {folderClassifierInfo && (
+                    <div className="bg-[#181829] border border-[#25253a] rounded-lg p-3 space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+                        <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                        {folderClassifierInfo.steps.length}-Step Pipeline Stages
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                        {folderClassifierInfo.steps.map((st, i) => (
+                          <div key={st.id} className="p-2 rounded bg-[#131320] border border-[#222238]">
+                            <div className="text-[10px] font-mono text-cyan-400 font-bold">Step {i + 1}</div>
+                            <div className="font-semibold text-slate-200">{st.name}</div>
+                            <div className="text-[10px] text-slate-400">{st.description}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Classifier Settings Form */}
+                  <div className="space-y-3 pt-2 text-xs">
+                    <div className="flex items-center justify-between p-2 rounded bg-[#181829] border border-[#25253a]">
+                      <div>
+                        <span className="font-medium text-slate-200">Include Archive Folders</span>
+                        <p className="text-[10px] text-slate-400">Also records folders inside zip archives</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        aria-label="Include archive folders"
+                        checked={folderSettings.includeArchiveFolders}
+                        onChange={(e) => setFolderSettings({ ...folderSettings, includeArchiveFolders: e.target.checked })}
+                        className="w-4 h-4 rounded text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="pt-2 border-t border-[#232338]">
+                      <div className="p-2.5 rounded-lg bg-[#181829] border border-[#25253a] text-slate-400 text-[11px] leading-relaxed">
+                        <span className="font-semibold text-cyan-300">Search Keywords:</span> Subfolders are accessible using special search queries like <code className="text-cyan-400 font-mono">folder:coins</code>, <code className="text-cyan-400 font-mono">folder:char*</code>, or <code className="text-cyan-400 font-mono">folder:none</code>. No tags are assigned.
                       </div>
                     </div>
                   </div>

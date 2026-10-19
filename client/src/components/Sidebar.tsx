@@ -4,6 +4,7 @@ import {
   FormatInfo,
   ResolutionInfo,
   BpmInfo,
+  FolderInfo,
   ScanProgressEvent,
   AppSettings,
 } from '../types';
@@ -41,10 +42,13 @@ interface SidebarProps {
   onSelectDuration?: (duration: string | null) => void;
   selectedBpm?: string | null;
   onSelectBpm?: (bpm: string | null) => void;
+  selectedFolder?: string | null;
+  onSelectFolder?: (folder: string | null) => void;
   tags: TagInfo[];
   formats: FormatInfo[];
   resolutions: ResolutionInfo[];
   bpms?: BpmInfo[];
+  folders?: FolderInfo[];
   scanStatus: ScanProgressEvent;
   onTriggerScan: () => void;
   onCancelScan?: () => void;
@@ -78,10 +82,13 @@ export function Sidebar({
   onSelectDuration,
   selectedBpm = null,
   onSelectBpm,
+  selectedFolder = null,
+  onSelectFolder,
   tags,
   formats,
   resolutions,
   bpms = [],
+  folders = [],
   scanStatus,
   onTriggerScan,
   onCancelScan,
@@ -92,6 +99,7 @@ export function Sidebar({
   summary,
 }: SidebarProps) {
   const [tagSearch, setTagSearch] = useState('');
+  const [folderSearch, setFolderSearch] = useState('');
 
   const isScanning = scanStatus.status === 'scanning';
   const configuredLibraries = settings.libraryPaths?.filter((library) => library.trim()) ?? [];
@@ -112,6 +120,9 @@ export function Sidebar({
 
   const filteredTags = tags.filter((t) =>
     t.name.toLowerCase().includes(tagSearch.toLowerCase())
+  );
+  const filteredFolders = folders.filter((f) =>
+    f.name.toLowerCase().includes(folderSearch.toLowerCase())
   );
 
   return (
@@ -633,6 +644,65 @@ export function Sidebar({
               )}
             </div>
           </>
+        )}
+
+        {/* Folders Filter */}
+        {folders.length > 0 && onSelectFolder && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-2">
+              <div className="flex items-center gap-1.5">
+                <Folder className="w-3 h-3 text-cyan-400" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Folders
+                </span>
+              </div>
+              {selectedFolder && (
+                <button
+                  onClick={() => onSelectFolder(null)}
+                  className="text-[10px] text-cyan-400 hover:underline cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Folder search input */}
+            <div className="relative px-1">
+              <Search className="w-3 h-3 text-slate-500 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                aria-label="Filter folders"
+                value={folderSearch}
+                onChange={(e) => setFolderSearch(e.target.value)}
+                placeholder="Filter folders..."
+                className="w-full pl-7 pr-2 py-1 text-xs bg-[#12121d] border border-[#27273d] rounded-md text-slate-200 placeholder-slate-500 focus:outline-hidden focus:border-cyan-500"
+              />
+            </div>
+
+            {/* Folder list */}
+            <div className="max-h-48 overflow-y-auto space-y-0.5 px-1">
+              {filteredFolders.map((folder) => {
+                const isSelected = selectedFolder
+                  ? selectedFolder.toLowerCase() === folder.name.toLowerCase()
+                  : false;
+                return (
+                  <button
+                    key={folder.name}
+                    aria-pressed={isSelected}
+                    onClick={() => onSelectFolder(isSelected ? null : folder.name)}
+                    className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-cyan-700/80 text-white font-semibold'
+                        : 'text-slate-400 hover:bg-[#202033] hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="truncate">{folder.name}/</span>
+                    <span className="text-[10px] font-mono opacity-70 ml-1">{folder.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* Tags Filter */}

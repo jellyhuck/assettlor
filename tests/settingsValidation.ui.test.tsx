@@ -21,6 +21,7 @@ const classifierSettings = {
   pack: { enabled: true, inferFromArchive: true, inferFromDirectory: true,
     directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
     stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
+  folder: { enabled: true, includeArchiveFolders: true },
 };
 
 type ClassifierId = keyof typeof classifierSettings;
@@ -29,6 +30,7 @@ type Fixture = {
   bpm?: Record<string, unknown>;
   sprite?: Record<string, unknown>;
   pack?: Record<string, unknown>;
+  folder?: Record<string, unknown>;
 };
 
 function requestBody(request: PendingFetch): Record<string, unknown> {

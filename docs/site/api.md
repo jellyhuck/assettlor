@@ -25,9 +25,10 @@ contracts are defined in
 | GET | `/api/formats` | Format counts |
 | GET | `/api/resolutions` | Resolution counts |
 | GET | `/api/bpms` | BPM counts |
+| GET | `/api/folders` | Subfolder counts from the Folder Classifier |
 
 `GET /api/assets` accepts `category`, `tag`, `format`, `resolution`, `bpm`,
-`sprite`, `pack`, `width`, `height`, `duration`, `search`, `stackType`, and
+`sprite`, `pack`, `folder`, `width`, `height`, `duration`, `search`, `stackType`, and
 `isStackedView`. See [search behavior](usage.md#search) for stacked filtering.
 
 Use `sortBy` with `name`, `size`, `mtime`, `resolution`, `duration`, `bpm`,
@@ -143,7 +144,7 @@ Application settings include `libraryPath`, `libraryPaths`, `activeProjectPath`,
 `defaultFps`, and `catalogPaging` (`load-more` or `pages`). These API field names differ from the YAML names in
 [Configuration](configuration.md).
 
-Classifier IDs are `bpm`, `sprite`, and `pack`. A run body specifies
+Classifier IDs are `bpm`, `sprite`, `pack`, and `folder`. A run body specifies
 `targetType` (`all`, `asset`, `directory`, or `archive`), `targetValue` when
 needed, and optional `settingsOverride`. For example:
 

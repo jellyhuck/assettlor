@@ -35,6 +35,9 @@ classifiers:
     caseConvention: as-is
     targetArchives: []
     targetDirectories: []
+  folder:
+    enabled: true
+    includeArchiveFolders: true
 pipeline:
   thumbnail_quality: 80
   auto_stack_animations: true

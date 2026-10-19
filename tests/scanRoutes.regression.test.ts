@@ -86,6 +86,7 @@ describe('scan route admission and SSE lifecycle', () => {
         bpm: { enabled: false },
         sprite: { enabled: false },
         pack: { enabled: false },
+        folder: { enabled: false },
       },
     });
     initDatabase(dataDir);

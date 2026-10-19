@@ -18,6 +18,7 @@ const classifiers = {
   pack: { enabled: true, inferFromArchive: true, inferFromDirectory: true,
     directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
     stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
+  folder: { enabled: true, includeArchiveFolders: true },
 };
 
 function Host() {

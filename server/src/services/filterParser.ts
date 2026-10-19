@@ -362,7 +362,7 @@ function compileAstNode(
       // Known empty fields are temporary while typing. An unknown prefix is
       // still a literal search term, including its trailing colon.
       const known = new Set([
-        'tag', 't', 'sprite', 'spritetype', 'pack', 'p', 'size', 's',
+        'tag', 't', 'sprite', 'spritetype', 'pack', 'p', 'folder', 'size', 's',
         'ext', 'format', 'cat', 'type', 'category', 'path', 'in', 'dir',
         'is', 'width', 'w', 'height', 'h', 'dur', 'duration', 'bpm',
         'tempo', 'res', 'resolution',
@@ -404,6 +404,12 @@ function compileAstNode(
     if (fieldName === 'pack' || fieldName === 'p') {
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       return parsePackClause(rawVal, isStackedView, expr.quoted === true);
+    }
+
+    // 2d. Folder: folder:coins, folder:coin*, folder:"Sci-Fi Pack"
+    if (fieldName === 'folder') {
+      const rawVal = expr.value !== undefined ? String(expr.value) : '';
+      return parseFolderClause(rawVal, isStackedView, expr.quoted === true);
     }
 
     // 3. Size: size:<2MB, size:>500KB, size:>=1MB, size:[100KB TO 2MB]
@@ -1280,6 +1286,53 @@ export function parsePackClause(
 
   return buildFinalSql(
     condition('a', 't'), condition('m', 'mt'), exactArgs, exactArgs
+  );
+}
+
+/**
+ * Builds SQL condition for folder filter: folder:coins, folder:coin*, folder:none, folder:any.
+ * Matches any subfolder name the Folder Classifier stored in metadata.folders.
+ */
+export function parseFolderClause(
+  rawVal: string,
+  isStackedView: boolean,
+  literal = false
+): { sql: string; args: any[] } | null {
+  const folderVal = rawVal.trim();
+  if (!folderVal) return null;
+  const lowerFolderVal = folderVal.toLowerCase();
+
+  const folderRows = (assetAlias: 'a' | 'm') =>
+    `json_each(CASE WHEN json_valid(${assetAlias}.metadata) THEN ${assetAlias}.metadata END, '$.folders')`;
+  const buildFinalSql = (condition: (assetAlias: 'a' | 'm') => string, args: any[]) =>
+    composeAssetMemberPredicate(condition('a'), condition('m'), args, args, isStackedView);
+
+  // Status presets: folder:none / folder:unanalyzed
+  if (!literal && (lowerFolderVal === 'none' || lowerFolderVal === 'unanalyzed')) {
+    return buildFinalSql((alias) => `NOT EXISTS (SELECT 1 FROM ${folderRows(alias)})`, []);
+  }
+
+  // Status presets: folder:any / folder:classified
+  if (!literal && (lowerFolderVal === 'any' || lowerFolderVal === 'classified')) {
+    return buildFinalSql((alias) => `EXISTS (SELECT 1 FROM ${folderRows(alias)})`, []);
+  }
+
+  // Only an unquoted '*' is a wildcard. SQL LIKE's '%' and '_' remain literal.
+  if (!literal && folderVal.includes('*')) {
+    const sqlPattern = [...lowerFolderVal].map((character) => {
+      if (character === '*') return '%';
+      if (character === '%' || character === '_' || character === '!') return `!${character}`;
+      return character;
+    }).join('');
+    return buildFinalSql(
+      (alias) => `EXISTS (SELECT 1 FROM ${folderRows(alias)} f WHERE LOWER(f.value) LIKE ? ESCAPE '!')`,
+      [sqlPattern]
+    );
+  }
+
+  return buildFinalSql(
+    (alias) => `EXISTS (SELECT 1 FROM ${folderRows(alias)} f WHERE f.value = ? COLLATE NOCASE)`,
+    [folderVal]
   );
 }
 

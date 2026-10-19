@@ -7,7 +7,8 @@ export type FilterType =
   | 'bpm'
   | 'tag'
   | 'sprite'
-  | 'pack';
+  | 'pack'
+  | 'folder';
 
 export interface ParsedFilters {
   format: string | null;
@@ -19,6 +20,7 @@ export interface ParsedFilters {
   tag: string | null;
   sprite: string | null;
   pack: string | null;
+  folder: string | null;
 }
 
 const FILTER_PREFIXES: Record<string, FilterType> = {
@@ -31,6 +33,7 @@ const FILTER_PREFIXES: Record<string, FilterType> = {
   tag: 'tag', t: 'tag',
   sprite: 'sprite', spritetype: 'sprite',
   pack: 'pack', p: 'pack',
+  folder: 'folder',
 };
 
 type LexKind = 'atom' | 'and' | 'or' | 'not' | 'open' | 'close';
@@ -284,7 +287,7 @@ function removeAtom(query: string, atom: AtomExpression): string {
 function normalizedFilterValue(type: FilterType, value: string, quoted: boolean): string {
   // A quoted label is a literal name. Retain its exact spelling so selecting
   // or displaying it again does not alter Unicode or embedded punctuation.
-  if (quoted && (type === 'tag' || type === 'pack')) return value;
+  if (quoted && (type === 'tag' || type === 'pack' || type === 'folder')) return value;
   const v = value.toLowerCase();
   if (type === 'format') return `.${v.replace(/^\./, '')}`;
   if (type === 'resolution') {
@@ -318,16 +321,16 @@ function normalizedFilterValue(type: FilterType, value: string, quoted: boolean)
 }
 
 /**
- * Sidebar labels are exact names. In search text, an unquoted pack `*` is a
- * wildcard operator and unquoted pack status names are presets; the quoted
+ * Sidebar labels are exact names. In search text, an unquoted pack or folder
+ * `*` is a wildcard operator and unquoted status names are presets; the quoted
  * forms are literal labels. Quote all syntax or SQL wildcard characters so
  * the server can distinguish those meanings without guessing.
  */
-function formatLiteralLabel(type: 'tag' | 'pack', value: string): string {
+function formatLiteralLabel(type: 'tag' | 'pack' | 'folder', value: string): string {
   const simple = /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(value);
   const booleanWord = /^(?:AND|OR|NOT)$/i.test(value);
-  const packPreset = type === 'pack' && /^(?:any|none|classified|unanalyzed)$/i.test(value);
-  if (simple && !booleanWord && !packPreset) return value;
+  const preset = type !== 'tag' && /^(?:any|none|classified|unanalyzed)$/i.test(value);
+  if (simple && !booleanWord && !preset) return value;
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
@@ -358,6 +361,8 @@ export function formatFilterToken(filterType: FilterType, value: string | null):
       return `sprite:${v.toLowerCase()}`;
     case 'pack':
       return `pack:${formatLiteralLabel('pack', v)}`;
+    case 'folder':
+      return `folder:${formatLiteralLabel('folder', v)}`;
   }
 }
 
@@ -373,6 +378,7 @@ export function getFilterPattern(filterType: FilterType): RegExp {
     case 'tag': return /(?:^|\s)(?:(?:tag|t):(?:"[^"]*"|[^\s]+)|#[a-zA-Z0-9_\-]+)/gi;
     case 'sprite': return /\b(?:sprite|spritetype):[^\s]+/gi;
     case 'pack': return /\b(?:pack|p):(?:"[^"]*"|[^\s]+)/gi;
+    case 'folder': return /\bfolder:(?:"[^"]*"|[^\s]+)/gi;
   }
 }
 
@@ -380,7 +386,7 @@ export function getFilterPattern(filterType: FilterType): RegExp {
 export function parseFiltersFromQuery(query: string): ParsedFilters {
   const result: ParsedFilters = {
     format: null, resolution: null, width: null, height: null,
-    duration: null, bpm: null, tag: null, sprite: null, pack: null,
+    duration: null, bpm: null, tag: null, sprite: null, pack: null, folder: null,
   };
   const tokens = scanQuery(query || '');
   if (!tokens?.length) return result;

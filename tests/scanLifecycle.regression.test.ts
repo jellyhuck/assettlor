@@ -93,6 +93,7 @@ describe('scan scope reconciliation and lifecycle', () => {
         bpm: { enabled: false },
         sprite: { enabled: false },
         pack: { enabled: false },
+        folder: { enabled: false },
       },
     });
     initDatabase(dataDir);
@@ -153,6 +154,7 @@ describe('scan scope reconciliation and lifecycle', () => {
       libraries: [libraryA, nested],
       classifiers: {
         bpm: { enabled: false }, sprite: { enabled: false }, pack: { enabled: false },
+        folder: { enabled: false },
       },
     });
 
@@ -166,6 +168,7 @@ describe('scan scope reconciliation and lifecycle', () => {
       libraries: [nested, libraryA],
       classifiers: {
         bpm: { enabled: false }, sprite: { enabled: false }, pack: { enabled: false },
+        folder: { enabled: false },
       },
     });
     expect((await scanLibrary([nested, libraryA])).status).toBe('completed');
@@ -186,6 +189,7 @@ describe('scan scope reconciliation and lifecycle', () => {
         bpm: { enabled: false },
         sprite: { enabled: false },
         pack: { enabled: false },
+        folder: { enabled: false },
       },
     });
     const thumbnail = path.join(dataDir, 'thumbnails', 'legacy-inner.webp');

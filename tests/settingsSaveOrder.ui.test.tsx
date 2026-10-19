@@ -20,15 +20,18 @@ const classifier = (id: string) => ({
     : id === 'sprite'
       ? { enabled: true, minConfidence: 0.5, enableVisualAnalysis: true,
         enablePathAnalysis: true, enableStackAnalysis: true }
-      : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
-        directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
-        stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
+      : id === 'folder'
+        ? { enabled: true, includeArchiveFolders: true }
+        : { enabled: true, inferFromArchive: true, inferFromDirectory: true,
+          directoryStrategy: 'top', directoryDepth: 1, cleanSeparators: true,
+          stripVersionSuffix: true, stripAffixes: false, caseConvention: 'as-is' },
 });
 
 const loadUrls = ['/api/settings', '/api/classifiers/bpm',
-  '/api/classifiers/sprite', '/api/classifiers/pack'];
+  '/api/classifiers/sprite', '/api/classifiers/pack', '/api/classifiers/folder'];
 const saveUrls = ['/api/settings', '/api/classifiers/bpm/settings',
-  '/api/classifiers/sprite/settings', '/api/classifiers/pack/settings'];
+  '/api/classifiers/sprite/settings', '/api/classifiers/pack/settings',
+  '/api/classifiers/folder/settings'];
 
 async function setup() {
   const pending = createDeferredFetch();
@@ -41,7 +44,7 @@ async function setup() {
   await act(async () => {
     pending.requests[0].resolveJson({ status: 'idle', libraryPath: '', scannedCount: 0, indexedCount: 0 });
     pending.requests[1].resolveJson(settings);
-    for (let index = 1; index < 4; index++) {
+    for (let index = 1; index < 5; index++) {
       pending.requests[index + 1].resolveJson(classifier(loadUrls[index].split('/').pop()!));
     }
   });
@@ -54,29 +57,29 @@ async function setup() {
 describe('settings save ordering', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('waits for all four durable saves before notifying the parent once', async () => {
+  it('waits for all five durable saves before notifying the parent once', async () => {
     const { pending, onClose, onSettingsSaved, view } = await setup();
-    for (let index = 0; index < 4; index++) {
-      expect(pending.requests.slice(5).map((request) => request.url)).toEqual(saveUrls.slice(0, index + 1));
+    for (let index = 0; index < 5; index++) {
+      expect(pending.requests.slice(6).map((request) => request.url)).toEqual(saveUrls.slice(0, index + 1));
       expect(onSettingsSaved).not.toHaveBeenCalled();
-      await act(async () => { pending.requests[index + 5].resolveJson(index === 0 ? settings : {}); });
+      await act(async () => { pending.requests[index + 6].resolveJson(index === 0 ? settings : {}); });
     }
     expect(onSettingsSaved).toHaveBeenCalledExactlyOnceWith(settings);
     expect(onClose).toHaveBeenCalledOnce();
     await view.unmount();
   });
 
-  it.each([0, 1, 2, 3])('does not start a scan when save %i fails', async (failedIndex) => {
+  it.each([0, 1, 2, 3, 4])('does not start a scan when save %i fails', async (failedIndex) => {
     const { pending, onClose, onSettingsSaved, view } = await setup();
     for (let index = 0; index <= failedIndex; index++) {
       await act(async () => {
-        pending.requests[index + 5].resolveJson(
+        pending.requests[index + 6].resolveJson(
           index === failedIndex ? { error: 'write failed' } : index === 0 ? settings : {},
           index === failedIndex ? 500 : 200,
         );
       });
     }
-    expect(pending.requests.slice(5).map((request) => request.url)).toEqual(saveUrls.slice(0, failedIndex + 1));
+    expect(pending.requests.slice(6).map((request) => request.url)).toEqual(saveUrls.slice(0, failedIndex + 1));
     expect(onSettingsSaved).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(view.container.textContent).toContain('Save Settings');
@@ -89,9 +92,9 @@ describe('settings save ordering', () => {
     const saveButton = Array.from(view.container.querySelectorAll('button'))
       .find((button) => button.textContent?.includes('Saving'))!;
     await act(async () => { saveButton.click(); });
-    expect(pending.requests).toHaveLength(6);
-    await act(async () => { pending.requests[5].resolveJson(settings); });
-    await act(async () => { pending.requests[6].resolveJson({ error: 'BPM write failed' }, 500); });
+    expect(pending.requests).toHaveLength(7);
+    await act(async () => { pending.requests[6].resolveJson(settings); });
+    await act(async () => { pending.requests[7].resolveJson({ error: 'BPM write failed' }, 500); });
     expect(view.container.querySelector('[role="alert"]')?.textContent)
       .toContain('1 section confirmed saved');
     expect(onSettingsSaved).not.toHaveBeenCalled();
@@ -99,10 +102,10 @@ describe('settings save ordering', () => {
     const retry = Array.from(view.container.querySelectorAll('button'))
       .find((button) => button.textContent?.includes('Save Settings'))!;
     await act(async () => { retry.click(); });
-    for (let index = 7; index < 11; index++) {
-      await act(async () => { pending.requests[index].resolveJson(index === 7 ? settings : {}); });
+    for (let index = 8; index < 13; index++) {
+      await act(async () => { pending.requests[index].resolveJson(index === 8 ? settings : {}); });
     }
-    expect(pending.requests.slice(7).map((request) => request.url)).toEqual(saveUrls);
+    expect(pending.requests.slice(8).map((request) => request.url)).toEqual(saveUrls);
     expect(onSettingsSaved).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
     await view.unmount();

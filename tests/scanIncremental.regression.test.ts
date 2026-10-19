@@ -82,6 +82,7 @@ describe('incremental scan and thumbnail freshness', () => {
         bpm: { enabled: false },
         sprite: { enabled: false },
         pack: { enabled: false },
+        folder: { enabled: false },
       },
     });
     initDatabase(dataDir);
@@ -180,6 +181,7 @@ describe('incremental scan and thumbnail freshness', () => {
         bpm: { enabled: false },
         sprite: { enabled: false },
         pack: { enabled: false },
+        folder: { enabled: false },
       },
     });
     initDatabase(dataDir);

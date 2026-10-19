@@ -93,6 +93,10 @@ export function createDefaultYamlConfig(): AppYamlConfig {
         targetArchives: [],
         targetDirectories: [],
       },
+      folder: {
+        enabled: true,
+        includeArchiveFolders: true,
+      },
     },
     pipeline: {
       thumbnail_quality: 80,
