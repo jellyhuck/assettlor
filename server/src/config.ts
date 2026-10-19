@@ -273,6 +273,9 @@ function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
 
 let currentConfigFilePath: string = DEFAULT_CONFIG_FILE;
 let currentYamlConfig: AppYamlConfig = createDefaultYamlConfig();
+// Path spellings from the configuration file, keyed by resolved path, so a
+// save writes `./assets` or `~/library` back the way the file had them.
+let currentPathSpellings = new Map<string, string>();
 let isMemoryOnly: boolean = Boolean(
   process.env.VITEST &&
   !parseCliConfigArg() &&
@@ -304,6 +307,41 @@ function syncConfigObject(): void {
   config.configFilePath = currentConfigFilePath;
 }
 
+function collectPathSpellings(raw: unknown, configDir: string): Map<string, string> {
+  const spellings = new Map<string, string>();
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return spellings;
+  const input = raw as Record<string, unknown>;
+  const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+  for (const value of [input.data_dir, ...list(input.libraries), ...list(input.projects)]) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    spellings.set(resolveConfigPath(value.trim(), configDir), value.trim());
+  }
+  return spellings;
+}
+
+// Paths are held resolved in memory. On disk, keep the file's own spelling,
+// and write new paths inside the config directory relative to it.
+function filePath(resolved: string, configDir: string): string {
+  const known = currentPathSpellings.get(resolved);
+  if (known !== undefined) return known;
+  const relative = path.relative(configDir, resolved);
+  if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
+    return resolved;
+  }
+  return relative ? `./${relative.split(path.sep).join('/')}` : '.';
+}
+
+function toFileConfig(candidate: AppYamlConfig, configDir: string): AppYamlConfig {
+  return {
+    ...candidate,
+    ...(candidate.data_dir === undefined ? {} : { data_dir: filePath(candidate.data_dir, configDir) }),
+    ...(candidate.libraries === undefined
+      ? {} : { libraries: candidate.libraries.map((p) => filePath(p, configDir)) }),
+    ...(candidate.projects === undefined
+      ? {} : { projects: candidate.projects.map((p) => filePath(p, configDir)) }),
+  };
+}
+
 export function loadConfigFile(customPath?: string): AppYamlConfig {
   const cliArg = parseCliConfigArg();
   const envArg = process.env.ASSETTLOR_CONFIG || process.env.CONFIG_PATH;
@@ -314,6 +352,7 @@ export function loadConfigFile(customPath?: string): AppYamlConfig {
   );
   const configDir = path.dirname(selectedPath);
   let candidate: AppYamlConfig;
+  let spellings = new Map<string, string>();
 
   if (fs.existsSync(selectedPath)) {
     const content = fs.readFileSync(selectedPath, 'utf-8');
@@ -327,6 +366,7 @@ export function loadConfigFile(customPath?: string): AppYamlConfig {
       throw new ConfigValidationError(`Configuration at ${selectedPath} must be an object`);
     }
     candidate = normalizeYamlConfig(parsed, configDir);
+    spellings = collectPathSpellings(parsed, configDir);
   } else {
     candidate = normalizeYamlConfig(createInitialYamlConfig(), configDir);
     if (!selectedMemoryOnly) {
@@ -339,6 +379,7 @@ export function loadConfigFile(customPath?: string): AppYamlConfig {
   currentConfigFilePath = selectedPath;
   isMemoryOnly = selectedMemoryOnly;
   currentYamlConfig = candidate;
+  currentPathSpellings = spellings;
   syncConfigObject();
   return currentYamlConfig;
 }
@@ -370,6 +411,7 @@ export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
     pipeline: { ...currentYamlConfig.pipeline, ...partial.pipeline },
     ui: { ...currentYamlConfig.ui, ...partial.ui },
   }, configDir);
+  const fileConfig = toFileConfig(candidate, configDir);
 
   if (!isMemoryOnly) {
     const tempPath = path.join(
@@ -380,7 +422,7 @@ export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
       fs.mkdirSync(configDir, { recursive: true });
       const fd = fs.openSync(tempPath, 'wx', 0o600);
       try {
-        fs.writeFileSync(fd, YAML.stringify(candidate), 'utf-8');
+        fs.writeFileSync(fd, YAML.stringify(fileConfig), 'utf-8');
         fs.fsyncSync(fd);
       } finally {
         fs.closeSync(fd);
@@ -397,6 +439,7 @@ export function saveConfigFile(partial: Partial<AppYamlConfig>): AppYamlConfig {
   }
 
   currentYamlConfig = candidate;
+  currentPathSpellings = collectPathSpellings(fileConfig, configDir);
   syncConfigObject();
   return currentYamlConfig;
 }
@@ -416,6 +459,7 @@ export function getThumbnailsDir(): string {
 export function resetConfigForTesting(newConfig?: Partial<AppYamlConfig>): void {
   currentConfigFilePath = DEFAULT_CONFIG_FILE;
   isMemoryOnly = true;
+  currentPathSpellings = new Map();
   currentYamlConfig = {
     ...createDefaultYamlConfig(),
     ...(newConfig || {}),

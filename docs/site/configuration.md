@@ -20,7 +20,9 @@ npm start -- --config /absolute/path/config.yaml
 The selection order is `--config`, `ASSETTLOR_CONFIG`, `CONFIG_PATH`, then
 the default file. Relative `data_dir`, `libraries`, and `projects` paths
 resolve from the configuration file's directory. Paths beginning with `~/`
-resolve from the home directory.
+resolve from the home directory. Saving settings keeps each path as the file
+wrote it, and writes a newly added path inside the configuration directory as
+a relative `./` path.
 
 ## Generate a configuration file
 

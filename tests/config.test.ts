@@ -13,6 +13,7 @@ import {
 import { getAppSettings, updateAppSettings, getClassifierSettings, updateClassifierSettings } from '../server/src/db/database.js';
 import { createTempDir, cleanupTempDir } from './helpers.js';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import YAML from 'yaml';
 
@@ -81,8 +82,9 @@ describe('Server Config & YAML Persistence', () => {
     const diskContent = fs.readFileSync(customConfigPath, 'utf-8');
     const parsed = YAML.parse(diskContent);
 
-    expect(parsed.libraries).toEqual([libDir]);
-    expect(parsed.projects).toEqual([projDir]);
+    expect(parsed.libraries).toEqual(['./custom-assets']);
+    expect(parsed.projects).toEqual(['./custom-game']);
+    expect(getAppSettings().libraryPaths).toEqual([libDir]);
     expect(parsed.pipeline.thumbnail_quality).toBe(90);
     expect(parsed.pipeline.default_fps).toBe(24);
 
@@ -93,6 +95,51 @@ describe('Server Config & YAML Persistence', () => {
 
     expect(parsedAfter.classifiers.bpm.minBpm).toBe(70);
     expect(parsedAfter.classifiers.bpm.maxBpm).toBe(190);
+  });
+
+  it('keeps relative, home, and outside path spellings when saving unrelated settings', () => {
+    const configDir = path.join(tempDir, 'conf');
+    const customConfigPath = path.join(configDir, 'config.yaml');
+    const outside = path.join(tempDir, 'elsewhere', 'library');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(customConfigPath, YAML.stringify({
+      data_dir: './.assettlor',
+      libraries: ['./assets', '../shared/assets', '~/game-assets', outside],
+      projects: ['./game-project'],
+    }));
+    loadConfigFile(customConfigPath);
+
+    updateAppSettings({ catalogPaging: 'pages' });
+
+    const parsed = YAML.parse(fs.readFileSync(customConfigPath, 'utf-8'));
+    expect(parsed.data_dir).toBe('./.assettlor');
+    expect(parsed.libraries).toEqual(['./assets', '../shared/assets', '~/game-assets', outside]);
+    expect(parsed.projects).toEqual(['./game-project']);
+    expect(parsed.ui.catalog_paging).toBe('pages');
+    expect(getAppSettings().libraryPaths).toEqual([
+      path.join(configDir, 'assets'),
+      path.join(tempDir, 'shared', 'assets'),
+      path.join(os.homedir(), 'game-assets'),
+      outside,
+    ]);
+  });
+
+  it('writes new paths inside the config directory relative to it and others absolute', () => {
+    const customConfigPath = path.join(tempDir, 'config.yaml');
+    fs.writeFileSync(customConfigPath, YAML.stringify({ libraries: ['./assets'] }));
+    loadConfigFile(customConfigPath);
+    const outside = path.join(path.dirname(tempDir), 'outside-library');
+
+    updateAppSettings({
+      libraryPaths: [path.join(tempDir, 'assets'), path.join(tempDir, 'packs', 'retro'), outside],
+    });
+    updateAppSettings({ defaultFps: 30 });
+
+    const parsed = YAML.parse(fs.readFileSync(customConfigPath, 'utf-8'));
+    expect(parsed.libraries).toEqual(['./assets', './packs/retro', outside]);
+    expect(loadConfigFile(customConfigPath).libraries).toEqual([
+      path.join(tempDir, 'assets'), path.join(tempDir, 'packs', 'retro'), outside,
+    ]);
   });
 
   it('should resolve data_dir correctly whether named .assettlor, data, or custom folder', () => {
