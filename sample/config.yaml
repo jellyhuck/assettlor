@@ -7,7 +7,9 @@ server:
   allowed_hosts: []
 data_dir: ./.assettlor
 libraries:
-  - ./assets
+  - path: ./assets
+    names:
+      - Sample
 projects:
   - ./game-project
 classifiers:

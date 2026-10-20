@@ -15,6 +15,17 @@ export function directoryKey(value: string): string {
   return `${drive}${absolute ? '/' : ''}${parts.join('/')}`.replace(/\/$/, '') || '/';
 }
 
+/** Reads library names by path from a settings response; absent means none. */
+export function parseLibraryNames(value: unknown): Record<string, string[]> {
+  if (value === undefined) return {};
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+    || !Object.values(value).every((names) => Array.isArray(names)
+      && names.every((name) => typeof name === 'string'))) {
+    throw new Error('The settings response has invalid library names');
+  }
+  return value as Record<string, string[]>;
+}
+
 function validPathList(paths: string[], label: string): string[] {
   const errors: string[] = [];
   const keys = new Set<string>();

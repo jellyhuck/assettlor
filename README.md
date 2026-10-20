@@ -18,6 +18,7 @@
 - **Virtual Paths**: Items indexed as `Archive.zip#/path/to/sprite.png`.
 - **Cached Thumbnails & On-Demand Files**: Builds thumbnails during scanning, then extracts archive entry buffers when serving the original file.
 - **Archive-Aware Filters**: Find archive entries with `is:archive` and `path:`, and attribute them to packs by archive name.
+- **Library Filters**: Give source libraries optional names (several aliases each, and shared across libraries to merge them), then filter with `lib:kenney` or from the sidebar's Libraries list. Unnamed libraries go by their folder name.
 - **Folder Filters**: The Folder Classifier records every subfolder in an asset's library-relative path (including folders inside ZIP archives); filter by them from the sidebar's Folders list or with `folder:coins`.
 
 ### 3. Stacking Engine
@@ -205,6 +206,7 @@ assettlor/
 | `DELETE` | `/api/stacks/:id/tags/:tag` | Remove a tag from all member assets in a stack |
 | `GET` | `/api/formats` | List all file formats with counts |
 | `GET` | `/api/folders` | List subfolders recorded by the Folder Classifier with asset counts |
+| `GET` | `/api/libraries` | List library names with their paths and asset counts |
 | `GET` | `/api/scan/progress` | Server-Sent Events (SSE) live indexing progress |
 | `POST` | `/api/scan/start` | Trigger incremental directory scan |
 | `POST` | `/api/scan/cancel` | Cancel active directory scan |
@@ -212,12 +214,14 @@ assettlor/
 | `POST` | `/api/settings` | Update settings (library path, active project, etc.) |
 | `GET` | `/api/fs/browse` | Browse local directories for folder selection modals |
 
-In `search`, `tag:"name"`, `pack:"name"`, and `folder:"name"` match exact
-labels. `folder:` matches any whole subfolder name in an asset's
+In `search`, `tag:"name"`, `pack:"name"`, `folder:"name"`, and `lib:"name"`
+match exact labels. `lib:` (or `library:`) matches a library's names, or its
+folder name when it has none; a name shared by several libraries matches all
+of them. `folder:` matches any whole subfolder name in an asset's
 library-relative path, including folders inside ZIP archives. Quote names
 containing spaces, punctuation, or search operators; escape `"` and `\` inside
-quotes with a backslash. An unquoted `*` is a wildcard only in `pack:` and
-`folder:` filters (for example, `pack:retro*`). `%` and `_` are literal characters, including in
+quotes with a backslash. An unquoted `*` is a wildcard only in `pack:`,
+`folder:`, and `lib:` filters (for example, `pack:retro*`). `%` and `_` are literal characters, including in
 wildcard searches. Named BPM filters use `slow` (<80), `moderate` (80–<120),
 `fast` (120–<150), and `high`/`very-fast` (≥150); numeric comparisons and
 ranges retain their typed bounds.

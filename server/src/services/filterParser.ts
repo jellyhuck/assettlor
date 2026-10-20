@@ -1,5 +1,7 @@
 import { parse } from 'liqe';
 import bytes from 'bytes';
+import path from 'path';
+import { effectiveLibraryNames, type LibrarySource } from './librarySources.js';
 
 export interface CompiledFilterResult {
   sql: string;
@@ -296,15 +298,16 @@ function buildFreeTextClause(term: string, isStackedView: boolean): { sql: strin
 function compileAstNode(
   node: any,
   isStackedView: boolean,
-  source: string
+  source: string,
+  libraries: readonly LibrarySource[]
 ): { sql: string; args: any[] } | null {
   if (!node || node.type === 'EmptyExpression') {
     return null;
   }
 
   if (node.type === 'LogicalExpression') {
-    const leftRes = compileAstNode(node.left, isStackedView, source);
-    const rightRes = compileAstNode(node.right, isStackedView, source);
+    const leftRes = compileAstNode(node.left, isStackedView, source, libraries);
+    const rightRes = compileAstNode(node.right, isStackedView, source, libraries);
 
     if (!leftRes && !rightRes) return null;
     if (!leftRes) return rightRes;
@@ -318,7 +321,7 @@ function compileAstNode(
   }
 
   if (node.type === 'ParenthesizedExpression') {
-    const innerRes = compileAstNode(node.expression, isStackedView, source);
+    const innerRes = compileAstNode(node.expression, isStackedView, source, libraries);
     if (!innerRes) return null;
     return {
       sql: `(${innerRes.sql})`,
@@ -327,7 +330,7 @@ function compileAstNode(
   }
 
   if (node.type === 'UnaryOperator') {
-    const operandRes = compileAstNode(node.operand, isStackedView, source);
+    const operandRes = compileAstNode(node.operand, isStackedView, source, libraries);
     if (!operandRes) return null;
     return {
       sql: `NOT (${operandRes.sql})`,
@@ -365,7 +368,7 @@ function compileAstNode(
         'tag', 't', 'sprite', 'spritetype', 'pack', 'p', 'folder', 'size', 's',
         'ext', 'format', 'cat', 'type', 'category', 'path', 'in', 'dir',
         'is', 'width', 'w', 'height', 'h', 'dur', 'duration', 'bpm',
-        'tempo', 'res', 'resolution',
+        'tempo', 'res', 'resolution', 'lib', 'library',
       ]);
       return known.has(fieldName) ? null : unsupported();
     }
@@ -410,6 +413,12 @@ function compileAstNode(
     if (fieldName === 'folder') {
       const rawVal = expr.value !== undefined ? String(expr.value) : '';
       return parseFolderClause(rawVal, isStackedView, expr.quoted === true);
+    }
+
+    // 2e. Library: lib:Retro, library:ret*, lib:"Sci-Fi Kit"
+    if (fieldName === 'lib' || fieldName === 'library') {
+      const rawVal = expr.value !== undefined ? String(expr.value) : '';
+      return parseLibraryClause(rawVal, libraries, expr.quoted === true);
     }
 
     // 3. Size: size:<2MB, size:>500KB, size:>=1MB, size:[100KB TO 2MB]
@@ -1337,6 +1346,40 @@ export function parseFolderClause(
 }
 
 /**
+ * Builds SQL condition for library filter: lib:Retro, lib:ret*, lib:"Sci-Fi Kit".
+ * Matches assets under every configured library with a matching name; a
+ * library without names goes by its folder name. Unknown names match nothing.
+ */
+export function parseLibraryClause(
+  rawVal: string,
+  libraries: readonly LibrarySource[],
+  literal = false
+): { sql: string; args: any[] } | null {
+  const libraryVal = rawVal.trim();
+  if (!libraryVal) return null;
+
+  // Only an unquoted '*' is a wildcard; every other character is literal.
+  const escapeRegExp = (part: string) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = !literal && libraryVal.includes('*')
+    ? new RegExp(`^${libraryVal.split('*').map(escapeRegExp).join('.*')}$`, 'i')
+    : null;
+  const lowerVal = libraryVal.toLowerCase();
+  const matches = (name: string) => (pattern ? pattern.test(name) : name.toLowerCase() === lowerVal);
+
+  const paths = new Set<string>();
+  for (const library of libraries) {
+    if (!effectiveLibraryNames(library).some(matches)) continue;
+    paths.add(library.path);
+    paths.add(path.resolve(library.path));
+  }
+  if (!paths.size) return { sql: '0', args: [] };
+  return {
+    sql: `a.source_directory IN (${[...paths].map(() => '?').join(', ')})`,
+    args: [...paths],
+  };
+}
+
+/**
  * Recover an unfinished group or trailing Boolean operator while typing.
  * Quoted values and ranges are kept intact; an unclosed quote/range is not
  * repaired because guessing its boundary could change a literal's meaning.
@@ -1387,11 +1430,15 @@ function repairIncompleteSyntax(source: string): string | null {
  * If repair is unsafe, the whole input becomes one literal free-text clause:
  * malformed syntax must never silently remove a restriction or match all.
  */
-function compileFallbackQuery(rawQuery: string, isStackedView: boolean): CompiledFilterResult {
+function compileFallbackQuery(
+  rawQuery: string,
+  isStackedView: boolean,
+  libraries: readonly LibrarySource[]
+): CompiledFilterResult {
   const repaired = repairIncompleteSyntax(rawQuery);
   if (repaired && repaired !== rawQuery.trim()) {
     try {
-      const compiled = compileAstNode(parse(repaired), isStackedView, repaired);
+      const compiled = compileAstNode(parse(repaired), isStackedView, repaired, libraries);
       if (compiled?.sql.trim()) return { ...compiled, isParsed: false };
     } catch {
       // A syntax repair may still be insufficient; use literal fallback below.
@@ -1413,10 +1460,12 @@ function compileFallbackQuery(rawQuery: string, isStackedView: boolean): Compile
  *
  * @param query Raw search query from input box or API
  * @param isStackedView Whether the query executes under stacked view rules
+ * @param libraries Configured libraries that lib: filters resolve against
  */
 export function compileFilterExpression(
   query: string,
-  isStackedView: boolean
+  isStackedView: boolean,
+  libraries: readonly LibrarySource[] = []
 ): CompiledFilterResult {
   if (!query || !query.trim()) {
     return { sql: '', args: [], isParsed: false };
@@ -1426,7 +1475,7 @@ export function compileFilterExpression(
 
   try {
     const ast = parse(preprocessed);
-    const compiled = compileAstNode(ast, isStackedView, preprocessed);
+    const compiled = compileAstNode(ast, isStackedView, preprocessed, libraries);
 
     if (!compiled || !compiled.sql.trim()) {
       return { sql: '', args: [], isParsed: true };
@@ -1439,6 +1488,6 @@ export function compileFilterExpression(
     };
   } catch (_err) {
     // Graceful fallback for any parse error during typing
-    return compileFallbackQuery(preprocessed, isStackedView);
+    return compileFallbackQuery(preprocessed, isStackedView, libraries);
   }
 }

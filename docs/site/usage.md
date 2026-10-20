@@ -31,11 +31,20 @@ Open an asset to inspect its dimensions, audio metadata, tags, and source path.
 | `pack:retro*` | Match pack names with a wildcard |
 | `folder:coins` | Match assets with a `coins` subfolder in their path |
 | `folder:none` | Match assets directly in a library root |
+| `lib:kenney` | Match assets from libraries named `kenney` (or `library:kenney`) |
 | `tag:target AND bpm:fast` | Combine tag and tempo filters |
 
 Quote names containing spaces, punctuation, or search operators. Inside quoted
 values, escape `"` and `\` with a backslash. Unquoted `*` acts as a wildcard
-only for `pack:` and `folder:` filters; `%` and `_` are literal characters.
+only for `pack:`, `folder:`, and `lib:` filters; `%` and `_` are literal characters.
+
+`lib:` matches library names, ignoring case. A library can have several names
+(aliases), and several libraries can share one name to filter as one library.
+A library without names goes by its folder name, so `lib:assets` matches the
+library at `./assets`. Name libraries under **Libraries** in Settings or in
+the [configuration file](configuration.md). A name that matches no library
+returns no results. The sidebar lists library names when there is more than
+one.
 
 Named BPM ranges are `slow` (below 80), `moderate` (80 to below 120), `fast`
 (120 to below 150), and `high` or `very-fast` (150 or above).

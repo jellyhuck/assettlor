@@ -4,6 +4,7 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import YAML from 'yaml';
 import type { CatalogPaging } from '../../shared/types.js';
+import { cleanLibraryNames, type LibrarySource } from './services/librarySources.js';
 
 export interface ServerYamlConfig {
   port?: number;
@@ -25,10 +26,14 @@ export interface UiYamlConfig {
   catalog_paging?: CatalogPaging;
 }
 
+// A library is a bare path, or a path with names. Names are aliases for the
+// lib: filter; several libraries may share a name to filter as one.
+export type LibraryEntry = string | { path: string; names?: string[]; name?: string };
+
 export interface AppYamlConfig {
   server?: ServerYamlConfig;
   data_dir?: string;
-  libraries?: string[];
+  libraries?: LibraryEntry[];
   projects?: string[];
   classifiers?: Record<string, Record<string, unknown>>;
   pipeline?: PipelineYamlConfig;
@@ -184,6 +189,46 @@ function requireStringList(value: unknown, name: string): string[] {
   return value.map((entry, index) => requireString(entry, `${name}[${index}]`));
 }
 
+function requireLibraryEntry(value: unknown, name: string, configDir: string): LibraryEntry {
+  if (typeof value === 'string') return resolveConfigPath(requireString(value, name), configDir);
+  const record = requireRecord(value, name);
+  const libraryPath = resolveConfigPath(requireString(record.path, `${name}.path`), configDir);
+  const names: string[] = [];
+  if (record.names !== undefined) {
+    if (!Array.isArray(record.names) || !record.names.every((entry) => typeof entry === 'string')) {
+      throw new ConfigValidationError(`${name}.names must be an array of strings`);
+    }
+    names.push(...record.names);
+  }
+  if (record.name !== undefined) {
+    if (typeof record.name !== 'string') throw new ConfigValidationError(`${name}.name must be a string`);
+    names.push(record.name);
+  }
+  const cleaned = cleanLibraryNames(names);
+  return cleaned.length ? { path: libraryPath, names: cleaned } : libraryPath;
+}
+
+/** Libraries as path and names, with `name:` shorthand folded into names. */
+export function libraryEntries(cfg: AppYamlConfig): LibrarySource[] {
+  const sources: LibrarySource[] = [];
+  for (const entry of cfg.libraries || []) {
+    const libraryPath = (typeof entry === 'string' ? entry : String(entry?.path ?? '')).trim();
+    if (!libraryPath) continue;
+    const names = typeof entry === 'string'
+      ? []
+      : cleanLibraryNames([...(entry.names ?? []), ...(entry.name === undefined ? [] : [entry.name])]);
+    sources.push({ path: libraryPath, names });
+  }
+  return sources;
+}
+
+function requireLibraryList(value: unknown, configDir: string): LibraryEntry[] {
+  if (!Array.isArray(value)) {
+    throw new ConfigValidationError('libraries must be an array of paths or { path, names } entries');
+  }
+  return value.map((entry, index) => requireLibraryEntry(entry, `libraries[${index}]`, configDir));
+}
+
 function readConfEnv(name: string): string | undefined {
   const value = process.env[name];
   return value === undefined || value === '' ? undefined : value;
@@ -262,7 +307,7 @@ function normalizeYamlConfig(raw: unknown, configDir: string): AppYamlConfig {
     : resolveConfigPath(requireString(input.data_dir, 'data_dir'), configDir);
   const libraries = input.libraries === undefined
     ? defaults.libraries
-    : requireStringList(input.libraries, 'libraries').map((p) => resolveConfigPath(p, configDir));
+    : requireLibraryList(input.libraries, configDir);
   const projects = input.projects === undefined
     ? defaults.projects
     : requireStringList(input.projects, 'projects').map((p) => resolveConfigPath(p, configDir));
@@ -310,7 +355,7 @@ function syncConfigObject(): void {
     : requireInteger(Number(process.env.PORT), 'PORT', 1, 65535);
   config.host = process.env.HOST || currentYamlConfig.server?.host || '127.0.0.1';
   config.dataDir = resolveDataDir(currentYamlConfig.data_dir || DEFAULT_DATA_DIR);
-  config.libraries = currentYamlConfig.libraries || [];
+  config.libraries = libraryEntries(currentYamlConfig).map((source) => source.path);
   config.projects = currentYamlConfig.projects || [];
   config.configFilePath = currentConfigFilePath;
 }
@@ -320,7 +365,10 @@ function collectPathSpellings(raw: unknown, configDir: string): Map<string, stri
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return spellings;
   const input = raw as Record<string, unknown>;
   const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-  for (const value of [input.data_dir, ...list(input.libraries), ...list(input.projects)]) {
+  const libraryPaths = list(input.libraries).map((entry) => (
+    entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>).path : entry
+  ));
+  for (const value of [input.data_dir, ...libraryPaths, ...list(input.projects)]) {
     if (typeof value !== 'string' || !value.trim()) continue;
     spellings.set(resolveConfigPath(value.trim(), configDir), value.trim());
   }
@@ -344,7 +392,9 @@ function toFileConfig(candidate: AppYamlConfig, configDir: string): AppYamlConfi
     ...candidate,
     ...(candidate.data_dir === undefined ? {} : { data_dir: filePath(candidate.data_dir, configDir) }),
     ...(candidate.libraries === undefined
-      ? {} : { libraries: candidate.libraries.map((p) => filePath(p, configDir)) }),
+      ? {} : { libraries: libraryEntries(candidate).map(({ path: p, names }) => (
+        names.length ? { path: filePath(p, configDir), names } : filePath(p, configDir)
+      )) }),
     ...(candidate.projects === undefined
       ? {} : { projects: candidate.projects.map((p) => filePath(p, configDir)) }),
   };

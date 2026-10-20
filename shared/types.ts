@@ -135,6 +135,13 @@ export interface FolderInfo {
   count: number;
 }
 
+/** One library name and the configured library paths that carry it. */
+export interface LibraryInfo {
+  name: string;
+  paths: string[];
+  count: number;
+}
+
 export type ScanStatusType = 'idle' | 'scanning' | 'completed' | 'error';
 
 export interface ScanProgressEvent {
@@ -154,6 +161,8 @@ export interface ScanProgressEvent {
 export interface AppSettings {
   libraryPath: string;
   libraryPaths: string[];
+  /** Optional names (aliases) by library path, for lib: filters. */
+  libraryNames: Record<string, string[]>;
   activeProjectPath: string;
   projectPaths: string[];
   thumbnailQuality: number;
@@ -214,6 +223,7 @@ export interface AssetQueryParams {
   sprite?: string;
   pack?: string;
   folder?: string;
+  library?: string;
   width?: string;
   height?: string;
   duration?: string;

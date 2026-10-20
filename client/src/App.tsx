@@ -8,6 +8,7 @@ import {
   ResolutionInfo,
   BpmInfo,
   FolderInfo,
+  LibraryInfo,
   ScanProgressEvent,
   ViewMode,
   CardZoom,
@@ -28,6 +29,7 @@ import { Pagination } from './components/Pagination';
 import { createRequestGate, errorMessage, isAbortError, requestJson } from './lib/requestLifecycle';
 import { parseScanStatus } from './lib/useScanStatus';
 import { isBoolean, oneOf, usePersistentState } from './lib/persistentState';
+import { parseLibraryNames } from './lib/settingsDraft';
 
 type CatalogItem = Asset | (AssetStack & { isStack: true });
 type CatalogPhase = 'loading' | 'ready' | 'error';
@@ -64,6 +66,7 @@ const emptySummary = {
 const defaultSettings: AppSettings = {
   libraryPath: '',
   libraryPaths: [],
+  libraryNames: {},
   activeProjectPath: '',
   projectPaths: [],
   thumbnailQuality: 80,
@@ -133,7 +136,7 @@ function parseSettings(value: unknown): AppSettings {
     || (value.catalogPaging !== 'load-more' && value.catalogPaging !== 'pages')) {
     throw new Error('The server returned invalid settings');
   }
-  return value as unknown as AppSettings;
+  return { ...value, libraryNames: parseLibraryNames(value.libraryNames) } as unknown as AppSettings;
 }
 
 function catalogIdentity(item: CatalogItem): string {
@@ -176,6 +179,7 @@ function MainApp() {
   const selectedDuration = activeFilters.duration;
   const selectedBpm = activeFilters.bpm;
   const selectedFolder = activeFilters.folder;
+  const selectedLibrary = activeFilters.library;
 
   // View & Sort State
   const [viewMode, setViewMode] = usePersistentState<ViewMode>('viewMode', 'grid', isViewMode);
@@ -207,6 +211,7 @@ function MainApp() {
   const [resolutions, setResolutions] = useState<ResolutionInfo[]>([]);
   const [bpms, setBpms] = useState<BpmInfo[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
+  const [libraries, setLibraries] = useState<LibraryInfo[]>([]);
   const [summary, setSummary] = useState(emptySummary);
   const [facetsError, setFacetsError] = useState<string | null>(null);
   const [facetsLoading, setFacetsLoading] = useState(false);
@@ -371,19 +376,24 @@ function MainApp() {
       && typeof value.count === 'number';
     const isFolder = (value: unknown): value is FolderInfo => isRecord(value)
       && typeof value.name === 'string' && typeof value.count === 'number';
+    const isLibrary = (value: unknown): value is LibraryInfo => isRecord(value)
+      && typeof value.name === 'string' && typeof value.count === 'number'
+      && Array.isArray(value.paths) && value.paths.every((path) => typeof path === 'string');
     Promise.all([
       requestJson('/api/tags', (value) => requireList(value, 'tags', isTag), { signal: request.signal }),
       requestJson('/api/formats', (value) => requireList(value, 'formats', isFormat), { signal: request.signal }),
       requestJson('/api/resolutions', (value) => requireList(value, 'resolutions', isResolution), { signal: request.signal }),
       requestJson('/api/bpms', (value) => requireList(value, 'BPM facets', isBpm), { signal: request.signal }),
       requestJson('/api/folders', (value) => requireList(value, 'folders', isFolder), { signal: request.signal }),
-    ]).then(([nextTags, nextFormats, nextResolutions, nextBpms, nextFolders]) => {
+      requestJson('/api/libraries', (value) => requireList(value, 'libraries', isLibrary), { signal: request.signal }),
+    ]).then(([nextTags, nextFormats, nextResolutions, nextBpms, nextFolders, nextLibraries]) => {
       if (!request.isCurrent()) return;
       setTags(nextTags);
       setFormats(nextFormats);
       setResolutions(nextResolutions);
       setBpms(nextBpms);
       setFolders(nextFolders);
+      setLibraries(nextLibraries);
       setFacetsError(null);
     }).catch((error: unknown) => {
       if (request.isCurrent() && !isAbortError(error)) setFacetsError(errorMessage(error));
@@ -762,11 +772,14 @@ function MainApp() {
         onSelectBpm={(bpm) => handleFilterChange('bpm', bpm)}
         selectedFolder={selectedFolder}
         onSelectFolder={(folder) => handleFilterChange('folder', folder)}
+        selectedLibrary={selectedLibrary}
+        onSelectLibrary={(library) => handleFilterChange('library', library)}
         tags={tags}
         formats={formats}
         resolutions={resolutions}
         bpms={bpms}
         folders={folders}
+        libraries={libraries}
         scanStatus={scanStatus}
         onTriggerScan={() => { void handleTriggerScan(); }}
         onCancelScan={() => { void handleCancelScan(); }}
@@ -886,6 +899,9 @@ function MainApp() {
           onSelectSprite={(sprite) => toggleOrSetFilter('sprite', sprite)}
           onSelectFolder={(folder) => toggleOrSetFilter('folder', folder)}
           selectedFolder={selectedFolder}
+          onSelectLibrary={(library) => toggleOrSetFilter('library', library)}
+          selectedLibrary={selectedLibrary}
+          libraries={libraries}
           availableTags={tags}
           onAssetUpdated={(updatedAsset, updateSelection = true) => {
             if (updateSelection && selectedIdentityRef.current === `asset:${updatedAsset.id}`) {
@@ -926,6 +942,7 @@ function MainApp() {
             void handleTriggerScan(paths);
           }
           refreshCatalog();
+          refreshFilters();
         }}
       />
 

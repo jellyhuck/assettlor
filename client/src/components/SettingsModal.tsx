@@ -22,7 +22,7 @@ import { useToast } from './Toast';
 import { FolderBrowserModal } from './FolderBrowserModal';
 import { createRequestGate, errorMessage, expectRecord, readJson, requestJson } from '../lib/requestLifecycle';
 import { bindDialogFocus } from '../lib/dialogFocus';
-import { directoryKey, validateSettingsDraft } from '../lib/settingsDraft';
+import { directoryKey, parseLibraryNames, validateSettingsDraft } from '../lib/settingsDraft';
 import { useScanStatus } from '../lib/useScanStatus';
 
 interface SettingsModalProps {
@@ -35,6 +35,15 @@ type SettingsSection = 'app' | 'bpm' | 'sprite' | 'pack' | 'folder';
 type LoadState = 'loading' | 'ready' | 'error';
 const sections: SettingsSection[] = ['app', 'bpm', 'sprite', 'pack', 'folder'];
 
+/** Adds comma-separated names, skipping blanks and case-insensitive repeats. */
+function withLibraryNames(names: string[], raw: string): string[] {
+  const next = [...names];
+  for (const name of raw.split(',').map((part) => part.trim()).filter(Boolean)) {
+    if (!next.some((existing) => existing.toLowerCase() === name.toLowerCase())) next.push(name);
+  }
+  return next;
+}
+
 function parseAppSettings(value: unknown): AppSettings {
   const data = expectRecord(value, 'app settings');
   if (typeof data.libraryPath !== 'string' || typeof data.activeProjectPath !== 'string'
@@ -45,7 +54,7 @@ function parseAppSettings(value: unknown): AppSettings {
     || (data.catalogPaging !== 'load-more' && data.catalogPaging !== 'pages')) {
     throw new Error('The app settings response has an unexpected shape');
   }
-  return data as unknown as AppSettings;
+  return { ...data, libraryNames: parseLibraryNames(data.libraryNames) } as unknown as AppSettings;
 }
 
 function parseClassifierInfo(value: unknown, id: string): ClassifierInfo {
@@ -84,6 +93,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
   const [settings, setSettings] = useState<AppSettings>({
     libraryPath: '',
     libraryPaths: [],
+    libraryNames: {},
     activeProjectPath: '',
     projectPaths: [],
     thumbnailQuality: 80,
@@ -95,6 +105,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
   const [persistedSettings, setPersistedSettings] = useState<AppSettings | null>(null);
   const [newProjectPath, setNewProjectPath] = useState('');
   const [newLibraryPath, setNewLibraryPath] = useState('');
+  const [libraryNameDrafts, setLibraryNameDrafts] = useState<Record<string, string>>({});
   const [pathError, setPathError] = useState<{ library?: string; project?: string }>({});
   const [validatingPath, setValidatingPath] = useState({ library: false, project: false });
   const [projectCandidate, setProjectCandidate] = useState<string | null>(null);
@@ -240,8 +251,28 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
   const removeLibrary = (index: number) => {
     setSettings((prev) => {
       const list = [...(prev.libraryPaths || [])];
-      list.splice(index, 1);
-      return { ...prev, libraryPaths: list, libraryPath: list[0] || '' };
+      const [removed] = list.splice(index, 1);
+      const libraryNames = { ...prev.libraryNames };
+      delete libraryNames[removed];
+      return { ...prev, libraryPaths: list, libraryPath: list[0] || '', libraryNames };
+    });
+  };
+
+  const addLibraryNames = (lib: string, raw: string) => {
+    if (!raw.trim()) return;
+    setSettings((prev) => ({
+      ...prev,
+      libraryNames: { ...prev.libraryNames, [lib]: withLibraryNames(prev.libraryNames[lib] ?? [], raw) },
+    }));
+  };
+
+  const removeLibraryName = (lib: string, name: string) => {
+    setSettings((prev) => {
+      const names = (prev.libraryNames[lib] ?? []).filter((existing) => existing !== name);
+      const libraryNames = { ...prev.libraryNames };
+      if (names.length) libraryNames[lib] = names;
+      else delete libraryNames[lib];
+      return { ...prev, libraryNames };
     });
   };
 
@@ -425,8 +456,15 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
     setSaveError('');
     let savedSections = 0;
     try {
+      // A name still being typed is saved too, as if it had been entered.
+      const libraryNames = { ...settings.libraryNames };
+      for (const lib of settings.libraryPaths) {
+        const draft = libraryNameDrafts[lib];
+        if (draft?.trim()) libraryNames[lib] = withLibraryNames(libraryNames[lib] ?? [], draft);
+      }
       const payload = {
         ...settings,
+        libraryNames,
         activeProjectPath: settings.projectPaths[0] || '',
         libraryPath: settings.libraryPaths[0] || '',
       };
@@ -472,6 +510,7 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
 
       if (!activeRef.current) return;
       setSettings(updated);
+      setLibraryNameDrafts({});
       onSettingsSaved(updated);
       showToast('success', 'Settings Saved', 'App and classifier preferences updated');
       savingRef.current = false;
@@ -749,6 +788,8 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                       const isFirst = idx === 0;
                       const isLast = idx === settings.libraryPaths.length - 1;
                       const folderName = lib.split('/').filter(Boolean).pop() || lib;
+                      const names = settings.libraryNames[lib] ?? [];
+                      const nameDraft = libraryNameDrafts[lib] ?? '';
                       const persisted = persistedSettings?.libraryPaths.some((path) => directoryKey(path) === directoryKey(lib));
                       const scanningThisLibrary = scanStatus?.status === 'scanning'
                         && (scanStatus.libraryPaths ?? [scanStatus.libraryPath]).some((path) => directoryKey(path) === directoryKey(lib));
@@ -764,11 +805,61 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                             </span>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
-                                <span className="font-semibold text-slate-200 truncate">{folderName}</span>
+                                <span className="font-semibold text-slate-200 truncate">
+                                  {names.length ? names.join(' · ') : folderName}
+                                </span>
                               </div>
                               <span className="font-mono text-[11px] text-slate-400 truncate block mt-0.5" title={lib}>
                                 {lib}
                               </span>
+                              <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                                {names.map((name) => (
+                                  <span
+                                    key={name}
+                                    className="flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded text-[10px] bg-emerald-950/40 border border-emerald-500/40 text-emerald-300"
+                                  >
+                                    {name}
+                                    <button
+                                      type="button"
+                                      onClick={() => removeLibraryName(lib, name)}
+                                      aria-label={`Remove library name ${name}`}
+                                      className="p-0.5 rounded hover:bg-emerald-900/60 cursor-pointer"
+                                    >
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </span>
+                                ))}
+                                <input
+                                  type="text"
+                                  aria-label="Add library name"
+                                  value={nameDraft}
+                                  placeholder={names.length ? 'Add alias…' : `Name (${folderName})`}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value.includes(',')) {
+                                      addLibraryNames(lib, value);
+                                      setLibraryNameDrafts((prev) => ({ ...prev, [lib]: '' }));
+                                    } else {
+                                      setLibraryNameDrafts((prev) => ({ ...prev, [lib]: value }));
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      addLibraryNames(lib, nameDraft);
+                                      setLibraryNameDrafts((prev) => ({ ...prev, [lib]: '' }));
+                                    } else if (e.key === 'Backspace' && !nameDraft && names.length) {
+                                      removeLibraryName(lib, names[names.length - 1]);
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    if (!nameDraft.trim()) return;
+                                    addLibraryNames(lib, nameDraft);
+                                    setLibraryNameDrafts((prev) => ({ ...prev, [lib]: '' }));
+                                  }}
+                                  className="min-w-[90px] flex-1 px-1.5 py-0.5 text-[11px] bg-[#181829] border border-[#2a2a42] rounded text-slate-200 placeholder-slate-500 focus:outline-hidden focus:border-emerald-500"
+                                />
+                              </div>
                             </div>
                           </div>
 
@@ -819,6 +910,12 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                       <div className="p-3 text-center text-xs text-slate-500 bg-[#12121d] rounded-lg border border-[#25253c] border-dashed">
                         No asset library directories configured yet. Add one below.
                       </div>
+                    )}
+                    {settings.libraryPaths.length > 0 && (
+                      <p className="text-[11px] text-slate-500 px-1">
+                        Names are optional aliases for <code className="text-emerald-400 font-mono">lib:</code> filters.
+                        Libraries that share a name filter as one; unnamed libraries go by their folder name.
+                      </p>
                     )}
                   </div>
 

@@ -5,11 +5,13 @@ import {
   ResolutionInfo,
   BpmInfo,
   FolderInfo,
+  LibraryInfo,
   ScanProgressEvent,
   AppSettings,
 } from '../types';
 import {
   Folder,
+  Library,
   Layers,
   Image as ImageIcon,
   Volume2,
@@ -44,11 +46,14 @@ interface SidebarProps {
   onSelectBpm?: (bpm: string | null) => void;
   selectedFolder?: string | null;
   onSelectFolder?: (folder: string | null) => void;
+  selectedLibrary?: string | null;
+  onSelectLibrary?: (library: string | null) => void;
   tags: TagInfo[];
   formats: FormatInfo[];
   resolutions: ResolutionInfo[];
   bpms?: BpmInfo[];
   folders?: FolderInfo[];
+  libraries?: LibraryInfo[];
   scanStatus: ScanProgressEvent;
   onTriggerScan: () => void;
   onCancelScan?: () => void;
@@ -84,11 +89,14 @@ export function Sidebar({
   onSelectBpm,
   selectedFolder = null,
   onSelectFolder,
+  selectedLibrary = null,
+  onSelectLibrary,
   tags,
   formats,
   resolutions,
   bpms = [],
   folders = [],
+  libraries = [],
   scanStatus,
   onTriggerScan,
   onCancelScan,
@@ -644,6 +652,52 @@ export function Sidebar({
               )}
             </div>
           </>
+        )}
+
+        {/* Libraries Filter */}
+        {libraries.length > 1 && onSelectLibrary && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-2">
+              <div className="flex items-center gap-1.5">
+                <Library className="w-3 h-3 text-emerald-400" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Libraries
+                </span>
+              </div>
+              {selectedLibrary && (
+                <button
+                  onClick={() => onSelectLibrary(null)}
+                  className="text-[10px] text-emerald-400 hover:underline cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-48 overflow-y-auto space-y-0.5 px-1">
+              {libraries.map((library) => {
+                const isSelected = selectedLibrary
+                  ? selectedLibrary.toLowerCase() === library.name.toLowerCase()
+                  : false;
+                return (
+                  <button
+                    key={library.name}
+                    aria-pressed={isSelected}
+                    onClick={() => onSelectLibrary(isSelected ? null : library.name)}
+                    title={library.paths.join('\n')}
+                    className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-700/80 text-white font-semibold'
+                        : 'text-slate-400 hover:bg-[#202033] hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="truncate">{library.name}</span>
+                    <span className="text-[10px] font-mono opacity-70 ml-1">{library.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* Folders Filter */}

@@ -7,6 +7,7 @@ import {
   resetConfigForTesting,
   resolveConfigPath,
   resolveDataDir,
+  libraryEntries,
   DEFAULT_CONFIG_FILE,
   DEFAULT_DATA_DIR,
 } from '../server/src/config.js';
@@ -54,7 +55,8 @@ describe('Server Config & YAML Persistence', () => {
     expect(loaded.server?.host).toBe('127.0.0.1');
     expect(loaded.libraries).toBeDefined();
     expect(loaded.libraries?.length).toBeGreaterThan(0);
-    expect(loaded.libraries?.[0]).toContain(path.join('sample', 'assets'));
+    expect(libraryEntries(loaded)[0].path).toContain(path.join('sample', 'assets'));
+    expect(libraryEntries(loaded)[0].names).toEqual(['Sample']);
     expect(loaded.projects?.[0]).toContain(path.join('sample', 'game-project'));
     expect(loaded.data_dir).toContain(path.join('sample', '.assettlor'));
     expect(loaded.classifiers?.bpm?.enabled).toBe(true);

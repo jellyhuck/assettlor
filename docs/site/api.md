@@ -26,9 +26,10 @@ contracts are defined in
 | GET | `/api/resolutions` | Resolution counts |
 | GET | `/api/bpms` | BPM counts |
 | GET | `/api/folders` | Subfolder counts from the Folder Classifier |
+| GET | `/api/libraries` | Library names with their paths and asset counts |
 
 `GET /api/assets` accepts `category`, `tag`, `format`, `resolution`, `bpm`,
-`sprite`, `pack`, `folder`, `width`, `height`, `duration`, `search`, `stackType`, and
+`sprite`, `pack`, `folder`, `library`, `width`, `height`, `duration`, `search`, `stackType`, and
 `isStackedView`. See [search behavior](usage.md#search) for stacked filtering.
 
 Use `sortBy` with `name`, `size`, `mtime`, `resolution`, `duration`, `bpm`,
@@ -139,8 +140,9 @@ keep the connection active.
 | PUT / POST | `/api/classifiers/:id/settings` | Save classifier settings |
 | POST | `/api/classifiers/:id/run` | Run against a validated target scope |
 
-Application settings include `libraryPath`, `libraryPaths`, `activeProjectPath`,
-`projectPaths`, `thumbnailQuality`, `autoStackAnimations`, `autoStackAudio`,
+Application settings include `libraryPath`, `libraryPaths`, `libraryNames`
+(name lists by library path; libraries without names are omitted),
+`activeProjectPath`, `projectPaths`, `thumbnailQuality`, `autoStackAnimations`, `autoStackAudio`,
 `defaultFps`, and `catalogPaging` (`load-more` or `pages`). These API field names differ from the YAML names in
 [Configuration](configuration.md).
 

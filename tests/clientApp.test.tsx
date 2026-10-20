@@ -181,6 +181,7 @@ describe('App catalog and live request lifecycle', () => {
       requests('/api/resolutions').at(-1)!.resolveJson([]);
       requests('/api/bpms').at(-1)!.resolveJson([]);
       requests('/api/folders').at(-1)!.resolveJson([]);
+      requests('/api/libraries').at(-1)!.resolveJson([]);
       latestCatalog().resolveJson(catalogPage(items, 1, total));
     });
   }
@@ -545,6 +546,7 @@ describe('App catalog and live request lifecycle', () => {
       requests('/api/resolutions')[0].resolveJson([]);
       requests('/api/bpms')[0].resolveJson([]);
       requests('/api/folders')[0].resolveJson([]);
+      requests('/api/libraries')[0].resolveJson([]);
       latestCatalog().resolveJson({ error: 'Catalog unavailable' }, 503);
     });
     expect(view!.container.textContent).toContain('Catalog unavailable');
@@ -586,6 +588,7 @@ describe('App catalog and live request lifecycle', () => {
       requests('/api/resolutions')[0].resolveJson([]);
       requests('/api/bpms')[0].resolveJson([]);
       requests('/api/folders')[0].resolveJson([]);
+      requests('/api/libraries')[0].resolveJson([]);
       latestCatalog().resolveJson(catalogPage([], 1, 0));
     });
     expect(view!.container.querySelector('[data-testid="tags"]')?.textContent).toBe('');
@@ -600,6 +603,7 @@ describe('App catalog and live request lifecycle', () => {
       requests('/api/resolutions').at(-1)!.resolveJson([]);
       requests('/api/bpms').at(-1)!.resolveJson([]);
       requests('/api/folders').at(-1)!.resolveJson([]);
+      requests('/api/libraries').at(-1)!.resolveJson([]);
     });
     expect(view!.container.querySelector('[data-testid="tags"]')?.textContent).toBe('gem');
   });

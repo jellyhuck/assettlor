@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Asset, AssetStack, AppSettings, TagInfo, type ClassifierRunResult } from '../types';
+import { Asset, AssetStack, AppSettings, TagInfo, LibraryInfo, type ClassifierRunResult } from '../types';
 import {
   X,
   Copy,
   Folder,
+  Library,
   Layers,
   Grid,
   Volume2,
@@ -26,6 +27,7 @@ import { ImagePreview } from './ImagePreview';
 import { ImageThumbnail } from './ImageThumbnail';
 import { SoundIcon, MusicPlateIcon } from './AudioIcons';
 import { useToast } from './Toast';
+import { directoryKey } from '../lib/settingsDraft';
 import { CopyModal } from './CopyModal';
 import { createRequestGate, errorMessage, isAbortError, requestJson, expectArray, expectRecord } from '../lib/requestLifecycle';
 import { isBoolean, usePersistentState } from '../lib/persistentState';
@@ -129,6 +131,9 @@ interface InspectorProps {
   onSelectSprite?: (sprite: string | null) => void;
   onSelectFolder?: (folder: string | null) => void;
   selectedFolder?: string | null;
+  onSelectLibrary?: (library: string | null) => void;
+  selectedLibrary?: string | null;
+  libraries?: LibraryInfo[];
   onAssetUpdated?: (updatedAsset: Asset, updateSelection?: boolean) => void;
   onStackUpdated?: (updatedStack: AssetStack & { isStack: true }, updateSelection?: boolean) => void;
   availableTags?: TagInfo[];
@@ -151,6 +156,9 @@ export function Inspector({
   onSelectSprite,
   onSelectFolder,
   selectedFolder,
+  onSelectLibrary,
+  selectedLibrary,
+  libraries,
   onAssetUpdated,
   onStackUpdated,
   availableTags,
@@ -385,6 +393,11 @@ export function Inspector({
   const handleClassifySprite = () => { void handleRunClassifier('sprite'); };
   const handleClassifyPack = () => { void handleRunClassifier('pack'); };
   const handleClassifyFolders = () => { void handleRunClassifier('folder'); };
+
+  const sourceKey = displayedAsset.sourceDirectory ? directoryKey(displayedAsset.sourceDirectory) : null;
+  const assetLibraries = sourceKey
+    ? (libraries ?? []).filter((library) => library.paths.some((libraryPath) => directoryKey(libraryPath) === sourceKey))
+    : [];
 
   const tagsList = availableTags && availableTags.length > 0 ? availableTags : localAvailableTags;
 
@@ -1089,6 +1102,38 @@ export function Inspector({
                   </button>
                 </div>
               </div>
+
+              {/* Library */}
+              {assetLibraries.length > 0 && (
+                <div className="flex justify-between gap-2 py-1 border-b border-[#202033] items-start">
+                  <span className="text-slate-400 flex items-center gap-1 select-text shrink-0 pt-0.5">
+                    <Library className="w-3.5 h-3.5 text-emerald-400" />
+                    Library
+                  </span>
+                  <div className="flex flex-wrap justify-end items-center gap-1 select-text min-w-0">
+                    {assetLibraries.map((library) => {
+                      const isSelected = selectedLibrary?.toLowerCase() === library.name.toLowerCase();
+                      return (
+                        <button
+                          key={library.name}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => onSelectLibrary?.(library.name)}
+                          disabled={!onSelectLibrary}
+                          title={`Filter library by lib:${library.name}`}
+                          className={`px-1.5 py-0.5 rounded text-[11px] border truncate max-w-[150px] transition-colors cursor-pointer disabled:cursor-default ${
+                            isSelected
+                              ? 'bg-emerald-700/80 border-emerald-400 text-white font-semibold'
+                              : 'text-emerald-300 bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400'
+                          }`}
+                        >
+                          {library.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Folders */}
               <div className="flex justify-between gap-2 py-1 border-b border-[#202033] items-start">

@@ -80,13 +80,29 @@ ui:
 | `server.allowed_origins` | Additional browser origins permitted to call the API across origins |
 | `server.allowed_hosts` | Additional accepted HTTP Host names |
 | `data_dir` | Location for the embedded database and thumbnail cache |
-| `libraries` | Directories to index; empty on a fresh installation |
+| `libraries` | Directories to index; empty on a fresh installation. An entry is a path, or `path` with optional `names` |
 | `projects` | Copy destinations; empty on a fresh installation |
 | `pipeline.thumbnail_quality` | WebP quality, an integer from 1 to 100; default 80 |
 | `pipeline.auto_stack_animations` | Group detected image sequences; default `true` |
 | `pipeline.auto_stack_audio` | Group detected audio variations; default `true` |
 | `pipeline.default_fps` | Animation playback rate, an integer from 1 to 60; default 12 |
 | `ui.catalog_paging` | How the main view reaches results beyond the first 100: `load-more` appends them with a Load more button, `pages` shows numbered pages; default `load-more` |
+
+A library entry can carry names for `lib:` search filters. `names` lists
+aliases; `name` is accepted for a single one. Libraries may share a name, and
+then filter as one library:
+
+```yaml
+libraries:
+  - ./assets
+  - path: ~/packs/kenney
+    names: [Kenney, CC0]
+  - path: ~/more-sprites
+    names: [CC0]
+```
+
+Names are trimmed, and repeats within one entry are dropped. An entry
+without names is written back as a plain path.
 
 The effective data directory contains `index.db` and `thumbnails/`. If the
 configured directory's final component is `data`, `cache`, or `.assettlor`,

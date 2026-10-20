@@ -11,6 +11,7 @@ import type {
   ResolutionInfo,
   BpmInfo,
   FolderInfo,
+  LibraryInfo,
   AppSettings,
   AssetQueryParams,
   AssetListResponse,
@@ -25,7 +26,10 @@ import {
   resolveConfigPath,
   ConfigValidationError,
   AppYamlConfig,
+  LibraryEntry,
+  libraryEntries,
 } from '../config.js';
+import { cleanLibraryNames, effectiveLibraryNames } from '../services/librarySources.js';
 import {
   compileFilterExpression,
   parseResolutionClause,
@@ -33,6 +37,7 @@ import {
   parseSpriteClause,
   parsePackClause,
   parseFolderClause,
+  parseLibraryClause,
   composePredicates,
   parseWidthClause,
   parseHeightClause,
@@ -408,13 +413,19 @@ function rowToAsset(row: AssetRow, tags: string[] = []): Asset {
 
 export function getAppSettings(): AppSettings {
   const cfg = getEffectiveConfig();
-  const libraries = (cfg.libraries || []).map((p) => String(p).trim()).filter(Boolean);
+  const sources = libraryEntries(cfg);
+  const libraries = sources.map((source) => source.path);
+  const libraryNames: Record<string, string[]> = {};
+  for (const source of sources) {
+    if (source.names.length) libraryNames[source.path] = source.names;
+  }
   const projects = (cfg.projects || []).map((p) => String(p).trim()).filter(Boolean);
   const pipeline = cfg.pipeline || {};
 
   return {
     libraryPath: libraries[0] || '',
     libraryPaths: libraries,
+    libraryNames,
     activeProjectPath: projects.length > 0 ? projects[0] : '',
     projectPaths: projects,
     thumbnailQuality: Number(pipeline.thumbnail_quality ?? 80),
@@ -445,8 +456,9 @@ export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
     return value.map((entry, index) => settingPath(entry, `${name}[${index}]`));
   };
 
+  let libraryPaths: string[] | undefined;
   if (settings.libraryPaths !== undefined) {
-    updates.libraries = settingPaths(settings.libraryPaths, 'libraryPaths');
+    libraryPaths = settingPaths(settings.libraryPaths, 'libraryPaths');
   } else if (settings.libraryPath !== undefined) {
     const single = settingPath(settings.libraryPath, 'libraryPath', true);
     if (single) {
@@ -457,10 +469,35 @@ export function updateAppSettings(settings: Partial<AppSettings>): AppSettings {
       } else {
         paths = [single, ...paths.filter((p) => p !== single)];
       }
-      updates.libraries = paths;
+      libraryPaths = paths;
     } else {
-      updates.libraries = [];
+      libraryPaths = [];
     }
+  }
+
+  // Names are kept by path, so reordering or removing libraries keeps the
+  // names of the rest unless new names are sent.
+  let libraryNames = getAppSettings().libraryNames;
+  if (settings.libraryNames !== undefined) {
+    const input = settings.libraryNames as unknown;
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      throw new ConfigValidationError('libraryNames must be an object of name lists by library path');
+    }
+    libraryNames = {};
+    for (const [key, names] of Object.entries(input)) {
+      if (!Array.isArray(names) || !names.every((name) => typeof name === 'string')) {
+        throw new ConfigValidationError(`libraryNames[${JSON.stringify(key)}] must be an array of strings`);
+      }
+      const resolved = settingPath(key, 'libraryNames key');
+      libraryNames[resolved] = cleanLibraryNames([...(libraryNames[resolved] ?? []), ...names]);
+    }
+    libraryPaths ??= getAppSettings().libraryPaths;
+  }
+  if (libraryPaths !== undefined) {
+    updates.libraries = libraryPaths.map((libraryPath): LibraryEntry => {
+      const names = libraryNames[libraryPath] ?? [];
+      return names.length ? { path: libraryPath, names } : libraryPath;
+    });
   }
 
   if (settings.projectPaths !== undefined) {
@@ -772,6 +809,34 @@ export function getAllFolders(): FolderInfo[] {
   `).all() as { name: string; count: number }[];
 
   return rows.map((r) => ({ name: r.name, count: r.count }));
+}
+
+/** Library names with the paths that carry each and their asset counts. */
+export function getAllLibraries(): LibraryInfo[] {
+  const db = getDatabase();
+  const counts = new Map<string, number>();
+  const rows = db.prepare(`
+    SELECT source_directory as source, COUNT(*) as count FROM assets
+    WHERE source_directory IS NOT NULL GROUP BY source_directory
+  `).all() as { source: string; count: number }[];
+  for (const row of rows) {
+    const key = path.resolve(row.source);
+    counts.set(key, (counts.get(key) ?? 0) + row.count);
+  }
+
+  const byName = new Map<string, LibraryInfo>();
+  for (const source of libraryEntries(getEffectiveConfig())) {
+    for (const name of effectiveLibraryNames(source)) {
+      const key = name.toLowerCase();
+      const info = byName.get(key) ?? { name, paths: [], count: 0 };
+      if (!info.paths.includes(source.path)) {
+        info.paths.push(source.path);
+        info.count += counts.get(path.resolve(source.path)) ?? 0;
+      }
+      byName.set(key, info);
+    }
+  }
+  return [...byName.values()];
 }
 
 export function clearStacks(): void {
@@ -1153,6 +1218,14 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     }
   }
 
+  if (params.library && params.library.trim()) {
+    const libraryClause = parseLibraryClause(params.library.trim(), libraryEntries(getEffectiveConfig()));
+    if (libraryClause && libraryClause.sql) {
+      conditions.push(libraryClause.sql);
+      args.push(...libraryClause.args);
+    }
+  }
+
   if (params.width && params.width.trim()) {
     const widthClause = parseWidthClause(params.width.trim(), isStackedView);
     if (widthClause && widthClause.sql) {
@@ -1178,7 +1251,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
   }
 
   if (params.search && params.search.trim()) {
-    const filterRes = compileFilterExpression(params.search, isStackedView);
+    const filterRes = compileFilterExpression(params.search, isStackedView, libraryEntries(getEffectiveConfig()));
     if (filterRes.sql) {
       conditions.push(filterRes.sql);
       args.push(...filterRes.args);

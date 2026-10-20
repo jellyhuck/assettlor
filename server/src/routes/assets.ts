@@ -9,6 +9,7 @@ import {
   getAllResolutions,
   getAllBpms,
   getAllFolders,
+  getAllLibraries,
   getAppSettings,
   addAssetTags,
   removeAssetTag,
@@ -249,6 +250,15 @@ export async function assetsRoutes(fastify: FastifyInstance) {
     try {
       const folders = getAllFolders();
       return reply.send(folders);
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
+  // Get configured library names with their paths and asset counts
+  fastify.get('/api/libraries', async (_req, reply) => {
+    try {
+      return reply.send(getAllLibraries());
     } catch (err: any) {
       return reply.status(500).send({ error: err.message });
     }

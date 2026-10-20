@@ -8,7 +8,8 @@ export type FilterType =
   | 'tag'
   | 'sprite'
   | 'pack'
-  | 'folder';
+  | 'folder'
+  | 'library';
 
 export interface ParsedFilters {
   format: string | null;
@@ -21,6 +22,7 @@ export interface ParsedFilters {
   sprite: string | null;
   pack: string | null;
   folder: string | null;
+  library: string | null;
 }
 
 const FILTER_PREFIXES: Record<string, FilterType> = {
@@ -34,6 +36,7 @@ const FILTER_PREFIXES: Record<string, FilterType> = {
   sprite: 'sprite', spritetype: 'sprite',
   pack: 'pack', p: 'pack',
   folder: 'folder',
+  lib: 'library', library: 'library',
 };
 
 type LexKind = 'atom' | 'and' | 'or' | 'not' | 'open' | 'close';
@@ -287,7 +290,7 @@ function removeAtom(query: string, atom: AtomExpression): string {
 function normalizedFilterValue(type: FilterType, value: string, quoted: boolean): string {
   // A quoted label is a literal name. Retain its exact spelling so selecting
   // or displaying it again does not alter Unicode or embedded punctuation.
-  if (quoted && (type === 'tag' || type === 'pack' || type === 'folder')) return value;
+  if (quoted && (type === 'tag' || type === 'pack' || type === 'folder' || type === 'library')) return value;
   const v = value.toLowerCase();
   if (type === 'format') return `.${v.replace(/^\./, '')}`;
   if (type === 'resolution') {
@@ -321,15 +324,16 @@ function normalizedFilterValue(type: FilterType, value: string, quoted: boolean)
 }
 
 /**
- * Sidebar labels are exact names. In search text, an unquoted pack or folder
- * `*` is a wildcard operator and unquoted status names are presets; the quoted
- * forms are literal labels. Quote all syntax or SQL wildcard characters so
- * the server can distinguish those meanings without guessing.
+ * Sidebar labels are exact names. In search text, an unquoted pack, folder,
+ * or library `*` is a wildcard operator and unquoted pack or folder status
+ * names are presets; the quoted forms are literal labels. Quote all syntax or
+ * SQL wildcard characters so the server can distinguish those meanings
+ * without guessing.
  */
-function formatLiteralLabel(type: 'tag' | 'pack' | 'folder', value: string): string {
+function formatLiteralLabel(type: 'tag' | 'pack' | 'folder' | 'library', value: string): string {
   const simple = /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(value);
   const booleanWord = /^(?:AND|OR|NOT)$/i.test(value);
-  const preset = type !== 'tag' && /^(?:any|none|classified|unanalyzed)$/i.test(value);
+  const preset = (type === 'pack' || type === 'folder') && /^(?:any|none|classified|unanalyzed)$/i.test(value);
   if (simple && !booleanWord && !preset) return value;
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
@@ -363,6 +367,8 @@ export function formatFilterToken(filterType: FilterType, value: string | null):
       return `pack:${formatLiteralLabel('pack', v)}`;
     case 'folder':
       return `folder:${formatLiteralLabel('folder', v)}`;
+    case 'library':
+      return `lib:${formatLiteralLabel('library', v)}`;
   }
 }
 
@@ -379,6 +385,7 @@ export function getFilterPattern(filterType: FilterType): RegExp {
     case 'sprite': return /\b(?:sprite|spritetype):[^\s]+/gi;
     case 'pack': return /\b(?:pack|p):(?:"[^"]*"|[^\s]+)/gi;
     case 'folder': return /\bfolder:(?:"[^"]*"|[^\s]+)/gi;
+    case 'library': return /\b(?:lib|library):(?:"[^"]*"|[^\s]+)/gi;
   }
 }
 
@@ -387,6 +394,7 @@ export function parseFiltersFromQuery(query: string): ParsedFilters {
   const result: ParsedFilters = {
     format: null, resolution: null, width: null, height: null,
     duration: null, bpm: null, tag: null, sprite: null, pack: null, folder: null,
+    library: null,
   };
   const tokens = scanQuery(query || '');
   if (!tokens?.length) return result;

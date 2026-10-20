@@ -7,7 +7,7 @@ import { SettingsModal } from '../client/src/components/SettingsModal.js';
 import { ToastProvider } from '../client/src/components/Toast.js';
 
 const settings = {
-  libraryPath: '/library', libraryPaths: ['/library'],
+  libraryPath: '/library', libraryPaths: ['/library'], libraryNames: {},
   activeProjectPath: '/project', projectPaths: ['/project'],
   thumbnailQuality: 80, autoStackAnimations: true,
   autoStackAudio: true, defaultFps: 12, catalogPaging: 'load-more',
