@@ -12,7 +12,7 @@ import {
   upsertAsset,
 } from '../server/src/db/database.js';
 import { purgeLibraryIndexes, requestCancelScan, scanLibrary } from '../server/src/services/scanner.js';
-import { cleanupTempDir, createTempDir, TINY_PNG_BUFFER } from './helpers.js';
+import { cleanupTempDir, createTempDir, createTestZipArchive, TINY_PNG_BUFFER } from './helpers.js';
 
 interface Row {
   id: string;
@@ -31,6 +31,11 @@ function rows(): Row[] {
 function tags(): { asset_id: string; tag: string }[] {
   return getDatabase().prepare('SELECT asset_id, tag FROM tags ORDER BY asset_id, tag').all() as
     { asset_id: string; tag: string }[];
+}
+
+function archivePaths(): string[] {
+  return (getDatabase().prepare('SELECT absolute_path FROM archives ORDER BY absolute_path').all() as
+    { absolute_path: string }[]).map((row) => row.absolute_path);
 }
 
 function byPath(file: string): Row | undefined {
@@ -138,6 +143,21 @@ describe('library index removal and reindex', () => {
       const marker = getDatabase().prepare("SELECT value FROM settings WHERE key = 'scan:configured-roots'")
         .get() as { value: string };
       expect(JSON.parse(marker.value)).toEqual([libraryA]);
+    });
+
+    it('drops archive bookkeeping with the library on purge and reindex', async () => {
+      const zipA = createTestZipArchive(path.join(libraryA, 'a.zip'), [{ name: 'a.png', content: TINY_PNG_BUFFER }]);
+      const zipB = createTestZipArchive(path.join(libraryB, 'b.zip'), [{ name: 'b.png', content: TINY_PNG_BUFFER }]);
+      expect((await scanLibrary([libraryA, libraryB])).status).toBe('completed');
+      expect(archivePaths()).toEqual([zipA, zipB]);
+
+      // A reindex discards the library's records; only archives still present are recorded again.
+      fs.rmSync(zipA);
+      expect((await scanLibrary([libraryA], { reindexDirectories: [libraryA] })).status).toBe('completed');
+      expect(archivePaths()).toEqual([zipB]);
+
+      purgeLibraryIndexes([libraryB]);
+      expect(archivePaths()).toEqual([]);
     });
   });
 

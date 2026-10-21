@@ -13,14 +13,26 @@ import {
 } from '../server/src/db/database.js';
 import { addScanListener, requestCancelScan, scanLibrary } from '../server/src/services/scanner.js';
 import type { ScanProgressEvent } from '../shared/types.js';
-import { cleanupTempDir, createTempDir, createTestTgaBuffer, TINY_PNG_BUFFER } from './helpers.js';
+import { cleanupTempDir, createTempDir, createTestTgaBuffer, createTestZipArchive, TINY_PNG_BUFFER } from './helpers.js';
 
 const calls = vi.hoisted(() => ({
   imageBuffers: [] as string[],
   imageFiles: [] as string[],
+  archiveOpens: [] as string[],
   classifierRuns: [] as string[],
   beforeClassifier: undefined as undefined | (() => Promise<void>),
 }));
+
+vi.mock('../server/src/services/archive.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../server/src/services/archive.js')>();
+  return {
+    ...actual,
+    openZipArchive: async (...args: Parameters<typeof actual.openZipArchive>) => {
+      calls.archiveOpens.push(args[0]);
+      return actual.openZipArchive(...args);
+    },
+  };
+});
 
 vi.mock('../server/src/services/image.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../server/src/services/image.js')>();
@@ -65,6 +77,16 @@ function cacheRow(absolutePath: string): CacheRow {
   return row;
 }
 
+function archiveRecord(absolutePath: string): { signature: string; entry_count: number } | undefined {
+  return getDatabase().prepare('SELECT signature, entry_count FROM archives WHERE absolute_path = ?')
+    .get(absolutePath) as { signature: string; entry_count: number } | undefined;
+}
+
+function archiveEntryCount(absolutePath: string): number {
+  return (getDatabase().prepare('SELECT COUNT(*) AS count FROM assets WHERE archive_path = ?')
+    .get(absolutePath) as { count: number }).count;
+}
+
 describe('incremental scan and thumbnail freshness', () => {
   let fixture: string;
   let libraryDir: string;
@@ -88,6 +110,7 @@ describe('incremental scan and thumbnail freshness', () => {
     initDatabase(dataDir);
     calls.imageBuffers.length = 0;
     calls.imageFiles.length = 0;
+    calls.archiveOpens.length = 0;
     calls.classifierRuns.length = 0;
     calls.beforeClassifier = undefined;
   });
@@ -135,10 +158,85 @@ describe('incremental scan and thumbnail freshness', () => {
     expect(calls.imageBuffers).toEqual([]);
 
     writeArchive(archivePath, stable, secondChanging);
+    calls.archiveOpens.length = 0;
     const changed = await scanLibrary([libraryDir]);
     expect(changed.status).toBe('completed');
     expect(changed.indexedCount).toBe(1);
+    expect(calls.archiveOpens).toEqual([archivePath]);
     expect(calls.imageBuffers).toEqual([secondChanging.toString('base64')]);
+  });
+
+  describe('archive bookkeeping', () => {
+    let archivePath: string;
+
+    beforeEach(async () => {
+      archivePath = path.join(libraryDir, 'Pack.zip');
+      const red = await sharp({ create: { width: 2, height: 2, channels: 4, background: '#ff0000' } }).png().toBuffer();
+      writeArchive(archivePath, TINY_PNG_BUFFER, red);
+      expect((await scanLibrary([libraryDir])).status).toBe('completed');
+      expect(calls.archiveOpens).toEqual([archivePath]);
+      calls.archiveOpens.length = 0;
+      calls.imageBuffers.length = 0;
+    });
+
+    it('records the archive and does not open it again while unchanged', async () => {
+      expect(archiveRecord(archivePath)?.entry_count).toBe(2);
+
+      const status = await scanLibrary([libraryDir]);
+
+      expect(status.status).toBe('completed');
+      expect(status.indexedCount).toBe(0);
+      expect(calls.archiveOpens).toEqual([]);
+      expect(archiveEntryCount(archivePath)).toBe(2);
+      expect(archiveRecord(archivePath)?.entry_count).toBe(2);
+    });
+
+    it('opens the archive again after a thumbnail quality change', async () => {
+      updateAppSettings({ thumbnailQuality: 37 });
+      const status = await scanLibrary([libraryDir]);
+      expect(status.status).toBe('completed');
+      expect(status.indexedCount).toBe(2);
+      expect(calls.archiveOpens).toEqual([archivePath]);
+    });
+
+    it('opens the archive again on a full rescan', async () => {
+      const status = await scanLibrary([libraryDir], { fullRescan: true });
+      expect(status.status).toBe('completed');
+      expect(calls.archiveOpens).toEqual([archivePath]);
+    });
+
+    it('opens the archive again when an entry row is missing', async () => {
+      getDatabase().prepare("DELETE FROM assets WHERE archive_entry_path = 'sprites/stable.png'").run();
+      const status = await scanLibrary([libraryDir]);
+      expect(status.status).toBe('completed');
+      expect(status.indexedCount).toBe(1);
+      expect(calls.archiveOpens).toEqual([archivePath]);
+      expect(archiveEntryCount(archivePath)).toBe(2);
+    });
+
+    it('drops the record and entries of a deleted archive', async () => {
+      fs.rmSync(archivePath);
+      const status = await scanLibrary([libraryDir]);
+      expect(status.status).toBe('completed');
+      expect(archiveRecord(archivePath)).toBeUndefined();
+      expect(archiveEntryCount(archivePath)).toBe(0);
+    });
+  });
+
+  it('keeps no record for an archive with a failed entry, so the next scan retries it', async () => {
+    const archivePath = createTestZipArchive(path.join(libraryDir, 'Broken.zip'), [
+      { name: 'good.png', content: TINY_PNG_BUFFER },
+      { name: 'bad.png', content: 'not an image' },
+    ]);
+
+    const first = await scanLibrary([libraryDir]);
+    expect(first.failedScopes).toContain(`${path.basename(archivePath)}#/bad.png`);
+    expect(archiveEntryCount(archivePath)).toBe(1);
+    expect(archiveRecord(archivePath)).toBeUndefined();
+    calls.archiveOpens.length = 0;
+
+    await scanLibrary([libraryDir]);
+    expect(calls.archiveOpens).toEqual([archivePath]);
   });
 
   it('detects a same-size replacement with preserved file modification time', async () => {

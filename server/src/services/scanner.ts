@@ -8,13 +8,16 @@ import {
   getAppSettings,
   upsertAsset,
   getScanCacheRecord,
+  getArchiveScanCache,
+  upsertArchiveRecord,
   getThumbnailsDir,
   getCurrentDataDir,
   reconcileScannedAssets,
+  reconcileArchiveRecords,
   removeLibraryIndex,
   restoreTags,
 } from '../db/database.js';
-import type { CompletedScanScope, TagRow } from '../db/database.js';
+import type { ArchiveRecord, CompletedScanScope, TagRow } from '../db/database.js';
 import { isSupportedImageExtension, processImageFile } from './image.js';
 import { isSupportedAudioExtension, processAudioFile } from './audio.js';
 import { isArchiveFile, openZipArchive, ArchiveCancelledError } from './archive.js';
@@ -290,6 +293,8 @@ async function runScanLibrary(
   let indexedCount = 0;
   const failures = new Set<string>();
   const seenIds = new Set<string>();
+  const seenArchives = new Set<string>();
+  const archiveRecords: ArchiveRecord[] = [];
   const scopes: ScanScope[] = [];
   const pending: PendingAsset[] = [];
   const cacheRefreshes: { id: string; size: number; mtime: number }[] = [];
@@ -366,15 +371,34 @@ async function runScanLibrary(
         continue;
       }
       if (archive) {
+        // Overlapping roots reach the same archive; the most specific root owns it.
+        if (seenArchives.has(absolutePath)) continue;
+        seenArchives.add(absolutePath);
+        const archiveDisplayPath = displayPath(root, absolutePath);
+        // ctime and inode catch in-place rewrites that preserve size and mtime.
+        const signature = `${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
+        const unchangedIds = unchangedArchiveEntryIds(absolutePath, archiveDisplayPath, root, signature);
+        if (unchangedIds) {
+          for (const id of unchangedIds) seenIds.add(id);
+          continue;
+        }
+        const failedBefore = scope.failedPaths.length;
         try {
           const opened = await openZipArchive(
-            absolutePath, displayPath(root, absolutePath), `${stats.size}:${stats.mtimeMs}`, {}, cancelled
+            absolutePath, archiveDisplayPath, `${stats.size}:${stats.mtimeMs}`, {}, cancelled
           );
           try {
             for (const descriptor of opened.entries) {
               if (seenIds.has(descriptor.id)) continue;
               seenIds.add(descriptor.id);
               await processInventoryItem({ kind: 'zip', sourceDirectory: root, archivePath: absolutePath, inventory: opened, entry: descriptor });
+            }
+            // A failed entry leaves no record, so the next scan reads the archive again.
+            if (scope.failedPaths.length === failedBefore) {
+              archiveRecords.push({
+                absolutePath, path: archiveDisplayPath, sourceDirectory: root, signature,
+                entryCount: opened.entries.length,
+              });
             }
           } finally {
             opened.close();
@@ -409,6 +433,30 @@ async function runScanLibrary(
     Boolean(options?.fullRescan && (
       !options.rescanDirectories?.length || options.rescanDirectories.some((root) => path.resolve(root) === sourceDirectory)
     ));
+
+  // Returns the indexed entry IDs of an archive that needs no reading: the file
+  // is unchanged and every entry would pass the per-entry cache check below.
+  function unchangedArchiveEntryIds(
+    absolutePath: string, archiveDisplayPath: string, sourceDirectory: string, signature: string
+  ): string[] | null {
+    if (shouldForce(sourceDirectory)) return null;
+    const cached = getArchiveScanCache(absolutePath);
+    if (!cached) return null;
+    const { record, entries } = cached;
+    if (record.signature !== signature || record.path !== archiveDisplayPath ||
+        record.sourceDirectory !== sourceDirectory || entries.length !== record.entryCount) {
+      return null;
+    }
+    for (const entry of entries) {
+      const category = entry.category as 'image' | 'audio';
+      if (entry.metadata.thumbnailFingerprint !== getProcessingFingerprint(category, settings) ||
+          entry.metadata.metadataProcessingVersion !== getMetadataProcessingVersion(category) ||
+          !entry.thumbnailPath || !fs.existsSync(entry.thumbnailPath)) {
+        return null;
+      }
+    }
+    return entries.map((entry) => entry.id);
+  }
 
   // Process each archive before opening the next; only staged files and
   // small asset records survive until reconciliation.
@@ -580,6 +628,7 @@ async function runScanLibrary(
       const reindexedTags: TagRow[] = [];
       for (const root of reindexRoots) reindexedTags.push(...removeLibraryIndex(root).tags);
       for (const asset of pending) upsertAsset(asset);
+      for (const record of archiveRecords) upsertArchiveRecord(record);
       if (keepUserTags) restoreTags(reindexedTags, seenIds);
       const configuredScan = configuredRoots.length > 0 &&
         targetRoots.every((root) => configuredRoots.includes(root));
@@ -597,6 +646,7 @@ async function runScanLibrary(
         }
       }
       const reconciliation = reconcileScannedAssets(scopes, seenIds, removedConfiguredSources);
+      reconcileArchiveRecords(scopes, seenArchives, removedConfiguredSources);
       if (configuredScan) {
         db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('scan:configured-roots', ?)")
           .run(JSON.stringify(configuredRoots));

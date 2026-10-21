@@ -172,6 +172,16 @@ export function initDatabase(dataDirInput?: string): Database.Database {
       asset_id TEXT NOT NULL
     );
 
+    -- Scan bookkeeping only: lets a rescan skip reading an unchanged ZIP.
+    CREATE TABLE IF NOT EXISTS archives (
+      absolute_path TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      source_directory TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      entry_count INTEGER NOT NULL,
+      scanned_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_assets_category ON assets(category);
     CREATE INDEX IF NOT EXISTS idx_assets_extension ON assets(extension);
     CREATE INDEX IF NOT EXISTS idx_assets_stack_id ON assets(stack_id);
@@ -180,6 +190,8 @@ export function initDatabase(dataDirInput?: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_tags_asset_id ON tags(asset_id);
     CREATE INDEX IF NOT EXISTS idx_stacks_type ON stacks(type);
     CREATE INDEX IF NOT EXISTS idx_asset_id_aliases_asset_id ON asset_id_aliases(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_assets_archive_path ON assets(archive_path);
+    CREATE INDEX IF NOT EXISTS idx_archives_source_directory ON archives(source_directory);
     `);
 
     const assetColumns = db.pragma('table_info(assets)') as { name: string }[];
@@ -642,6 +654,62 @@ export function getScanCacheRecord(id: string): ScanCacheRecord | null {
   };
 }
 
+export interface ArchiveRecord {
+  absolutePath: string;
+  path: string;
+  sourceDirectory: string;
+  /** `${ino}:${size}:${mtimeMs}:${ctimeMs}` of the ZIP when it was last read. */
+  signature: string;
+  entryCount: number;
+}
+
+export interface ArchiveScanCache {
+  record: ArchiveRecord;
+  entries: { id: string; category: string; thumbnailPath: string | null; metadata: AssetMetadata }[];
+}
+
+/** Returns an archive's bookkeeping record with its indexed entries, or null. */
+export function getArchiveScanCache(absolutePath: string): ArchiveScanCache | null {
+  const db = getDatabase();
+  const row = db.prepare(`
+    SELECT absolute_path, path, source_directory, signature, entry_count FROM archives WHERE absolute_path = ?
+  `).get(absolutePath) as {
+    absolute_path: string; path: string; source_directory: string; signature: string; entry_count: number;
+  } | undefined;
+  if (!row) return null;
+  const entries = db.prepare(`
+    SELECT id, category, thumbnail_path, metadata FROM assets WHERE is_archive_entry = 1 AND archive_path = ?
+  `).all(absolutePath) as Pick<AssetRow, 'id' | 'category' | 'thumbnail_path' | 'metadata'>[];
+  return {
+    record: {
+      absolutePath: row.absolute_path,
+      path: row.path,
+      sourceDirectory: row.source_directory,
+      signature: row.signature,
+      entryCount: row.entry_count,
+    },
+    entries: entries.map((entry) => {
+      let metadata: AssetMetadata = {};
+      if (entry.metadata) {
+        try {
+          metadata = JSON.parse(entry.metadata) as AssetMetadata;
+        } catch {
+          // Damaged metadata fails the freshness check, so the archive is read again.
+          metadata = {};
+        }
+      }
+      return { id: entry.id, category: entry.category, thumbnailPath: entry.thumbnail_path, metadata };
+    }),
+  };
+}
+
+export function upsertArchiveRecord(record: ArchiveRecord): void {
+  getDatabase().prepare(`
+    INSERT OR REPLACE INTO archives (absolute_path, path, source_directory, signature, entry_count, scanned_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(record.absolutePath, record.path, record.sourceDirectory, record.signature, record.entryCount, Date.now());
+}
+
 export function upsertAsset(asset: {
   id: string;
   path: string;
@@ -1013,6 +1081,7 @@ export function removeLibraryIndex(sourceDir: string): { removedCount: number; t
     db.prepare(`DELETE FROM tags WHERE asset_id IN (${owned})`).run(source);
     db.prepare(`DELETE FROM asset_id_aliases WHERE asset_id IN (${owned})`).run(source);
     const removedCount = db.prepare('DELETE FROM assets WHERE source_directory = ?').run(source).changes;
+    db.prepare('DELETE FROM archives WHERE source_directory = ?').run(source);
     db.prepare(`
       DELETE FROM stacks WHERE id NOT IN (
         SELECT DISTINCT stack_id FROM assets WHERE stack_id IS NOT NULL
@@ -1047,6 +1116,29 @@ function pathIsWithin(candidate: string, parent: string): boolean {
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
+/**
+ * An unseen source is gone only if its library was removed from the
+ * configuration, or a completed traversal covered it without failures.
+ */
+function isConfirmedMissing(
+  absolutePath: string,
+  sourceDirectory: string | null,
+  scopes: CompletedScanScope[],
+  removedSources: Set<string>
+): boolean {
+  const source = sourceDirectory ? path.resolve(sourceDirectory) : null;
+  if (source !== null && removedSources.has(source)) return true;
+  const scope = source !== null
+    ? scopes.find((candidate) => candidate.sourceDirectory === source)
+    : scopes
+      .filter((candidate) => pathIsWithin(absolutePath, candidate.sourceDirectory))
+      .sort((left, right) => right.sourceDirectory.length - left.sourceDirectory.length)[0];
+  const observed = scope?.completedDirectories.some((directory) => pathIsWithin(absolutePath, directory)) ?? false;
+  const failed = scopes.some((candidate) => candidate.failedPaths.some((failedPath) =>
+    pathIsWithin(absolutePath, failedPath)));
+  return observed && !failed;
+}
+
 /** Called inside the scan commit transaction after all media work succeeds. */
 export function reconcileScannedAssets(
   scopes: CompletedScanScope[],
@@ -1065,17 +1157,7 @@ export function reconcileScannedAssets(
 
   for (const row of rows) {
     if (seenAssetIds.has(row.id)) continue;
-    const source = row.source_directory ? path.resolve(row.source_directory) : null;
-    const removedSource = source !== null && removedSources.has(source);
-    const scope = source !== null
-      ? scopes.find((candidate) => candidate.sourceDirectory === source)
-      : scopes
-        .filter((candidate) => pathIsWithin(row.absolute_path, candidate.sourceDirectory))
-        .sort((left, right) => right.sourceDirectory.length - left.sourceDirectory.length)[0];
-    const observed = scope?.completedDirectories.some((directory) => pathIsWithin(row.absolute_path, directory)) ?? false;
-    const failed = scopes.some((candidate) => candidate.failedPaths.some((failedPath) =>
-      pathIsWithin(row.absolute_path, failedPath)));
-    if (!removedSource && (!observed || failed)) continue;
+    if (!isConfirmedMissing(row.absolute_path, row.source_directory, scopes, removedSources)) continue;
     deleteTags.run(row.id);
     deleteAliases.run(row.id);
     deleteAsset.run(row.id);
@@ -1083,6 +1165,27 @@ export function reconcileScannedAssets(
     if (row.thumbnail_path) thumbnailPaths.push(row.thumbnail_path);
   }
   return { removedIds, thumbnailPaths };
+}
+
+/** Drops bookkeeping for archives that are confirmed gone; same rules as assets. */
+export function reconcileArchiveRecords(
+  scopes: CompletedScanScope[],
+  seenArchivePaths: Set<string>,
+  removedConfiguredSources: string[] = []
+): number {
+  const db = getDatabase();
+  const removedSources = new Set(removedConfiguredSources.map((source) => path.resolve(source)));
+  const rows = db.prepare('SELECT absolute_path, source_directory FROM archives').all() as
+    { absolute_path: string; source_directory: string }[];
+  const deleteArchive = db.prepare('DELETE FROM archives WHERE absolute_path = ?');
+  let removedCount = 0;
+  for (const row of rows) {
+    if (seenArchivePaths.has(row.absolute_path)) continue;
+    if (!isConfirmedMissing(row.absolute_path, row.source_directory, scopes, removedSources)) continue;
+    deleteArchive.run(row.absolute_path);
+    removedCount++;
+  }
+  return removedCount;
 }
 
 export function queryAssets(params: AssetQueryParams): AssetListResponse {
