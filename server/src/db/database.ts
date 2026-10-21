@@ -179,15 +179,18 @@ export function initDatabase(dataDirInput?: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
     CREATE INDEX IF NOT EXISTS idx_tags_asset_id ON tags(asset_id);
     CREATE INDEX IF NOT EXISTS idx_stacks_type ON stacks(type);
+    CREATE INDEX IF NOT EXISTS idx_asset_id_aliases_asset_id ON asset_id_aliases(asset_id);
     `);
 
     const assetColumns = db.pragma('table_info(assets)') as { name: string }[];
     if (!assetColumns.some((column) => column.name === 'source_directory')) {
       db.exec('ALTER TABLE assets ADD COLUMN source_directory TEXT');
     }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assets_source_directory ON assets(source_directory)');
     migrateTagProvenance(db);
     migrateCanonicalAssetIds(db);
     migrateAutomatedTags(db);
+    migrateSourceDirectories(db);
   } catch (err) {
     db.close();
     throw err;
@@ -265,6 +268,28 @@ function migrateAutomatedTags(db: Database.Database): void {
     const updateMetadata = db.prepare('UPDATE assets SET metadata = ? WHERE id = ?');
     for (const [assetId, metadata] of metadataByAsset) updateMetadata.run(JSON.stringify(metadata), assetId);
     db.prepare(`DELETE FROM tags WHERE ${automated}`).run();
+  })();
+}
+
+/** Stores each library root resolved, so one indexed equality selects a library. */
+function migrateSourceDirectories(db: Database.Database): void {
+  const sources = db.prepare('SELECT DISTINCT source_directory AS source FROM assets WHERE source_directory IS NOT NULL')
+    .all() as { source: string }[];
+  const unowned = db.prepare('SELECT id, absolute_path FROM assets WHERE source_directory IS NULL')
+    .all() as { id: string; absolute_path: string }[];
+  const renames = sources.filter((row) => path.resolve(row.source) !== row.source);
+  if (!renames.length && !unowned.length) return;
+  // Legacy rows predate the column; the most specific configured root owns them.
+  const roots = [...new Set(libraryEntries(getEffectiveConfig()).map((source) => path.resolve(source.path)))]
+    .sort((left, right) => right.length - left.length);
+  db.transaction(() => {
+    const rename = db.prepare('UPDATE assets SET source_directory = ? WHERE source_directory = ?');
+    for (const row of renames) rename.run(path.resolve(row.source), row.source);
+    const assign = db.prepare('UPDATE assets SET source_directory = ? WHERE id = ?');
+    for (const row of unowned) {
+      const root = roots.find((candidate) => pathIsWithin(row.absolute_path, candidate));
+      if (root) assign.run(root, row.id);
+    }
   })();
 }
 
@@ -967,83 +992,48 @@ export function removeDeletedAssets(existingPaths: Set<string>): number {
   return removedCount;
 }
 
-export function removeDeletedAssetsForSourceDirectory(
-  sourceDir: string,
-  existingPathsInSource: Set<string>
-): number {
-  if (!dbInstance) return 0;
-  const db = getDatabase();
-  const normalized = path.resolve(sourceDir);
-  const rows = db.prepare(`
-    SELECT id, path, thumbnail_path FROM assets
-    WHERE source_directory = ? OR source_directory = ?
-  `).all(sourceDir, normalized) as { id: string; path: string; thumbnail_path: string | null }[];
-
-  let removedCount = 0;
-  const deleteStmt = db.prepare('DELETE FROM assets WHERE id = ?');
-  const deleteTagsStmt = db.prepare('DELETE FROM tags WHERE asset_id = ?');
-
-  const tx = db.transaction(() => {
-    for (const r of rows) {
-      if (!existingPathsInSource.has(r.path)) {
-        deleteTagsStmt.run(r.id);
-        deleteStmt.run(r.id);
-        removedCount++;
-        if (r.thumbnail_path && fs.existsSync(r.thumbnail_path)) {
-          try {
-            fs.unlinkSync(r.thumbnail_path);
-          } catch {
-            // ignore
-          }
-        }
-      }
-    }
-  });
-  tx();
-  return removedCount;
+export interface TagRow {
+  asset_id: string;
+  tag: string;
+  source: string;
 }
 
-export function removeAssetsForSourceDirectory(sourceDir: string): { removedCount: number; thumbnailPaths: string[] } {
-  if (!dbInstance) return { removedCount: 0, thumbnailPaths: [] };
+/**
+ * Deletes one library's rows with their tags, ID aliases, and emptied stacks.
+ * Returns the deleted tags so a reindex can restore them. Thumbnail files are
+ * left for removeUnusedThumbnails after the caller commits.
+ */
+export function removeLibraryIndex(sourceDir: string): { removedCount: number; tags: TagRow[] } {
   const db = getDatabase();
-  const normalized = path.resolve(sourceDir);
-  const rows = db.prepare(`
-    SELECT id, thumbnail_path FROM assets
-    WHERE source_directory = ? OR source_directory = ?
-  `).all(sourceDir, normalized) as { id: string; thumbnail_path: string | null }[];
+  const source = path.resolve(sourceDir);
+  const owned = 'SELECT id FROM assets WHERE source_directory = ?';
+  return db.transaction(() => {
+    const tags = db.prepare(`SELECT asset_id, tag, source FROM tags WHERE asset_id IN (${owned})`)
+      .all(source) as TagRow[];
+    db.prepare(`DELETE FROM tags WHERE asset_id IN (${owned})`).run(source);
+    db.prepare(`DELETE FROM asset_id_aliases WHERE asset_id IN (${owned})`).run(source);
+    const removedCount = db.prepare('DELETE FROM assets WHERE source_directory = ?').run(source).changes;
+    db.prepare(`
+      DELETE FROM stacks WHERE id NOT IN (
+        SELECT DISTINCT stack_id FROM assets WHERE stack_id IS NOT NULL
+      )
+    `).run();
+    return { removedCount, tags };
+  })();
+}
 
-  const deleteStmt = db.prepare('DELETE FROM assets WHERE id = ?');
-  const deleteTagsStmt = db.prepare('DELETE FROM tags WHERE asset_id = ?');
-  const deleteEmptyStacks = db.prepare(`
-    DELETE FROM stacks WHERE id NOT IN (
-      SELECT DISTINCT stack_id FROM assets WHERE stack_id IS NOT NULL
-    )
+/** Puts back tags whose assets were indexed again. */
+export function restoreTags(tags: TagRow[], keepAssetIds: Set<string>): void {
+  const db = getDatabase();
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO tags (asset_id, tag, source)
+    SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM assets WHERE id = ?)
   `);
-
-  const thumbPaths: string[] = [];
-  const tx = db.transaction(() => {
-    for (const r of rows) {
-      deleteTagsStmt.run(r.id);
-      deleteStmt.run(r.id);
-      if (r.thumbnail_path) {
-        thumbPaths.push(r.thumbnail_path);
-      }
+  db.transaction(() => {
+    for (const row of tags) {
+      if (keepAssetIds.has(row.asset_id)) insert.run(row.asset_id, row.tag, row.source, row.asset_id);
     }
-    deleteEmptyStacks.run();
-  });
-  tx();
-
-  for (const p of thumbPaths) {
-    if (fs.existsSync(p)) {
-      try {
-        fs.unlinkSync(p);
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  return { removedCount: rows.length, thumbnailPaths: thumbPaths };
+  })();
 }
 
 export interface CompletedScanScope {

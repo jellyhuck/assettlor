@@ -278,12 +278,16 @@ describe('SettingsModal validation and path selection', () => {
 
     await click(rowButton(current.container, '/library/two', 'Move Up'));
     await click(rowButton(current.container, '/library/two', 'Remove'));
+    // A saved library is removed only after confirming its index goes too.
+    expect(pathRow(current.container, '/library/two')).toBeDefined();
+    await click(button(current.container, 'Remove library and index'));
     await click(button(current.container, 'Save Settings'));
     expect(requestBody(requests('/api/settings', 'POST')[0])).toMatchObject({
       activeProjectPath: '/project/two',
       projectPaths: ['/project/two', '/project/one'],
       libraryPath: '/library/one',
       libraryPaths: ['/library/one', '/library/three'],
+      purgeRemovedLibraries: true,
     });
   });
 });

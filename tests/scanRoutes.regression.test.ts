@@ -128,21 +128,21 @@ describe('scan route admission and SSE lifecycle', () => {
       expect(getCurrentScanStatus()).toEqual(statusBefore);
     }
 
-    const rescan = await app.inject({
+    const reindex = await app.inject({
       method: 'POST',
-      url: '/api/scan/rescan',
-      payload: { libraryPath: missing },
+      url: '/api/scan/library',
+      payload: { libraryPath: missing, reindex: true },
     });
-    expect(rescan.statusCode).toBe(400);
+    expect(reindex.statusCode).toBe(400);
     expect(getAppSettings().libraryPaths).toEqual(before);
     expect(getCurrentScanStatus()).toEqual(statusBefore);
 
-    const fileRescan = await app.inject({
+    const fileScan = await app.inject({
       method: 'POST',
-      url: '/api/scan/rescan',
+      url: '/api/scan/library',
       payload: { libraryPath: file },
     });
-    expect(fileRescan.statusCode).toBe(400);
+    expect(fileScan.statusCode).toBe(400);
     expect(getAppSettings().libraryPaths).toEqual(before);
     expect(getCurrentScanStatus()).toEqual(statusBefore);
   });

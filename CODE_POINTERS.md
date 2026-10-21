@@ -51,6 +51,7 @@ A navigation and reference guide for understanding subsystem implementations and
 - Generates image WebP thumbnails within 400×400 pixels without enlargement; audio artwork is 400×240 pixels. Canonical source and ZIP-entry identities use bounded SHA-256 IDs independent of display prefixes. Versioned cache files under `<data_dir>/thumbnails/` include the asset ID, content fingerprint, and processing fingerprint. A scan stages replacements before updating SQLite, and removes unreferenced thumbnails after commit.
 - Records completed and failed traversal scopes, preserving rows and thumbnails for offline roots, unreadable subtrees, and failed archives. Configured root removal is reconciled only after an explicit configuration change and successful scan admission. The scanner writes no tags; user tags remain attached to the asset ID across reindexing.
 - Cancelling before index publication removes staged thumbnails and leaves prior rows intact. Automatic classifiers run after index publication; cancelling that phase stops classifier work while the newly indexed catalog remains available. Retry markers preserve unfinished classifier targets for a later scan.
+- Reindex (`reindexDirectories`) reprocesses a library without the cache and, inside the commit transaction, deletes its old index with `removeLibraryIndex` before upserting; `keepUserTags` restores user tags on assets seen again. `purgeLibraryIndexes` deletes the index of libraries removed in Settings. Library rows are selected by the indexed, resolved `assets.source_directory`.
 
 ### B. Virtual Archive Inspection (`server/src/services/archive.ts`)
 - Reads `.zip` archives through a file descriptor with `yauzl`: only the central directory and the entry being processed are held in memory, so archive size is unbounded. Only changed entries are decompressed, one archive at a time. Resource limits protect entry count and the declared sizes and compression ratio of indexable media entries; other entries (such as PSD sources) are never read. No temporary source extraction is used.
@@ -98,7 +99,8 @@ A navigation and reference guide for understanding subsystem implementations and
 - `GET /api/stacks/:id/assets` - Ordered frames or variations for a stack; 404 if the stack does not exist.
 - `GET /api/scan/progress` - SSE live scan progress stream.
 - `POST /api/scan/start` - Initiate directory scan.
-- `GET /api/settings` & `POST /api/settings` - Read / write app settings.
+- `POST /api/scan/library` - Scan or reindex one configured library (Settings row **Scan** / **Reindex**).
+- `GET /api/settings` & `POST /api/settings` - Read / write app settings; `purgeRemovedLibraries: true` deletes removed libraries' index.
 
 ---
 

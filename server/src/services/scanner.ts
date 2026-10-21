@@ -11,8 +11,10 @@ import {
   getThumbnailsDir,
   getCurrentDataDir,
   reconcileScannedAssets,
+  removeLibraryIndex,
+  restoreTags,
 } from '../db/database.js';
-import type { CompletedScanScope } from '../db/database.js';
+import type { CompletedScanScope, TagRow } from '../db/database.js';
 import { isSupportedImageExtension, processImageFile } from './image.js';
 import { isSupportedAudioExtension, processAudioFile } from './audio.js';
 import { isArchiveFile, openZipArchive, ArchiveCancelledError } from './archive.js';
@@ -73,6 +75,39 @@ function broadcastProgress(update: Partial<ScanProgressEvent>): void {
 export interface ScanOptions {
   fullRescan?: boolean;
   rescanDirectories?: string[];
+  /** Roots whose index is rebuilt from scratch and swapped in at commit. */
+  reindexDirectories?: string[];
+  /** Restores user tags on reindexed assets that still exist (default true). */
+  keepUserTags?: boolean;
+}
+
+/**
+ * Deletes the index of libraries removed from settings, then their unused
+ * thumbnails. Returns null while a scan owns the index.
+ */
+export function purgeLibraryIndexes(roots: string[]): { removedCount: number } | null {
+  if (currentScanStatus.status === 'scanning') return null;
+  if (!isDatabaseInitialized()) initDatabase(getDataDir());
+  const db = getDatabase();
+  const removed = new Set(roots.map((root) => path.resolve(root)));
+  let removedCount = 0;
+  db.transaction(() => {
+    for (const root of removed) removedCount += removeLibraryIndex(root).removedCount;
+    const marker = db.prepare("SELECT value FROM settings WHERE key = 'scan:configured-roots'").get() as
+      { value: string } | undefined;
+    if (!marker) return;
+    try {
+      const previous = JSON.parse(marker.value) as unknown;
+      if (Array.isArray(previous)) {
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'scan:configured-roots'")
+          .run(JSON.stringify(previous.filter((root) => typeof root !== 'string' || !removed.has(path.resolve(root)))));
+      }
+    } catch (error) {
+      console.warn('Ignoring invalid configured-root scan marker:', error);
+    }
+  })();
+  removeUnusedThumbnails();
+  return { removedCount };
 }
 
 /** Reserve before the route persists settings or starts asynchronous work. */
@@ -87,6 +122,7 @@ export function startScan(
     status: 'scanning',
     libraryPath: targetDirectories[0] || '',
     libraryPaths: targetDirectories,
+    reindexing: Boolean(options?.reindexDirectories?.length),
     scannedCount: 0,
     indexedCount: 0,
     currentFile: undefined,
@@ -184,7 +220,7 @@ async function contentHash(filePath: string): Promise<string> {
   return digest.digest('hex');
 }
 
-function removeUnusedThumbnails(): void {
+export function removeUnusedThumbnails(): void {
   const thumbnailDir = getThumbnailsDir();
   const rows = getDatabase().prepare('SELECT thumbnail_path FROM assets WHERE thumbnail_path IS NOT NULL').all() as
     { thumbnail_path: string }[];
@@ -229,6 +265,8 @@ async function runScanLibrary(
   }
   const targetRoots = [...new Set(supplied.map((entry) => path.resolve(entry)))];
   if (!targetRoots.length) throw new Error('No target directory specified to scan');
+  const reindexRoots = new Set((options?.reindexDirectories ?? []).map((root) => path.resolve(root)));
+  const keepUserTags = options?.keepUserTags !== false;
   if (!targetRoots.some((root) => fs.existsSync(root))) {
     throw new Error(`Directory does not exist: ${targetRoots[0]}`);
   }
@@ -367,9 +405,10 @@ async function runScanLibrary(
     return { stagedPath: path.join(stagingDir, `${assetId}.webp`), finalPath: path.join(thumbnailDir, filename) };
   }
 
-  const shouldForce = (sourceDirectory: string): boolean => Boolean(options?.fullRescan && (
-    !options.rescanDirectories?.length || options.rescanDirectories.some((root) => path.resolve(root) === sourceDirectory)
-  ));
+  const shouldForce = (sourceDirectory: string): boolean => reindexRoots.has(sourceDirectory) ||
+    Boolean(options?.fullRescan && (
+      !options.rescanDirectories?.length || options.rescanDirectories.some((root) => path.resolve(root) === sourceDirectory)
+    ));
 
   // Process each archive before opening the next; only staged files and
   // small asset records survive until reconciliation.
@@ -446,7 +485,7 @@ async function runScanLibrary(
         thumbnailPath: finalPath,
         metadata,
         stagedThumbnailPath: stagedPath,
-        classificationRelevant: !cached || cached.hash !== hash || cached.path !== currentPath ||
+        classificationRelevant: reindexRoots.has(sourceDirectory) || !cached || cached.hash !== hash || cached.path !== currentPath ||
           cached.metadata.metadataProcessingVersion !== metadataVersion,
       });
       indexedCount++;
@@ -464,6 +503,7 @@ async function runScanLibrary(
       status: 'scanning',
       libraryPath: targetRoots[0],
       libraryPaths: targetRoots,
+      reindexing: reindexRoots.size > 0,
       scannedCount: 0,
       indexedCount: 0,
       currentFile: undefined,
@@ -511,6 +551,13 @@ async function runScanLibrary(
       return currentScanStatus;
     }
 
+    // A reindex replaces the whole library, so it needs the library root itself.
+    for (const root of reindexRoots) {
+      if (!scopes.find((scope) => scope.sourceDirectory === root)?.rootSucceeded) {
+        throw new Error(`Cannot reindex ${root}: library is unavailable`);
+      }
+    }
+
     // Versioned cache paths keep old thumbnails readable until the DB commit.
     for (const asset of pending) {
       throwIfCancelled();
@@ -530,7 +577,10 @@ async function runScanLibrary(
     db.transaction(() => {
       const refresh = db.prepare('UPDATE assets SET size = ?, mtime = ?, updated_at = ? WHERE id = ?');
       for (const asset of cacheRefreshes) refresh.run(asset.size, asset.mtime, Date.now(), asset.id);
+      const reindexedTags: TagRow[] = [];
+      for (const root of reindexRoots) reindexedTags.push(...removeLibraryIndex(root).tags);
       for (const asset of pending) upsertAsset(asset);
+      if (keepUserTags) restoreTags(reindexedTags, seenIds);
       const configuredScan = configuredRoots.length > 0 &&
         targetRoots.every((root) => configuredRoots.includes(root));
       const rootMarker = db.prepare("SELECT value FROM settings WHERE key = 'scan:configured-roots'").get() as

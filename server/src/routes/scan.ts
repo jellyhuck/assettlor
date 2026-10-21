@@ -7,12 +7,19 @@ import {
   addScanListener,
   requestCancelScan,
 } from '../services/scanner.js';
+import type { ScanOptions } from '../services/scanner.js';
 import { getAppSettings, updateAppSettings } from '../db/database.js';
 
 interface ScanRequestBody {
   libraryPath?: string;
   libraryPaths?: string[];
   fullRescan?: boolean;
+}
+
+interface LibraryScanRequestBody {
+  libraryPath?: string;
+  reindex?: boolean;
+  keepUserTags?: boolean;
 }
 
 class InvalidScanTarget extends Error {}
@@ -178,15 +185,12 @@ export async function scanRoutes(fastify: FastifyInstance) {
 
   const admitScan = (
     body: ScanRequestBody | undefined,
-    fullRescan: boolean,
+    scanOptions: (paths: string[]) => ScanOptions,
     saveRequestedPaths: boolean,
   ): { paths: string[] } | { error: string; statusCode: number } => {
     try {
       const { paths, settingsUpdate } = resolveScanTargets(body);
-      const task = startScan(paths, {
-        fullRescan,
-        rescanDirectories: fullRescan ? paths : undefined,
-      }, () => {
+      const task = startScan(paths, scanOptions(paths), () => {
         if (saveRequestedPaths && settingsUpdate) updateAppSettings(settingsUpdate);
       });
       if (!task) return { error: 'A scan is already running', statusCode: 409 };
@@ -207,7 +211,10 @@ export async function scanRoutes(fastify: FastifyInstance) {
 
   fastify.post('/api/scan/start', async (req: FastifyRequest<{ Body: ScanRequestBody }>, reply) => {
     const fullRescan = req.body?.fullRescan === true;
-    const result = admitScan(req.body, fullRescan, true);
+    const result = admitScan(req.body, (paths) => ({
+      fullRescan,
+      rescanDirectories: fullRescan ? paths : undefined,
+    }), true);
     if ('error' in result) return reply.status(result.statusCode).send({ error: result.error });
     return reply.send({
       message: fullRescan ? 'Full rescan started' : 'Scan started',
@@ -217,14 +224,27 @@ export async function scanRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post('/api/scan/rescan', async (req: FastifyRequest<{ Body: ScanRequestBody }>, reply) => {
-    const result = admitScan(req.body, true, false);
+  // Scans or reindexes one saved library without changing settings.
+  fastify.post('/api/scan/library', async (req: FastifyRequest<{ Body: LibraryScanRequestBody }>, reply) => {
+    const body = req.body ?? {};
+    if (typeof body.libraryPath !== 'string' || !body.libraryPath.trim()) {
+      return reply.status(400).send({ error: 'Library path is required' });
+    }
+    const requested = path.resolve(body.libraryPath.trim());
+    if (!getAppSettings().libraryPaths.some((libraryPath) => path.resolve(libraryPath) === requested)) {
+      return reply.status(400).send({ error: 'Not a configured library: ' + requested });
+    }
+    const reindex = body.reindex === true;
+    const keepUserTags = body.keepUserTags !== false;
+    const result = admitScan({ libraryPath: requested }, (paths) => (reindex
+      ? { reindexDirectories: paths, keepUserTags }
+      : {}), false);
     if ('error' in result) return reply.status(result.statusCode).send({ error: result.error });
     return reply.send({
-      message: 'Full rescan started',
+      message: reindex ? 'Reindex started' : 'Scan started',
       libraryPath: result.paths[0],
-      libraryPaths: result.paths,
-      fullRescan: true,
+      reindex,
+      ...(reindex ? { keepUserTags } : {}),
     });
   });
 

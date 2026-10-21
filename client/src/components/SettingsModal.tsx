@@ -17,6 +17,7 @@ import {
   Trash2,
   Star,
   RefreshCw,
+  DatabaseZap,
 } from 'lucide-react';
 import { useToast } from './Toast';
 import { FolderBrowserModal } from './FolderBrowserModal';
@@ -332,54 +333,67 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
     }
   };
 
-  const [rescanningLibrary, setRescanningLibrary] = useState<string | null>(null);
-  const [rescanStartedAt, setRescanStartedAt] = useState<number | null>(null);
-  const [rescanError, setRescanError] = useState('');
-  const rescanStartRef = useRef(false);
+  const [startingLibrary, setStartingLibrary] = useState<{ lib: string; reindex: boolean } | null>(null);
+  const [libraryScanStartedAt, setLibraryScanStartedAt] = useState<number | null>(null);
+  const [libraryScanError, setLibraryScanError] = useState('');
+  const [reindexPrompt, setReindexPrompt] = useState<{ lib: string; keepUserTags: boolean } | null>(null);
+  const [removePrompt, setRemovePrompt] = useState<string | null>(null);
+  const [confirmedLibraryRemovals, setConfirmedLibraryRemovals] = useState<string[]>([]);
+  const libraryScanStartRef = useRef(false);
   const { status: scanStatus, error: scanStatusError, refresh: refreshScanStatus } = useScanStatus(true);
-  const awaitingStartedJob = rescanStartedAt !== null
-    && (!scanStatus?.startTime || scanStatus.startTime < rescanStartedAt);
-  const scanBusy = Boolean(rescanningLibrary || scanStatus?.status === 'scanning' || awaitingStartedJob);
+  const awaitingStartedJob = libraryScanStartedAt !== null
+    && (!scanStatus?.startTime || scanStatus.startTime < libraryScanStartedAt);
+  const scanBusy = Boolean(startingLibrary || scanStatus?.status === 'scanning' || awaitingStartedJob);
 
-  const handleFullRescan = async (libPath: string) => {
-    if (rescanStartRef.current || scanBusy || !scanStatus || scanStatusError
+  /** Scans a saved library for new and changed files, or rebuilds its whole index. */
+  const handleLibraryScan = async (libPath: string, reindex: boolean, keepUserTags = true) => {
+    const action = reindex ? 'reindexing' : 'scanning';
+    if (libraryScanStartRef.current || scanBusy || !scanStatus || scanStatusError
       || !persistedSettings?.libraryPaths.some((path) => directoryKey(path) === directoryKey(libPath))) {
-      setRescanError('Save this library and wait for the current scan status before rescanning');
+      setLibraryScanError(`Save this library and wait for the current scan status before ${action}`);
       return;
     }
-    rescanStartRef.current = true;
-    setRescanningLibrary(libPath);
-    setRescanError('');
+    libraryScanStartRef.current = true;
+    setStartingLibrary({ lib: libPath, reindex });
+    setLibraryScanError('');
     try {
       const startedAt = Date.now();
-      const res = await fetch('/api/scan/rescan', {
+      const res = await fetch('/api/scan/library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ libraryPath: libPath }),
+        body: JSON.stringify(reindex
+          ? { libraryPath: libPath, reindex: true, keepUserTags }
+          : { libraryPath: libPath }),
       });
       try {
         await readJson(res);
       } catch (error) {
         const reason = errorMessage(error);
         if (res.status === 409) throw new Error(`A scan is already running: ${reason}`);
-        if (res.status === 400) throw new Error(`Cannot rescan this directory: ${reason}`);
+        if (res.status === 400) throw new Error(`Cannot ${reindex ? 'reindex' : 'scan'} this directory: ${reason}`);
         throw error;
       }
       if (!activeRef.current) return;
-      setRescanStartedAt(startedAt);
+      setLibraryScanStartedAt(startedAt);
       await refreshScanStatus();
       if (!activeRef.current) return;
       const folderName = libPath.split('/').filter(Boolean).pop() || libPath;
-      showToast('info', 'Full Rescan Started', `Reprocessing ${folderName} and regenerating derived previews. Saved curation is retained.`);
+      if (reindex) {
+        showToast('info', 'Reindex Started', `Rebuilding the index of ${folderName}. `
+          + `${keepUserTags ? 'User tags are kept.' : 'User tags are removed.'} `
+          + 'The current index stays available until the rebuild finishes.');
+      } else {
+        showToast('info', 'Scan Started', `Scanning ${folderName} for new and changed files.`);
+      }
     } catch (error: unknown) {
       await refreshScanStatus();
       if (!activeRef.current) return;
       const message = errorMessage(error);
-      setRescanError(message);
-      showToast('error', 'Rescan Error', message);
+      setLibraryScanError(message);
+      showToast('error', reindex ? 'Reindex Error' : 'Scan Error', message);
     } finally {
-      if (activeRef.current) setRescanningLibrary(null);
-      rescanStartRef.current = false;
+      if (activeRef.current) setStartingLibrary(null);
+      libraryScanStartRef.current = false;
     }
   };
 
@@ -467,10 +481,12 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
         libraryNames,
         activeProjectPath: settings.projectPaths[0] || '',
         libraryPath: settings.libraryPaths[0] || '',
+        ...(confirmedLibraryRemovals.length ? { purgeRemovedLibraries: true } : {}),
       };
 
-      // 1. Save general settings
-      const updated = await requestJson('/api/settings', parseAppSettings, {
+      // 1. Save general settings; confirmed removals also delete those libraries' index.
+      const { removedAssetCount, ...updated } = await requestJson('/api/settings',
+        (value) => parseAppSettings(value) as AppSettings & { removedAssetCount?: number }, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -511,8 +527,11 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
       if (!activeRef.current) return;
       setSettings(updated);
       setLibraryNameDrafts({});
+      setConfirmedLibraryRemovals([]);
       onSettingsSaved(updated);
-      showToast('success', 'Settings Saved', 'App and classifier preferences updated');
+      showToast('success', 'Settings Saved', removedAssetCount
+        ? `App and classifier preferences updated. Removed ${removedAssetCount} indexed asset${removedAssetCount === 1 ? '' : 's'}.`
+        : 'App and classifier preferences updated');
       savingRef.current = false;
       onCloseRef.current();
     } catch (err: unknown) {
@@ -779,8 +798,14 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                         className="underline text-rose-100">Retry status</button>
                     </p>
                   )}
-                  {rescanError && <p role="alert" className="text-xs text-rose-300">{rescanError}</p>}
-                  {dirty && <p className="text-xs text-amber-200">Rescan uses saved paths and settings. Save these changes first if you want them included.</p>}
+                  {libraryScanError && <p role="alert" className="text-xs text-rose-300">{libraryScanError}</p>}
+                  {dirty && <p className="text-xs text-amber-200">Scan and Reindex use saved paths and settings. Save these changes first if you want them included.</p>}
+                  {confirmedLibraryRemovals.length > 0 && (
+                    <p className="text-xs text-amber-200">
+                      Saving deletes the index of {confirmedLibraryRemovals.length === 1
+                        ? 'the removed library' : `${confirmedLibraryRemovals.length} removed libraries`}.
+                    </p>
+                  )}
 
                   {/* Libraries List */}
                   <div className="space-y-1.5 mt-2">
@@ -793,12 +818,17 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                       const persisted = persistedSettings?.libraryPaths.some((path) => directoryKey(path) === directoryKey(lib));
                       const scanningThisLibrary = scanStatus?.status === 'scanning'
                         && (scanStatus.libraryPaths ?? [scanStatus.libraryPath]).some((path) => directoryKey(path) === directoryKey(lib));
+                      const reindexingThisLibrary = scanningThisLibrary && scanStatus.reindexing === true;
+                      const startingHere = startingLibrary?.lib === lib ? startingLibrary : null;
+                      const scanDisabled = !persisted || !scanStatus || Boolean(scanStatusError) || scanBusy;
+                      const confirmingReindex = reindexPrompt?.lib === lib ? reindexPrompt : null;
 
                       return (
                         <div
                           key={`${lib}-${idx}`}
-                          className="flex items-center justify-between p-2 rounded-lg border text-xs transition-colors bg-[#12121d] border-[#25253c] text-slate-300"
+                          className="p-2 rounded-lg border text-xs transition-colors bg-[#12121d] border-[#25253c] text-slate-300"
                         >
+                        <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
                             <span className="w-5 h-5 flex items-center justify-center rounded text-[10px] font-mono shrink-0 bg-[#202034] text-slate-400">
                               {idx + 1}
@@ -866,14 +896,29 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                           <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              onClick={() => handleFullRescan(lib)}
-                              disabled={!persisted || !scanStatus || Boolean(scanStatusError) || scanBusy}
-                              title={persisted ? 'Reprocess this saved library and regenerate derived previews'
-                                : 'Save this library before rescanning'}
+                              onClick={() => void handleLibraryScan(lib, false)}
+                              disabled={scanDisabled}
+                              title={persisted ? 'Scan this saved library for new and changed files'
+                                : 'Save this library before scanning'}
                               className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-cyan-300 hover:text-cyan-200 bg-cyan-950/40 hover:bg-cyan-900/60 rounded border border-cyan-800/50 transition-colors cursor-pointer disabled:opacity-40"
                             >
-                              <RefreshCw className={`w-3 h-3 ${scanningThisLibrary || rescanningLibrary === lib ? 'animate-spin' : ''}`} />
-                              <span>{rescanningLibrary === lib ? 'Starting…' : scanningThisLibrary ? 'Scanning…' : 'Rescan'}</span>
+                              <RefreshCw className={`w-3 h-3 ${(scanningThisLibrary && !reindexingThisLibrary) || (startingHere && !startingHere.reindex) ? 'animate-spin' : ''}`} />
+                              <span>{startingHere && !startingHere.reindex ? 'Starting…'
+                                : scanningThisLibrary && !reindexingThisLibrary ? 'Scanning…' : 'Scan'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRemovePrompt(null);
+                                setReindexPrompt({ lib, keepUserTags: true });
+                              }}
+                              disabled={scanDisabled}
+                              title={persisted ? 'Delete this library\'s index and rebuild it from scratch'
+                                : 'Save this library before reindexing'}
+                              className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-amber-300 hover:text-amber-200 bg-amber-950/40 hover:bg-amber-900/60 rounded border border-amber-800/50 transition-colors cursor-pointer disabled:opacity-40"
+                            >
+                              <DatabaseZap className={`w-3 h-3 ${reindexingThisLibrary || startingHere?.reindex ? 'animate-pulse' : ''}`} />
+                              <span>{startingHere?.reindex ? 'Starting…' : reindexingThisLibrary ? 'Reindexing…' : 'Reindex'}</span>
                             </button>
                             <button
                               type="button"
@@ -895,13 +940,84 @@ function OpenSettingsModal({ onClose, onSettingsSaved }: Omit<SettingsModalProps
                             </button>
                             <button
                               type="button"
-                              onClick={() => removeLibrary(idx)}
+                              onClick={() => {
+                                if (!persisted) {
+                                  removeLibrary(idx);
+                                  return;
+                                }
+                                setReindexPrompt(null);
+                                setRemovePrompt(lib);
+                              }}
                               title="Remove"
                               className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
+                        </div>
+                        {confirmingReindex && (
+                          <div role="group" aria-label={`Reindex ${folderName}`}
+                            className="mt-2 rounded border border-amber-700/60 p-2 text-xs text-amber-200 space-y-2">
+                            <p>
+                              Reindex deletes this library&apos;s index and rebuilds it from scratch: thumbnails,
+                              metadata, stacks and classifier results. The current index stays available until the
+                              rebuild finishes.
+                            </p>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={confirmingReindex.keepUserTags}
+                                onChange={(e) => setReindexPrompt({ lib, keepUserTags: e.target.checked })}
+                                className="accent-amber-500"
+                              />
+                              Keep user tags on assets that still exist
+                            </label>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={scanDisabled}
+                                onClick={() => {
+                                  const { keepUserTags } = confirmingReindex;
+                                  setReindexPrompt(null);
+                                  void handleLibraryScan(lib, true, keepUserTags);
+                                }}
+                                className="rounded bg-amber-700 hover:bg-amber-600 px-2 py-1 text-white cursor-pointer disabled:opacity-40"
+                              >
+                                Reindex
+                              </button>
+                              <button type="button" onClick={() => setReindexPrompt(null)}
+                                className="rounded px-2 py-1 text-slate-300 hover:bg-[#25253c] cursor-pointer">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {removePrompt === lib && (
+                          <div role="group" aria-label={`Remove ${folderName}`}
+                            className="mt-2 rounded border border-rose-700/60 p-2 text-xs text-rose-200 space-y-2">
+                            <p>
+                              Removing {names.length ? names.join(' · ') : folderName} also deletes its index,
+                              including thumbnails and user tags, when you save.
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRemovePrompt(null);
+                                  setConfirmedLibraryRemovals((prev) => [...prev, lib]);
+                                  removeLibrary(idx);
+                                }}
+                                className="rounded bg-rose-700 hover:bg-rose-600 px-2 py-1 text-white cursor-pointer"
+                              >
+                                Remove library and index
+                              </button>
+                              <button type="button" onClick={() => setRemovePrompt(null)}
+                                className="rounded px-2 py-1 text-slate-300 hover:bg-[#25253c] cursor-pointer">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         </div>
                       );
                     })}

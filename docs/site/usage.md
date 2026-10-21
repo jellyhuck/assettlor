@@ -14,6 +14,13 @@ SQLite catalog. Later scans check content fingerprints and avoid decoding
 unchanged media. Offline roots and failed traversal scopes retain their
 previously indexed assets until a successful scan can reconcile them.
 
+Each library in Settings has its own **Scan** and **Reindex** buttons.
+**Scan** looks for new and changed files. **Reindex** deletes that library's
+index and rebuilds it from scratch. Before it starts, you choose whether to
+keep user tags. The current index stays available until the rebuild
+finishes. Removing a saved library asks for confirmation, because saving
+also deletes its index.
+
 Use category, tag, and format filters in the sidebar and search in the top bar.
 The gallery offers stacked and flat views, sorting, and **Load more** paging.
 To browse numbered pages of 100 results instead, set **Paging** to

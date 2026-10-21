@@ -209,9 +209,10 @@ assettlor/
 | `GET` | `/api/libraries` | List library names with their paths and asset counts |
 | `GET` | `/api/scan/progress` | Server-Sent Events (SSE) live indexing progress |
 | `POST` | `/api/scan/start` | Trigger incremental directory scan |
+| `POST` | `/api/scan/library` | Scan or reindex (rebuild from scratch) one configured library |
 | `POST` | `/api/scan/cancel` | Cancel active directory scan |
 | `GET` | `/api/settings` | Get current application settings |
-| `POST` | `/api/settings` | Update settings (library path, active project, etc.) |
+| `POST` | `/api/settings` | Update settings (library path, active project, etc.); `purgeRemovedLibraries` deletes removed libraries' index |
 | `GET` | `/api/fs/browse` | Browse local directories for folder selection modals |
 
 In `search`, `tag:"name"`, `pack:"name"`, `folder:"name"`, and `lib:"name"`

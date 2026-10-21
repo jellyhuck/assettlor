@@ -770,15 +770,123 @@ describe('HTTP API Routes', () => {
       expect(res.json().message).toBe('Cancel requested');
     });
 
-    it('POST /api/scan/rescan should start full rescan', async () => {
+    it('POST /api/scan/library scans one configured library without forcing', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/scan/library',
+        payload: { libraryPath: tempLibraryDir },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ message: 'Scan started', libraryPath: tempLibraryDir, reindex: false });
+    });
+
+    it('POST /api/scan/library reindexes and reports the tag choice', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/scan/library',
+        payload: { libraryPath: tempLibraryDir, reindex: true, keepUserTags: false },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ message: 'Reindex started', reindex: true, keepUserTags: false });
+      expect((await app.inject({ method: 'GET', url: '/api/scan/status' })).json().reindexing).toBe(true);
+    });
+
+    it('POST /api/scan/library rejects a directory that is not a configured library', async () => {
+      const other = createTempDir('routes-other-');
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/scan/library',
+          payload: { libraryPath: other, reindex: true },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toMatch(/Not a configured library/);
+      } finally {
+        cleanupTempDir(other);
+      }
+    });
+
+    it('POST /api/scan/library returns 409 while another scan runs', async () => {
+      const first = await app.inject({ method: 'POST', url: '/api/scan/start', payload: {} });
+      expect(first.statusCode).toBe(200);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/scan/library',
+        payload: { libraryPath: tempLibraryDir, reindex: true },
+      });
+      expect(res.statusCode).toBe(409);
+    });
+
+    it('POST /api/scan/rescan is gone', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/scan/rescan',
         payload: { libraryPath: tempLibraryDir },
       });
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe('Library removal (/api/settings purgeRemovedLibraries)', () => {
+    let otherLibraryDir: string;
+
+    beforeEach(() => {
+      otherLibraryDir = createTempDir('routes-lib-b-');
+      updateAppSettings({ libraryPaths: [tempLibraryDir, otherLibraryDir] });
+      upsertTaggedAsset({
+        id: 'other_id',
+        path: 'other.png',
+        absolutePath: path.join(otherLibraryDir, 'other.png'),
+        name: 'other.png',
+        extension: '.png',
+        category: 'image',
+        size: 1,
+        mtime: 1,
+        hash: 'h_other',
+        isArchiveEntry: false,
+        sourceDirectory: otherLibraryDir,
+        tags: ['keep-me'],
+      });
+    });
+
+    afterEach(() => {
+      cleanupTempDir(otherLibraryDir);
+    });
+
+    it('deletes the removed library index when the save asks for it', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/settings',
+        payload: { libraryPaths: [tempLibraryDir], purgeRemovedLibraries: true },
+      });
       expect(res.statusCode).toBe(200);
-      expect(res.json().message).toBe('Full rescan started');
-      expect(res.json().fullRescan).toBe(true);
+      expect(res.json().libraryPaths).toEqual([tempLibraryDir]);
+      expect(res.json().removedAssetCount).toBe(1);
+      expect((await app.inject({ method: 'GET', url: '/api/assets/other_id' })).statusCode).toBe(404);
+    });
+
+    it('keeps the index until the next scan without the flag', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/settings',
+        payload: { libraryPaths: [tempLibraryDir] },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().removedAssetCount).toBeUndefined();
+      expect((await app.inject({ method: 'GET', url: '/api/assets/other_id' })).statusCode).toBe(200);
+    });
+
+    it('refuses to remove a library index while a scan runs, before saving', async () => {
+      expect((await app.inject({ method: 'POST', url: '/api/scan/start', payload: {} })).statusCode).toBe(200);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/settings',
+        payload: { libraryPaths: [tempLibraryDir], purgeRemovedLibraries: true },
+      });
+      expect(res.statusCode).toBe(409);
+      const settings = (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+      expect(settings.libraryPaths).toEqual([tempLibraryDir, otherLibraryDir]);
+      expect((await app.inject({ method: 'GET', url: '/api/assets/other_id' })).statusCode).toBe(200);
     });
   });
 

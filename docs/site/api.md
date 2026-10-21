@@ -108,13 +108,21 @@ when known, `failedFile` and `targetDirectory`.
 | GET | `/api/scan/status` | Current scan status |
 | GET | `/api/scan/progress` | Server-Sent Events stream |
 | POST | `/api/scan/start` | Start a scan; optionally save requested library paths |
-| POST | `/api/scan/rescan` | Full rescan without saving requested library paths |
+| POST | `/api/scan/library` | Scan or reindex one configured library without changing settings |
 | POST | `/api/scan/cancel` | Request cancellation |
 
-Start and rescan accept optional `libraryPath` or `libraryPaths`. Without
-these fields, they use configured libraries. `/api/scan/start` also accepts
-`fullRescan: true`. Concurrent scan requests return 409; invalid targets
-return 400.
+`/api/scan/start` accepts optional `libraryPath` or `libraryPaths`. Without
+these fields, it uses configured libraries. It also accepts `fullRescan: true`.
+
+`/api/scan/library` takes `libraryPath`, which must be a configured library.
+Without other fields it scans for new and changed files. With `reindex: true`
+it deletes the library's index and rebuilds it from scratch: thumbnails,
+metadata, stacks, and classifier results. The old index stays available
+until the new one is committed; cancelling or an unavailable library leaves
+it unchanged. `keepUserTags` (default `true`) restores user tags on assets
+that still exist.
+
+Concurrent scan requests return 409; invalid targets return 400.
 
 ```bash
 curl -N http://127.0.0.1:3001/api/scan/progress
@@ -122,7 +130,7 @@ curl -N http://127.0.0.1:3001/api/scan/progress
 
 The SSE stream sends JSON in `data:` messages with `status` (`idle`,
 `scanning`, `completed`, or `error`), `libraryPath`, `scannedCount`, and
-`indexedCount`. Events may also include `libraryPaths`, `currentFile`,
+`indexedCount`. Events may also include `libraryPaths`, `reindexing`, `currentFile`,
 `message`, timing fields, `error`, and `failedScopes`. Comment heartbeats
 keep the connection active.
 
@@ -145,6 +153,12 @@ Application settings include `libraryPath`, `libraryPaths`, `libraryNames`
 `activeProjectPath`, `projectPaths`, `thumbnailQuality`, `autoStackAnimations`, `autoStackAudio`,
 `defaultFps`, and `catalogPaging` (`load-more` or `pages`). These API field names differ from the YAML names in
 [Configuration](configuration.md).
+
+By default, a library removed from `libraryPaths` keeps its indexed assets
+until the next scan. Send `purgeRemovedLibraries: true` with the update to
+delete their index immediately; the response then includes
+`removedAssetCount`. That request returns 409 while a scan is running, and
+nothing is saved.
 
 Classifier IDs are `bpm`, `sprite`, `pack`, and `folder`. A run body specifies
 `targetType` (`all`, `asset`, `directory`, or `archive`), `targetValue` when

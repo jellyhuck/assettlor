@@ -156,6 +156,8 @@ export interface ScanProgressEvent {
   elapsedMs?: number;
   error?: string;
   failedScopes?: string[];
+  /** True while the scan rebuilds its libraries' index from scratch. */
+  reindexing?: boolean;
 }
 
 export interface AppSettings {
