@@ -110,6 +110,22 @@ export function Sidebar({
   const [folderSearch, setFolderSearch] = useState('');
 
   const isScanning = scanStatus.status === 'scanning';
+  // Older servers send no phase; their scans keep the indeterminate file count.
+  const totalItems = scanStatus.totalCount ?? 0;
+  const processedItems = Math.min(scanStatus.processedCount ?? 0, totalItems);
+  const determinate = scanStatus.phase === 'indexing' && totalItems > 0;
+  const scanPhaseLabel = scanStatus.phase === 'counting' ? 'Counting...'
+    : scanStatus.phase === 'classifying' ? 'Classifying...' : 'Indexing...';
+  const scanCountLabel = determinate
+    ? `${processedItems.toLocaleString()} / ${totalItems.toLocaleString()}`
+    : scanStatus.phase === 'counting'
+      ? `${totalItems.toLocaleString()} found`
+      : scanStatus.phase === 'classifying' ? '' : `${scanStatus.scannedCount} files`;
+  const scanValueText = determinate
+    ? `${processedItems} of ${totalItems} items processed`
+    : scanStatus.phase === 'counting'
+      ? `${totalItems} items found`
+      : scanStatus.phase === 'classifying' ? 'Classifying assets' : `${scanStatus.scannedCount} files scanned`;
   const configuredLibraries = settings.libraryPaths?.filter((library) => library.trim()) ?? [];
   const fallbackLibrary = settings.libraryPath?.trim() ?? '';
   const hasLibrary = configuredLibraries.length > 0 || fallbackLibrary.length > 0;
@@ -225,16 +241,26 @@ export function Sidebar({
         {isScanning && (
           <div className="space-y-1.5 pt-1">
             <div className="flex justify-between gap-2 text-[11px] font-mono text-slate-400">
-              <span className="text-cyan-400">Indexing...</span>
-              <span>{scanStatus.scannedCount} files</span>
+              <span className="text-cyan-400">{scanPhaseLabel}</span>
+              <span>{scanCountLabel}</span>
             </div>
             <div
               role="progressbar"
               aria-label="Library scan progress"
-              aria-valuetext={`${scanStatus.scannedCount} files scanned`}
+              aria-valuemin={determinate ? 0 : undefined}
+              aria-valuemax={determinate ? totalItems : undefined}
+              aria-valuenow={determinate ? processedItems : undefined}
+              aria-valuetext={scanValueText}
               className="w-full bg-[#202033] h-1.5 rounded-full overflow-hidden"
             >
-              <div className="bg-indigo-500 h-full animate-pulse rounded-full w-full" />
+              {determinate ? (
+                <div
+                  className="bg-indigo-500 h-full rounded-full transition-[width] duration-200"
+                  style={{ width: `${Math.min(100, (processedItems / totalItems) * 100)}%` }}
+                />
+              ) : (
+                <div className="bg-indigo-500 h-full animate-pulse rounded-full w-full" />
+              )}
             </div>
           </div>
         )}

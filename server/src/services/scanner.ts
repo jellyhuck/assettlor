@@ -132,9 +132,12 @@ export function startScan(
     libraryPath: targetDirectories[0] || '',
     libraryPaths: targetDirectories,
     reindexing: Boolean(options?.reindexDirectories?.length),
+    phase: 'counting',
     scannedCount: 0,
     indexedCount: 0,
     committedCount: 0,
+    totalCount: 0,
+    processedCount: 0,
     currentFile: undefined,
     failedScopes: [],
     error: undefined,
@@ -189,6 +192,18 @@ interface ZipInventoryItem {
 }
 
 type InventoryItem = DiskInventoryItem | ZipInventoryItem;
+
+/** An indexable file found by the counting pass; an archive stands for its entries. */
+interface ScanCandidate {
+  root: string;
+  scope: ScanScope;
+  absolutePath: string;
+  extension: string;
+  kind: 'image' | 'audio' | 'archive';
+}
+
+/** Minimum interval between routine progress events; milestones are sent at once. */
+const PROGRESS_INTERVAL_MS = 100;
 type PendingAsset = Parameters<typeof upsertAsset>[0] & {
   stagedThumbnailPath: string;
   classificationRelevant: boolean;
@@ -313,6 +328,12 @@ async function runScanLibrary(
   let createdFinalPaths: string[] = [];
   const changedIds = new Set<string>();
   let committedCount = 0;
+  const candidates: ScanCandidate[] = [];
+  const candidateIds = new Set<string>();
+  const candidateArchives = new Set<string>();
+  let totalCount = 0;
+  let processedCount = 0;
+  let lastReport = 0;
   let batchSeq = 0;
   let committed = false;
   const db = getDatabase();
@@ -335,7 +356,19 @@ async function runScanLibrary(
     return prefix ? path.posix.join(prefix, relative) : relative;
   };
 
-  async function walkDirectory(directory: string, root: string, scope: ScanScope): Promise<void> {
+  // Coalesces per-item updates; forced reports mark milestones such as a
+  // committed batch or an opened archive growing the total.
+  const reportProgress = (update: Partial<ScanProgressEvent>, force = false): void => {
+    const now = Date.now();
+    if (!force && now - lastReport < PROGRESS_INTERVAL_MS) return;
+    lastReport = now;
+    broadcastProgress({ scannedCount, indexedCount, processedCount, totalCount, elapsedMs: now - startTime, ...update });
+  };
+  const indexingMessage = (): string => `Indexing ${processedCount} / ${totalCount}...`;
+
+  // Counting pass: lists indexable files in processing order so the total is
+  // known before any work starts. Each archive counts once until it is opened.
+  async function collectCandidates(directory: string, root: string, scope: ScanScope): Promise<void> {
     throwIfCancelled();
     let entries: fs.Dirent[];
     try {
@@ -361,86 +394,111 @@ async function runScanLibrary(
           }
         }
         if (insideDataDir) continue;
-        await walkDirectory(absolutePath, root, scope);
+        await collectCandidates(absolutePath, root, scope);
         continue;
       }
       if (isWithin(absolutePath, dataDir)) continue;
       if (!entry.isFile()) continue;
       scannedCount++;
       const extension = path.extname(entry.name).toLowerCase();
-      const image = isSupportedImageExtension(extension);
-      const audio = isSupportedAudioExtension(extension);
-      const archive = isArchiveFile(absolutePath);
-      if (!image && !audio && !archive) continue;
-      if (scannedCount % 10 === 0) {
-        broadcastProgress({
-          scannedCount,
-          indexedCount,
-          currentFile: displayPath(root, absolutePath),
-          elapsedMs: Date.now() - startTime,
-          message: `Inventoried ${scannedCount} files...`,
-        });
+      const kind = isArchiveFile(absolutePath) ? 'archive'
+        : isSupportedImageExtension(extension) ? 'image'
+          : isSupportedAudioExtension(extension) ? 'audio' : null;
+      if (!kind) continue;
+      // Overlapping roots reach the same file; the most specific root owns it.
+      if (kind === 'archive') {
+        if (candidateArchives.has(absolutePath)) continue;
+        candidateArchives.add(absolutePath);
+      } else {
+        const id = canonicalAssetId(absolutePath);
+        if (candidateIds.has(id)) continue;
+        candidateIds.add(id);
       }
-      let stats: fs.Stats;
+      candidates.push({ root, scope, absolutePath, extension, kind });
+      totalCount++;
+      reportProgress({
+        phase: 'counting',
+        currentFile: displayPath(root, absolutePath),
+        message: `Counting files... ${totalCount} found`,
+      });
+    }
+  }
+
+  // Processing pass. An opened archive replaces its placeholder in the total
+  // with its indexable entries, so the total grows while the scan runs.
+  async function processCandidate({ root, scope, absolutePath, extension, kind }: ScanCandidate): Promise<void> {
+    throwIfCancelled();
+    const itemDisplayPath = displayPath(root, absolutePath);
+    reportProgress({ phase: 'indexing', currentFile: itemDisplayPath, message: indexingMessage() });
+    let stats: fs.Stats;
+    try {
+      stats = await fs.promises.stat(absolutePath);
+    } catch (error) {
+      if (kind !== 'archive') seenIds.add(canonicalAssetId(absolutePath));
+      fail(scope, absolutePath, error);
+      processedCount++;
+      return;
+    }
+    if (kind === 'archive') {
+      seenArchives.add(absolutePath);
+      // ctime and inode catch in-place rewrites that preserve size and mtime.
+      const signature = `${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
+      const unchangedIds = unchangedArchiveEntryIds(absolutePath, itemDisplayPath, root, signature);
+      if (unchangedIds) {
+        for (const id of unchangedIds) seenIds.add(id);
+        totalCount += unchangedIds.length - 1;
+        processedCount += unchangedIds.length;
+        return;
+      }
+      const failedBefore = scope.failedPaths.length;
+      const processedBefore = processedCount;
+      const totalBefore = totalCount;
       try {
-        stats = await fs.promises.stat(absolutePath);
-      } catch (error) {
-        if (!archive) seenIds.add(canonicalAssetId(absolutePath));
-        fail(scope, absolutePath, error);
-        continue;
-      }
-      if (archive) {
-        // Overlapping roots reach the same archive; the most specific root owns it.
-        if (seenArchives.has(absolutePath)) continue;
-        seenArchives.add(absolutePath);
-        const archiveDisplayPath = displayPath(root, absolutePath);
-        // ctime and inode catch in-place rewrites that preserve size and mtime.
-        const signature = `${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
-        const unchangedIds = unchangedArchiveEntryIds(absolutePath, archiveDisplayPath, root, signature);
-        if (unchangedIds) {
-          for (const id of unchangedIds) seenIds.add(id);
-          continue;
-        }
-        const failedBefore = scope.failedPaths.length;
+        const opened = await openZipArchive(
+          absolutePath, itemDisplayPath, `${stats.size}:${stats.mtimeMs}`, {}, cancelled
+        );
         try {
-          const opened = await openZipArchive(
-            absolutePath, archiveDisplayPath, `${stats.size}:${stats.mtimeMs}`, {}, cancelled
-          );
-          try {
-            for (const descriptor of opened.entries) {
-              if (seenIds.has(descriptor.id)) continue;
+          totalCount += opened.entries.length - 1;
+          reportProgress({ phase: 'indexing', currentFile: itemDisplayPath, message: indexingMessage() }, true);
+          for (const descriptor of opened.entries) {
+            if (!seenIds.has(descriptor.id)) {
               seenIds.add(descriptor.id);
               await processInventoryItem({ kind: 'zip', sourceDirectory: root, archivePath: absolutePath, inventory: opened, entry: descriptor });
               flushBatchIfFull();
             }
-            // A failed entry leaves no record, so the next scan reads the archive again.
-            // The record is queued after its entries, so it never commits before them.
-            if (scope.failedPaths.length === failedBefore) {
-              (reindexRoots.has(root) ? heldArchiveRecords : archiveRecords).push({
-                absolutePath, path: archiveDisplayPath, sourceDirectory: root, signature,
-                entryCount: opened.entries.length,
-              });
-            }
-          } finally {
-            opened.close();
+            processedCount++;
+            reportProgress({ phase: 'indexing', currentFile: descriptor.virtualPath, message: indexingMessage() });
           }
-        } catch (error) {
-          if (error instanceof ScanCancelledError || error instanceof ArchiveCancelledError || cancelRequested) {
-            throw new ScanCancelledError();
+          // A failed entry leaves no record, so the next scan reads the archive again.
+          // The record is queued after its entries, so it never commits before them.
+          if (scope.failedPaths.length === failedBefore) {
+            (reindexRoots.has(root) ? heldArchiveRecords : archiveRecords).push({
+              absolutePath, path: itemDisplayPath, sourceDirectory: root, signature,
+              entryCount: opened.entries.length,
+            });
           }
-          fail(scope, absolutePath, error);
+        } finally {
+          opened.close();
         }
-      } else {
-        const id = canonicalAssetId(absolutePath);
-        if (seenIds.has(id)) continue;
+      } catch (error) {
+        if (error instanceof ScanCancelledError || error instanceof ArchiveCancelledError || cancelRequested) {
+          throw new ScanCancelledError();
+        }
+        fail(scope, absolutePath, error);
+        // The placeholder and any entries it announced are all settled.
+        processedCount = processedBefore + 1 + (totalCount - totalBefore);
+      }
+    } else {
+      const id = canonicalAssetId(absolutePath);
+      if (!seenIds.has(id)) {
         seenIds.add(id);
         await processInventoryItem({
           kind: 'disk', sourceDirectory: root, absolutePath,
-          displayPath: displayPath(root, absolutePath), stats,
-          category: image ? 'image' : 'audio', extension, id,
+          displayPath: itemDisplayPath, stats, category: kind, extension, id,
         });
         flushBatchIfFull();
       }
+      processedCount++;
     }
   }
 
@@ -611,13 +669,7 @@ async function runScanLibrary(
     archiveRecords.length = 0;
     cacheRefreshes = [];
     createdFinalPaths = [];
-    broadcastProgress({
-      scannedCount,
-      indexedCount,
-      committedCount,
-      elapsedMs: Date.now() - startTime,
-      message: `Indexed ${committedCount} assets...`,
-    });
+    reportProgress({ phase: 'indexing', committedCount, message: `Indexed ${committedCount} assets...` }, true);
   }
 
   try {
@@ -626,9 +678,12 @@ async function runScanLibrary(
       libraryPath: targetRoots[0],
       libraryPaths: targetRoots,
       reindexing: reindexRoots.size > 0,
+      phase: 'counting',
       scannedCount: 0,
       indexedCount: 0,
       committedCount: 0,
+      totalCount: 0,
+      processedCount: 0,
       currentFile: undefined,
       failedScopes: [],
       error: undefined,
@@ -656,14 +711,19 @@ async function runScanLibrary(
         fail(scope, root, new Error('Library root is not a directory'));
         continue;
       }
-      await walkDirectory(root, root, scope);
+      await collectCandidates(root, root, scope);
     }
+
+    reportProgress({ phase: 'indexing', currentFile: undefined, message: indexingMessage() }, true);
+    for (const candidate of candidates) await processCandidate(candidate);
+    reportProgress({ phase: 'indexing', currentFile: undefined, message: indexingMessage() }, true);
 
     throwIfCancelled();
 
     if (!scopes.some((scope) => scope.rootSucceeded)) {
       broadcastProgress({
         status: 'error',
+        phase: undefined,
         failedScopes: [...failures],
         scannedCount,
         indexedCount: 0,
@@ -754,7 +814,10 @@ async function runScanLibrary(
       }
     }
 
-    broadcastProgress({ message: 'Running automatic asset classifiers...', scannedCount, indexedCount, committedCount: indexedCount });
+    broadcastProgress({
+      phase: 'classifying', message: 'Running automatic asset classifiers...',
+      scannedCount, indexedCount, committedCount: indexedCount, processedCount, totalCount,
+    });
     let totalClassified = 0;
     for (const classifier of getAllClassifiers()) {
       throwIfCancelled();
@@ -828,6 +891,9 @@ async function runScanLibrary(
       scannedCount,
       indexedCount,
       committedCount: indexedCount,
+      phase: undefined,
+      processedCount,
+      totalCount,
       failedScopes: [...failures],
       currentFile: undefined,
       error: undefined,
@@ -861,6 +927,9 @@ async function runScanLibrary(
         scannedCount,
         indexedCount: published,
         committedCount: published,
+        phase: undefined,
+        processedCount,
+        totalCount,
         currentFile: undefined,
         failedScopes: [...failures],
         error: undefined,
@@ -878,6 +947,9 @@ async function runScanLibrary(
         scannedCount,
         indexedCount: published,
         committedCount: published,
+        phase: undefined,
+        processedCount,
+        totalCount,
         currentFile: undefined,
         failedScopes: [...failures],
         error: message,

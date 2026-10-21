@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ScanProgressEvent, ScanStatusType } from '../types';
+import type { ScanPhase, ScanProgressEvent, ScanStatusType } from '../types';
 import { createRequestGate, errorMessage, expectRecord, requestJson, type RequestGate } from './requestLifecycle';
 
 const SCAN_STATES: readonly ScanStatusType[] = ['idle', 'scanning', 'completed', 'error'];
+const SCAN_PHASES: readonly ScanPhase[] = ['counting', 'indexing', 'classifying'];
+
+const isOptionalCount = (value: unknown): boolean =>
+  value === undefined || (typeof value === 'number' && Number.isFinite(value));
 
 export function parseScanStatus(value: unknown): ScanProgressEvent {
   const record = expectRecord(value, 'scan status');
   if (!SCAN_STATES.includes(record.status as ScanStatusType)
+    || (record.phase !== undefined && !SCAN_PHASES.includes(record.phase as ScanPhase))
+    || !isOptionalCount(record.totalCount) || !isOptionalCount(record.processedCount)
     || typeof record.libraryPath !== 'string'
     || typeof record.scannedCount !== 'number' || !Number.isFinite(record.scannedCount)
     || typeof record.indexedCount !== 'number' || !Number.isFinite(record.indexedCount)

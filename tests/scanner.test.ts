@@ -161,4 +161,57 @@ describe('Scanner Service', () => {
     expect(assetAfter).toBeDefined();
     expect(fs.existsSync(assetAfter.thumbnail_path)).toBe(true);
   });
+
+  describe('processed / total progress', () => {
+    async function scanWithEvents(target: string | string[]): Promise<ScanProgressEvent[]> {
+      const events: ScanProgressEvent[] = [];
+      const unsubscribe = addScanListener((event) => events.push({ ...event }));
+      try {
+        expect((await scanLibrary(target)).status).toBe('completed');
+      } finally {
+        unsubscribe();
+      }
+      return events.slice(events.findIndex((event) => event.status === 'scanning'));
+    }
+
+    it('counts files ahead and grows the total by each archive\'s indexable entries', async () => {
+      fs.writeFileSync(path.join(libraryDir, 'a.png'), TINY_PNG_BUFFER);
+      fs.writeFileSync(path.join(libraryDir, 'b.png'), TINY_PNG_BUFFER);
+      fs.writeFileSync(path.join(libraryDir, 'notes.txt'), 'Not an asset');
+      createTestZipArchive(path.join(libraryDir, 'pack.zip'), [
+        { name: 'one.png', content: TINY_PNG_BUFFER },
+        { name: 'two.png', content: TINY_PNG_BUFFER },
+        { name: 'three.png', content: TINY_PNG_BUFFER },
+        { name: 'readme.txt', content: Buffer.from('skip me') },
+      ]);
+
+      const events = await scanWithEvents(libraryDir);
+      const indexing = events.filter((event) => event.phase === 'indexing');
+      // Two images plus the archive placeholder, before the archive is opened.
+      expect(indexing[0].totalCount).toBe(3);
+      const totals = indexing.map((event) => event.totalCount!);
+      expect(totals).toEqual([...totals].sort((left, right) => left - right));
+      const final = events.at(-1)!;
+      expect(final.status).toBe('completed');
+      expect(final.totalCount).toBe(5);
+      expect(final.processedCount).toBe(5);
+      for (const event of indexing) expect(event.processedCount!).toBeLessThanOrEqual(event.totalCount!);
+
+      // An unchanged archive is not reopened but still counts its entries.
+      const rescan = (await scanWithEvents(libraryDir)).at(-1)!;
+      expect(rescan.totalCount).toBe(5);
+      expect(rescan.processedCount).toBe(5);
+    });
+
+    it('counts a file reached through overlapping roots once', async () => {
+      const nested = path.join(libraryDir, 'nested');
+      fs.mkdirSync(nested);
+      fs.writeFileSync(path.join(libraryDir, 'top.png'), TINY_PNG_BUFFER);
+      fs.writeFileSync(path.join(nested, 'inner.png'), TINY_PNG_BUFFER);
+
+      const final = (await scanWithEvents([libraryDir, nested])).at(-1)!;
+      expect(final.totalCount).toBe(2);
+      expect(final.processedCount).toBe(2);
+    });
+  });
 });

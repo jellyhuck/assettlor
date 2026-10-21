@@ -135,6 +135,14 @@ the index so far in this scan), `libraryPaths`, `reindexing`, `currentFile`,
 `message`, timing fields, `error`, and `failedScopes`. Comment heartbeats
 keep the connection active.
 
+A running scan also reports `phase` (`counting`, `indexing`, or
+`classifying`), `totalCount`, and `processedCount`. The counting phase
+enumerates indexable files before any are processed. Each ZIP archive counts
+as one item until it is opened; it is then replaced by its indexable
+entries, so `totalCount` can change during indexing. `processedCount`
+includes cache hits and failed items, and equals `totalCount` once indexing
+ends.
+
 ## Settings, directories, and classifiers
 
 | Method | Endpoint | Purpose |

@@ -110,6 +110,35 @@ describe('catalog controls', () => {
     expect(root.container.textContent).toContain('≥150 (High)');
   });
 
+  it('shows processed out of total items while indexing', async () => {
+    const scanning = { status: 'scanning' as const, libraryPath: '/library/assets', scannedCount: 40, indexedCount: 2 };
+    const props = sidebarProps({
+      settings: { ...emptySettings, libraryPaths: ['/library/assets'] },
+      scanStatus: { ...scanning, phase: 'counting', totalCount: 7, processedCount: 0 },
+    });
+    const root = await mountReact(createElement(Sidebar, props));
+    mounted.push(root);
+    const bar = () => root.container.querySelector('[role="progressbar"]')!;
+    expect(root.container.textContent).toContain('Counting...');
+    expect(root.container.textContent).toContain('7 found');
+    expect(bar().hasAttribute('aria-valuenow')).toBe(false);
+
+    await root.render(createElement(Sidebar, {
+      ...props, scanStatus: { ...scanning, phase: 'indexing', totalCount: 10, processedCount: 3 },
+    }));
+    expect(root.container.textContent).toContain('3 / 10');
+    expect(bar().getAttribute('aria-valuenow')).toBe('3');
+    expect(bar().getAttribute('aria-valuemax')).toBe('10');
+    expect(bar().getAttribute('aria-valuetext')).toBe('3 of 10 items processed');
+    expect((bar().firstElementChild as HTMLElement).style.width).toBe('30%');
+
+    await root.render(createElement(Sidebar, {
+      ...props, scanStatus: { ...scanning, phase: 'classifying', totalCount: 10, processedCount: 10 },
+    }));
+    expect(root.container.textContent).toContain('Classifying...');
+    expect(bar().hasAttribute('aria-valuenow')).toBe(false);
+  });
+
   it('keeps pending scans disabled and announces cancellation or failure', async () => {
     const onTriggerScan = vi.fn();
     const props = sidebarProps({

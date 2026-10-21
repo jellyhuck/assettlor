@@ -144,12 +144,20 @@ export interface LibraryInfo {
 
 export type ScanStatusType = 'idle' | 'scanning' | 'completed' | 'error';
 
+/** Stage of a running scan: enumerating files, processing them, or classifying. */
+export type ScanPhase = 'counting' | 'indexing' | 'classifying';
+
 export interface ScanProgressEvent {
   status: ScanStatusType;
   libraryPath: string;
   libraryPaths?: string[];
   scannedCount: number;
   indexedCount: number;
+  phase?: ScanPhase;
+  /** Indexable items known so far; grows by each ZIP's entries when it is opened. */
+  totalCount?: number;
+  /** Items handled so far (cache hit, indexed, or failed), out of `totalCount`. */
+  processedCount?: number;
   /** Assets published to the index so far during this scan (mini-batch commits). */
   committedCount?: number;
   currentFile?: string;

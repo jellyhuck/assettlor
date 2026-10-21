@@ -95,6 +95,11 @@ describe('useScanStatus', () => {
     expect(() => parseScanStatus({ status: 'scanning', libraryPath: '/library',
       scannedCount: 'many', indexedCount: 1 })).toThrow('unexpected shape');
     expect(() => parseScanStatus({ ...scan('completed'), failedScopes: [4] })).toThrow('unexpected shape');
+    expect(() => parseScanStatus({ ...scan('scanning'), phase: 'sorting' })).toThrow('unexpected shape');
+    expect(() => parseScanStatus({ ...scan('scanning'), totalCount: Infinity })).toThrow('unexpected shape');
+    expect(() => parseScanStatus({ ...scan('scanning'), processedCount: '3' })).toThrow('unexpected shape');
+    expect(parseScanStatus({ ...scan('scanning'), phase: 'indexing', totalCount: 4, processedCount: 1 }).totalCount)
+      .toBe(4);
     expect(parseScanStatus(scan('idle')).status).toBe('idle');
 
     const { fetcher, requests } = createDeferredFetch();
