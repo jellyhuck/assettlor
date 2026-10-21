@@ -43,6 +43,7 @@ let currentScanStatus: ScanProgressEvent = {
   libraryPaths: [],
   scannedCount: 0,
   indexedCount: 0,
+  committedCount: 0,
 };
 let cancelRequested = false;
 
@@ -82,7 +83,12 @@ export interface ScanOptions {
   reindexDirectories?: string[];
   /** Restores user tags on reindexed assets that still exist (default true). */
   keepUserTags?: boolean;
+  /** Processed assets published per mini-batch commit (tests use small values). */
+  batchSize?: number;
 }
+
+/** Processed assets that are committed to the index together mid-scan. */
+export const INDEX_BATCH_SIZE = 500;
 
 /**
  * Deletes the index of libraries removed from settings, then their unused
@@ -128,6 +134,7 @@ export function startScan(
     reindexing: Boolean(options?.reindexDirectories?.length),
     scannedCount: 0,
     indexedCount: 0,
+    committedCount: 0,
     currentFile: undefined,
     failedScopes: [],
     error: undefined,
@@ -270,6 +277,7 @@ async function runScanLibrary(
   if (!targetRoots.length) throw new Error('No target directory specified to scan');
   const reindexRoots = new Set((options?.reindexDirectories ?? []).map((root) => path.resolve(root)));
   const keepUserTags = options?.keepUserTags !== false;
+  const batchSize = Math.max(1, Math.floor(options?.batchSize ?? INDEX_BATCH_SIZE));
   if (!targetRoots.some((root) => fs.existsSync(root))) {
     throw new Error(`Directory does not exist: ${targetRoots[0]}`);
   }
@@ -296,10 +304,21 @@ async function runScanLibrary(
   const seenArchives = new Set<string>();
   const archiveRecords: ArchiveRecord[] = [];
   const scopes: ScanScope[] = [];
-  const pending: PendingAsset[] = [];
-  const cacheRefreshes: { id: string; size: number; mtime: number }[] = [];
-  const createdFinalPaths: string[] = [];
+  // Processed assets awaiting the next mini-batch commit. Reindexed roots are
+  // held until the final commit, which swaps their whole index at once.
+  let pending: PendingAsset[] = [];
+  let cacheRefreshes: { id: string; size: number; mtime: number }[] = [];
+  const held: PendingAsset[] = [];
+  const heldArchiveRecords: ArchiveRecord[] = [];
+  let createdFinalPaths: string[] = [];
+  const changedIds = new Set<string>();
+  let committedCount = 0;
+  let batchSeq = 0;
   let committed = false;
+  const db = getDatabase();
+  const beforeMembership = new Map((db.prepare('SELECT id, stack_id, stack_index FROM assets').all() as
+    { id: string; stack_id: string | null; stack_index: number | null }[])
+    .map((row) => [row.id, `${row.stack_id || ''}:${row.stack_index ?? ''}`]));
 
   const fail = (scope: ScanScope, failedPath: string, error: unknown): void => {
     failures.add(failedPath);
@@ -392,10 +411,12 @@ async function runScanLibrary(
               if (seenIds.has(descriptor.id)) continue;
               seenIds.add(descriptor.id);
               await processInventoryItem({ kind: 'zip', sourceDirectory: root, archivePath: absolutePath, inventory: opened, entry: descriptor });
+              flushBatchIfFull();
             }
             // A failed entry leaves no record, so the next scan reads the archive again.
+            // The record is queued after its entries, so it never commits before them.
             if (scope.failedPaths.length === failedBefore) {
-              archiveRecords.push({
+              (reindexRoots.has(root) ? heldArchiveRecords : archiveRecords).push({
                 absolutePath, path: archiveDisplayPath, sourceDirectory: root, signature,
                 entryCount: opened.entries.length,
               });
@@ -418,6 +439,7 @@ async function runScanLibrary(
           displayPath: displayPath(root, absolutePath), stats,
           category: image ? 'image' : 'audio', extension, id,
         });
+        flushBatchIfFull();
       }
     }
   }
@@ -516,7 +538,7 @@ async function runScanLibrary(
       };
       await fs.promises.writeFile(stagedPath, processed.thumbnailBuffer);
       throwIfCancelled();
-      pending.push({
+      (reindexRoots.has(sourceDirectory) ? held : pending).push({
         id,
         path: currentPath,
         absolutePath,
@@ -546,6 +568,58 @@ async function runScanLibrary(
     }
   }
 
+  // Versioned cache paths keep old thumbnails readable until the DB commit.
+  function publishThumbnails(assets: PendingAsset[]): void {
+    for (const asset of assets) {
+      throwIfCancelled();
+      if (!fs.existsSync(asset.thumbnailPath!)) {
+        fs.renameSync(asset.stagedThumbnailPath, asset.thumbnailPath!);
+        createdFinalPaths.push(asset.thumbnailPath!);
+      }
+    }
+  }
+
+  // Runs inside a commit transaction; shared by mini-batches and the final commit.
+  function writeBatch(
+    assets: PendingAsset[], records: ArchiveRecord[], refreshes: { id: string; size: number; mtime: number }[]
+  ): void {
+    const refresh = db.prepare('UPDATE assets SET size = ?, mtime = ?, updated_at = ? WHERE id = ?');
+    for (const asset of refreshes) refresh.run(asset.size, asset.mtime, Date.now(), asset.id);
+    for (const asset of assets) upsertAsset(asset);
+    for (const record of records) upsertArchiveRecord(record);
+    const relevant = assets.filter((asset) => asset.classificationRelevant).map((asset) => asset.id);
+    for (const id of relevant) changedIds.add(id);
+    // Classifiers run after the final commit; these markers survive an
+    // interrupted scan so its committed assets are still classified later.
+    if (relevant.length) {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+        .run(`scan:unclassified:${scanId}:${batchSeq++}`, JSON.stringify(relevant));
+    }
+    // Stacking runs only at the final commit; force it if this scan stops early.
+    if (assets.length) db.prepare("DELETE FROM settings WHERE key = 'scan:stack-signature'").run();
+  }
+
+  // Publishes processed assets once enough accumulate, so an interrupted scan
+  // keeps them and a later scan skips them through the cache check.
+  function flushBatchIfFull(): void {
+    if (pending.length < batchSize) return;
+    throwIfCancelled();
+    publishThumbnails(pending);
+    db.transaction(() => writeBatch(pending, archiveRecords, cacheRefreshes))();
+    committedCount += pending.length;
+    pending = [];
+    archiveRecords.length = 0;
+    cacheRefreshes = [];
+    createdFinalPaths = [];
+    broadcastProgress({
+      scannedCount,
+      indexedCount,
+      committedCount,
+      elapsedMs: Date.now() - startTime,
+      message: `Indexed ${committedCount} assets...`,
+    });
+  }
+
   try {
     broadcastProgress({
       status: 'scanning',
@@ -554,6 +628,7 @@ async function runScanLibrary(
       reindexing: reindexRoots.size > 0,
       scannedCount: 0,
       indexedCount: 0,
+      committedCount: 0,
       currentFile: undefined,
       failedScopes: [],
       error: undefined,
@@ -592,6 +667,7 @@ async function runScanLibrary(
         failedScopes: [...failures],
         scannedCount,
         indexedCount: 0,
+        committedCount: 0,
         error: 'No library root could be enumerated',
         message: 'Scan failed: no library root could be enumerated.',
         elapsedMs: Date.now() - startTime,
@@ -606,29 +682,15 @@ async function runScanLibrary(
       }
     }
 
-    // Versioned cache paths keep old thumbnails readable until the DB commit.
-    for (const asset of pending) {
-      throwIfCancelled();
-      if (!fs.existsSync(asset.thumbnailPath!)) {
-        fs.renameSync(asset.stagedThumbnailPath, asset.thumbnailPath!);
-        createdFinalPaths.push(asset.thumbnailPath!);
-      }
-    }
+    const remaining = [...pending, ...held];
+    publishThumbnails(remaining);
     throwIfCancelled();
 
-    const db = getDatabase();
-    const beforeMembership = new Map((db.prepare('SELECT id, stack_id, stack_index FROM assets').all() as
-      { id: string; stack_id: string | null; stack_index: number | null }[])
-      .map((row) => [row.id, `${row.stack_id || ''}:${row.stack_index ?? ''}`]));
-    const changedIds = new Set(pending.filter((asset) => asset.classificationRelevant).map((asset) => asset.id));
     let stackStats = { animationStacksCreated: 0, audioStacksCreated: 0 };
     db.transaction(() => {
-      const refresh = db.prepare('UPDATE assets SET size = ?, mtime = ?, updated_at = ? WHERE id = ?');
-      for (const asset of cacheRefreshes) refresh.run(asset.size, asset.mtime, Date.now(), asset.id);
       const reindexedTags: TagRow[] = [];
       for (const root of reindexRoots) reindexedTags.push(...removeLibraryIndex(root).tags);
-      for (const asset of pending) upsertAsset(asset);
-      for (const record of archiveRecords) upsertArchiveRecord(record);
+      writeBatch(remaining, [...archiveRecords, ...heldArchiveRecords], cacheRefreshes);
       if (keepUserTags) restoreTags(reindexedTags, seenIds);
       const configuredScan = configuredRoots.length > 0 &&
         targetRoots.every((root) => configuredRoots.includes(root));
@@ -678,7 +740,21 @@ async function runScanLibrary(
     removeUnusedThumbnails();
     throwIfCancelled();
 
-    broadcastProgress({ message: 'Running automatic asset classifiers...', scannedCount, indexedCount });
+    // Includes assets committed by earlier scans that stopped before classifying.
+    const unclassifiedRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'scan:unclassified:%'").all() as
+      { key: string; value: string }[];
+    for (const row of unclassifiedRows) {
+      try {
+        const parsed = JSON.parse(row.value) as unknown;
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) if (typeof id === 'string') changedIds.add(id);
+        }
+      } catch (error) {
+        console.warn(`Ignoring invalid unclassified-asset marker ${row.key}:`, error);
+      }
+    }
+
+    broadcastProgress({ message: 'Running automatic asset classifiers...', scannedCount, indexedCount, committedCount: indexedCount });
     let totalClassified = 0;
     for (const classifier of getAllClassifiers()) {
       throwIfCancelled();
@@ -737,6 +813,11 @@ async function runScanLibrary(
       }
     }
     throwIfCancelled();
+    // Each classifier now holds its own retry marker for unfinished targets.
+    const deleteMarker = db.prepare('DELETE FROM settings WHERE key = ?');
+    db.transaction(() => {
+      for (const row of unclassifiedRows) deleteMarker.run(row.key);
+    })();
 
     const elapsedMs = Date.now() - startTime;
     const partial = failures.size > 0;
@@ -746,6 +827,7 @@ async function runScanLibrary(
       libraryPaths: targetRoots,
       scannedCount,
       indexedCount,
+      committedCount: indexedCount,
       failedScopes: [...failures],
       currentFile: undefined,
       error: undefined,
@@ -764,20 +846,27 @@ async function runScanLibrary(
           console.warn(`Cannot remove unpublished thumbnail ${finalPath}:`, cleanupError);
         }
       }
+      // Committed batches may have replaced thumbnails that are now unused.
+      if (committedCount > 0) removeUnusedThumbnails();
     }
+    const published = committed ? indexedCount : committedCount;
+    const keptNote = !committed && committedCount > 0
+      ? `; ${committedCount} assets indexed before it stopped remain available.`
+      : '';
     if (error instanceof ScanCancelledError || cancelRequested) {
       broadcastProgress({
         status: 'idle',
         libraryPath: targetRoots[0],
         libraryPaths: targetRoots,
         scannedCount,
-        indexedCount: committed ? indexedCount : 0,
+        indexedCount: published,
+        committedCount: published,
         currentFile: undefined,
         failedScopes: [...failures],
         error: undefined,
         message: committed
           ? 'Scan cancelled during automatic classification; indexed assets remain available.'
-          : 'Scan cancelled.',
+          : `Scan cancelled${keptNote || '.'}`,
         elapsedMs: Date.now() - startTime,
       });
     } else {
@@ -787,13 +876,14 @@ async function runScanLibrary(
         libraryPath: targetRoots[0],
         libraryPaths: targetRoots,
         scannedCount,
-        indexedCount: committed ? indexedCount : 0,
+        indexedCount: published,
+        committedCount: published,
         currentFile: undefined,
         failedScopes: [...failures],
         error: message,
         message: committed
           ? `Indexing completed, but automatic classification failed: ${message}`
-          : `Scan failed: ${message}`,
+          : `Scan failed: ${message}${keptNote}`,
         elapsedMs: Date.now() - startTime,
       });
     }

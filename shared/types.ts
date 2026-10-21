@@ -150,6 +150,8 @@ export interface ScanProgressEvent {
   libraryPaths?: string[];
   scannedCount: number;
   indexedCount: number;
+  /** Assets published to the index so far during this scan (mini-batch commits). */
+  committedCount?: number;
   currentFile?: string;
   message?: string;
   startTime?: number;

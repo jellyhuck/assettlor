@@ -370,6 +370,29 @@ describe('App catalog and live request lifecycle', () => {
     expect(view!.container.textContent?.match(/Library Scan Completed/g)).toHaveLength(2);
   });
 
+  it('offers assets committed mid-scan without refreshing the catalog by itself', async () => {
+    await mount();
+    await resolveBootstrap([asset(1)]);
+    const source = FakeEventSource.instances[0];
+    // Commits made before this client saw the scan are already in its catalog.
+    await act(async () => { source.emit({ ...scanEvent('scanning', 61), committedCount: 2 }); });
+    expect(view!.container.textContent).not.toContain('new assets indexed');
+
+    const catalogCount = catalogRequests().length;
+    await act(async () => { source.emit({ ...scanEvent('scanning', 61), committedCount: 5 }); });
+    expect(view!.container.textContent).toContain('3 new assets indexed.');
+    expect(catalogRequests()).toHaveLength(catalogCount);
+
+    await click(button('Show'));
+    expect(catalogRequests()).toHaveLength(catalogCount + 1);
+    expect(view!.container.textContent).not.toContain('new assets indexed');
+
+    await act(async () => { source.emit({ ...scanEvent('scanning', 61), committedCount: 6 }); });
+    expect(view!.container.textContent).toContain('1 new asset indexed.');
+    await act(async () => { source.emit({ ...scanEvent('completed', 61), committedCount: 9 }); });
+    expect(view!.container.textContent).not.toContain('new asset');
+  });
+
   it('closes the StrictMode setup stream and keeps the active one stable', async () => {
     await mount(true);
     expect(FakeEventSource.instances).toHaveLength(2);

@@ -232,6 +232,8 @@ function MainApp() {
   });
   const [scanConnection, setScanConnection] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [scanActionPending, setScanActionPending] = useState<'start' | 'cancel' | null>(null);
+  // Mid-scan batch commits the catalog already shows, keyed by scan start time.
+  const [shownCommits, setShownCommits] = useState<{ start?: number; count: number }>({ count: 0 });
 
   const catalogGate = useRef(createRequestGate());
   const facetsGate = useRef(createRequestGate());
@@ -413,6 +415,14 @@ function MainApp() {
   }, [refreshFilters]);
 
   const refreshCatalog = useCallback(() => setCatalogRefresh((revision) => revision + 1), []);
+  const newlyIndexed = scanStatus.status === 'scanning' && scanStatus.startTime === shownCommits.start
+    ? Math.max(0, (scanStatus.committedCount ?? 0) - shownCommits.count) : 0;
+  const showNewlyIndexed = useCallback(() => {
+    const current = scanStatusRef.current;
+    setShownCommits({ start: current.startTime, count: current.committedCount ?? 0 });
+    refreshCatalog();
+    refreshFilters();
+  }, [refreshCatalog, refreshFilters]);
 
   useEffect(() => {
     const gate = catalogGate.current;
@@ -572,6 +582,9 @@ function MainApp() {
       setScanStatus(payload);
       if (payload.status === 'scanning') {
         if (typeof payload.startTime === 'number') observedScansRef.current.add(payload.startTime);
+        // Commits made before this client saw the scan are already in its catalog.
+        setShownCommits((previous) => previous.start === payload.startTime
+          ? previous : { start: payload.startTime, count: payload.committedCount ?? 0 });
         if (scanActionRef.current === 'start') {
           scanActionRef.current = null;
           setScanActionPending(null);
@@ -824,6 +837,12 @@ function MainApp() {
             {facetsError && <span>Filters unavailable: {facetsError}</span>}
             {facetsError && <button type="button" className="underline" onClick={refreshFilters}>Retry filters</button>}
             {scanConnection === 'disconnected' && <span>Scan updates disconnected. Reconnecting…</span>}
+          </div>
+        )}
+        {newlyIndexed > 0 && (
+          <div className="px-4 py-2 border-b border-indigo-500/30 bg-indigo-950/30 text-xs text-indigo-100 flex items-center gap-3" role="status">
+            <span>{newlyIndexed} new {newlyIndexed === 1 ? 'asset' : 'assets'} indexed.</span>
+            <button type="button" className="underline" onClick={showNewlyIndexed}>Show</button>
           </div>
         )}
         {facetsLoading && (tags.length > 0 || formats.length > 0) && (

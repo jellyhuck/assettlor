@@ -130,7 +130,8 @@ curl -N http://127.0.0.1:3001/api/scan/progress
 
 The SSE stream sends JSON in `data:` messages with `status` (`idle`,
 `scanning`, `completed`, or `error`), `libraryPath`, `scannedCount`, and
-`indexedCount`. Events may also include `libraryPaths`, `reindexing`, `currentFile`,
+`indexedCount`. Events may also include `committedCount` (assets committed to
+the index so far in this scan), `libraryPaths`, `reindexing`, `currentFile`,
 `message`, timing fields, `error`, and `failedScopes`. Comment heartbeats
 keep the connection active.
 

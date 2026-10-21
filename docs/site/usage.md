@@ -14,6 +14,12 @@ SQLite catalog. Later scans check content fingerprints and avoid decoding
 unchanged media. Offline roots and failed traversal scopes retain their
 previously indexed assets until a successful scan can reconcile them.
 
+A scan commits new assets to the catalog in batches of 500 as it goes. When a
+batch lands, a banner above the gallery offers **Show** to load the new
+assets. Stacks and automatic classifiers update when the scan finishes. If a
+scan is cancelled or stops, the batches it committed stay indexed and the next
+scan continues from there.
+
 Each library in Settings has its own **Scan** and **Reindex** buttons.
 **Scan** looks for new and changed files. **Reindex** deletes that library's
 index and rebuilds it from scratch. Before it starts, you choose whether to
