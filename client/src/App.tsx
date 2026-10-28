@@ -29,7 +29,7 @@ import { Pagination } from './components/Pagination';
 import { createRequestGate, errorMessage, isAbortError, requestJson } from './lib/requestLifecycle';
 import { parseScanStatus } from './lib/useScanStatus';
 import { isBoolean, oneOf, usePersistentState } from './lib/persistentState';
-import { parseLibraryNames } from './lib/settingsDraft';
+import { parseLibraryNames, sameDirectories } from './lib/settingsDraft';
 
 type CatalogItem = Asset | (AssetStack & { isStack: true });
 type CatalogPhase = 'loading' | 'ready' | 'error';
@@ -963,12 +963,15 @@ function MainApp() {
           setSettings(newSettings);
           setPageSelection({ key: '', page: 1 });
           const paths = newSettings.libraryPaths.filter((path) => path.trim());
-          if (paths.length === 0) {
-            queuedSettingsScanRef.current = null;
-          } else if (scanStatusRef.current.status === 'scanning' || scanActionRef.current) {
-            queuedSettingsScanRef.current = paths;
-          } else {
-            void handleTriggerScan(paths);
+          // Only a change to the library set needs a scan; an unchanged one keeps any queued scan.
+          if (!sameDirectories(settings.libraryPaths, paths)) {
+            if (paths.length === 0) {
+              queuedSettingsScanRef.current = null;
+            } else if (scanStatusRef.current.status === 'scanning' || scanActionRef.current) {
+              queuedSettingsScanRef.current = paths;
+            } else {
+              void handleTriggerScan(paths);
+            }
           }
           refreshCatalog();
           refreshFilters();

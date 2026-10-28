@@ -15,6 +15,13 @@ export function directoryKey(value: string): string {
   return `${drive}${absolute ? '/' : ''}${parts.join('/')}`.replace(/\/$/, '') || '/';
 }
 
+/** True when both lists name the same directories, in any order. */
+export function sameDirectories(a: string[], b: string[]): boolean {
+  const keys = new Set(a.filter((path) => path.trim()).map(directoryKey));
+  const other = new Set(b.filter((path) => path.trim()).map(directoryKey));
+  return keys.size === other.size && [...keys].every((key) => other.has(key));
+}
+
 /** Reads library names by path from a settings response; absent means none. */
 export function parseLibraryNames(value: unknown): Record<string, string[]> {
   if (value === undefined) return {};

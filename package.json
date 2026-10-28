@@ -34,7 +34,7 @@
     "docs": "tsx scripts/docs.ts",
     "docs:build": "tsx scripts/docs.ts build --strict",
     "test": "vitest run",
-    "test:client": "vitest run tests/client*.test.ts* tests/*.ui.test.ts* tests/classifierModalData.test.ts tests/dialogFocus.test.ts",
+    "test:client": "vitest run tests/client*.test.ts* tests/*.ui.test.ts* tests/classifierModalData.test.ts tests/dialogFocus.test.ts tests/settingsDraft.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:pipeline": "node --import tsx scripts/test-pipeline.ts"

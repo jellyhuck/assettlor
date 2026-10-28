@@ -521,6 +521,43 @@ describe('App catalog and live request lifecycle', () => {
     expect(requests('/api/scan/start')).toHaveLength(0);
   });
 
+  it('starts a scan after a save only when the library set changed', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    await click(button('Open settings'));
+    await saveSettings(['/tmp/library/']);
+    expect(requests('/api/scan/start')).toHaveLength(0);
+
+    await saveSettings(['/tmp/library', '/tmp/added']);
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    expect(JSON.parse(String(requests('/api/scan/start')[0].init?.body))).toEqual({
+      libraryPath: '/tmp/library', libraryPaths: ['/tmp/library', '/tmp/added'],
+    });
+    await act(async () => { requests('/api/scan/start')[0].resolveJson({ message: 'Scan started' }); });
+    const source = FakeEventSource.instances[0];
+    await act(async () => { source.emit(scanEvent('completed', 71)); });
+
+    await saveSettings(['/tmp/added', '/tmp/library']);
+    expect(requests('/api/scan/start')).toHaveLength(1);
+  });
+
+  it('keeps a queued scan when a later save leaves the libraries unchanged', async () => {
+    await mount();
+    await resolveBootstrap([], 0);
+    const source = FakeEventSource.instances[0];
+    await act(async () => { source.emit(scanEvent('scanning', 72)); });
+    await click(button('Open settings'));
+    await saveSettings(['/tmp/queued']);
+    await saveSettings(['/tmp/queued']);
+    expect(requests('/api/scan/start')).toHaveLength(0);
+
+    await act(async () => { source.emit(scanEvent('completed', 72)); });
+    expect(requests('/api/scan/start')).toHaveLength(1);
+    expect(JSON.parse(String(requests('/api/scan/start')[0].init?.body))).toEqual({
+      libraryPath: '/tmp/queued', libraryPaths: ['/tmp/queued'],
+    });
+  });
+
   it('retries queued settings paths once after a failed pending start is confirmed idle', async () => {
     await mount();
     await resolveBootstrap([], 0);
