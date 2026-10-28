@@ -35,6 +35,7 @@
   - For a ZIP entry: Reads that entry from the archive and copies its bytes into the project.
   - For a full animation or audio stack: Copies every member into a dedicated folder, using the stack name when no subfolder is specified.
 - Existing destination files cause a conflict instead of being overwritten. A successful copy reports the directory containing the copied files.
+- When Assettlor runs on another machine, use **Download** in the inspector to save the displayed file (including a ZIP entry or the current stack frame) through the browser.
 
 ---
 
@@ -207,7 +208,7 @@ assettlor/
 | `GET` | `/api/assets` | Query assets with `category`, `tag`, `format`, `search`, `stackType`, `isStackedView`, `sortBy`, `sortOrder`, `page`, and `limit` (plus metadata filters such as `resolution`, `bpm`, `width`, `height`, and `duration`) |
 | `GET` | `/api/assets/:id` | Get asset metadata details |
 | `GET` | `/api/assets/:id/thumbnail` | Serve WebP thumbnail buffer |
-| `GET` | `/api/assets/:id/file` | Stream raw asset (with HTTP 206 Partial Content range support) |
+| `GET` | `/api/assets/:id/file` | Stream raw asset (with HTTP 206 Partial Content range support); `?download=1` sends it as an attachment named after the file |
 | `POST` | `/api/assets/copy` | Copy an `assetId`, or send `stackId` with `copyStackAll: true` for the whole stack; `targetPath` and `targetSubfolder` are optional |
 | `GET` | `/api/stacks/:id` | Get stack details |
 | `GET` | `/api/stacks/:id/assets` | Get ordered frames or variations for a stack |

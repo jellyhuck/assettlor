@@ -21,6 +21,7 @@ import {
   Plus,
   Check,
   Loader2,
+  Download,
 } from 'lucide-react';
 import { FlipbookPlayer } from './FlipbookPlayer';
 import { AudioWaveformPlayer } from './AudioWaveformPlayer';
@@ -339,6 +340,8 @@ export function Inspector({
   const locationToCopy = displayedAsset.isArchiveEntry
     ? `${archiveFilePath}#/${archiveMemberPath.replace(/^\//, '')}`
     : displayedAsset.absolutePath;
+  // Archive entry names can include their inner folders; save under the file name only.
+  const downloadName = displayedAsset.name.split(/[\\/]/).filter(Boolean).pop() || displayedAsset.name;
 
   const formatBytes = (bytes?: number) => {
     if (!bytes || bytes === 0) return '0 B';
@@ -848,6 +851,16 @@ export function Inspector({
               {() => <><Folder className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                 <span className="truncate">{displayedAsset.isArchiveEntry ? 'Copy Member Location' : 'Copy Path'}</span></>}
             </ClipboardButton>
+            <a
+              href={`${displayedAsset.fileUrl}?download=1`}
+              download={downloadName}
+              title={`Download ${downloadName}`}
+              aria-label={`Download ${downloadName}`}
+              className="col-span-2 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#202033] hover:bg-[#2b2b44] text-slate-200 border border-[#30304a] rounded-lg text-xs font-medium transition-all cursor-pointer truncate"
+            >
+              <Download className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">Download</span>
+            </a>
           </div>
 
           {/* Metadata Section */}

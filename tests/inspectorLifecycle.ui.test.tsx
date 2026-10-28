@@ -305,6 +305,23 @@ describe('inspector clipboard', () => {
     await view.unmount();
   });
 
+  it('links the displayed file for download under its own name', async () => {
+    const view = await mountReact(renderInspector(asset('a', 'a.png')));
+    let link = view.container.querySelector<HTMLAnchorElement>('a[aria-label="Download a.png"]')!;
+    expect(link.getAttribute('href')).toBe('/file/a?download=1');
+    expect(link.getAttribute('download')).toBe('a.png');
+    const member = {
+      ...asset('archive-a', 'gfx/b.png'), isArchiveEntry: true,
+      archivePath: '/tmp/pack.zip', archiveEntryPath: 'gfx/b.png',
+      absolutePath: '/tmp/pack.zip', path: 'pack.zip#/gfx/b.png',
+    };
+    await view.render(renderInspector(member));
+    link = view.container.querySelector<HTMLAnchorElement>('a[aria-label="Download b.png"]')!;
+    expect(link.getAttribute('href')).toBe('/file/archive-a?download=1');
+    expect(link.getAttribute('download')).toBe('b.png');
+    await view.unmount();
+  });
+
   it('reports an unavailable clipboard without a false success', async () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
     const view = await mountReact(renderInspector(asset('a', 'A')));

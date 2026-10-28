@@ -90,7 +90,7 @@ A navigation and reference guide for understanding subsystem implementations and
 - In stacked `queryAssets` results, each direct parameter and each `AND` search predicate matches the representative or any member independently, so different predicates may match different members of one stack. Each member subquery stays correlated to its own stack; flat results require every predicate on the same asset.
 - `GET /api/assets/:id` - Detailed asset metadata and assigned tags.
 - `GET /api/assets/:id/thumbnail` - WebP thumbnail image.
-- `GET /api/assets/:id/file` - Raw file stream (supports HTTP 206 Partial Content range requests); returns 404 for missing assets, sources, or archive entries, 422 for corrupt ZIP content, or 500 for filesystem read failures.
+- `GET /api/assets/:id/file` - Raw file stream (supports HTTP 206 Partial Content range requests); `?download=1` adds an `attachment` `Content-Disposition` with the file's base name, which the inspector's **Download** button uses; returns 404 for missing assets, sources, or archive entries, 422 for corrupt ZIP content, or 500 for filesystem read failures.
 - `POST /api/assets/:id/tags` - Assign tag(s) to asset (`tag`, `tags`, `source`).
 - `DELETE /api/assets/:id/tags/:tag` & `DELETE /api/assets/:id/tags` - Remove tag(s) from asset.
 - `PUT /api/assets/:id/tags` - Replace all tags on asset.

@@ -23,6 +23,7 @@ import { getZipEntryBuffer } from '../services/archive.js';
 import { getAudioMimeType } from '../services/audio.js';
 import { AssetQueryValidationError, requireAssetQuery } from '../services/assetQueryValidation.js';
 import { planAssetResponse } from './assetRange.js';
+import { attachmentContentDisposition } from './downloadHeaders.js';
 import { parseCopyRequest } from './copyValidation.js';
 import { parseBatchTagMutation, parseTagMutation, parseTagName } from './tagValidation.js';
 import type {
@@ -106,7 +107,11 @@ export async function assetsRoutes(fastify: FastifyInstance) {
   });
 
   // Stream actual asset file (with HTTP 206 Partial Content support for audio scrubbing!)
-  fastify.get('/api/assets/:id/file', async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+  // `?download=1` asks the browser to save the file instead of displaying it.
+  fastify.get('/api/assets/:id/file', async (req: FastifyRequest<{
+    Params: { id: string };
+    Querystring: { download?: string };
+  }>, reply) => {
     const asset = getAssetById(req.params.id);
     if (!asset) {
       return reply.status(404).send({ error: 'Asset not found' });
@@ -182,6 +187,10 @@ export async function assetsRoutes(fastify: FastifyInstance) {
         "sandbox; default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'");
       reply.header('X-Content-Type-Options', 'nosniff');
       reply.header('Content-Disposition', 'inline');
+    }
+    const download = req.query.download;
+    if (download === '1' || download === 'true') {
+      reply.header('Content-Disposition', attachmentContentDisposition(asset.name));
     }
     reply.header('Content-Length', plan.contentLength);
     if (plan.contentRange) reply.header('Content-Range', plan.contentRange);

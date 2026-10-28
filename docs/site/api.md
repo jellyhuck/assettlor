@@ -18,7 +18,7 @@ contracts are defined in
 | GET | `/api/assets` | Paginated asset or stack query |
 | GET | `/api/assets/:id` | Asset metadata and tags |
 | GET | `/api/assets/:id/thumbnail` | WebP thumbnail |
-| GET | `/api/assets/:id/file` | Original file, including byte-range responses |
+| GET | `/api/assets/:id/file` | Original file, including byte-range responses; `?download=1` sends it as an attachment |
 | GET | `/api/stacks/:id` | Stack details |
 | GET | `/api/stacks/:id/assets` | Ordered stack members |
 | GET | `/api/tags` | Tags and usage counts |

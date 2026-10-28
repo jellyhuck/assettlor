@@ -279,6 +279,29 @@ describe('HTTP API Routes', () => {
       expect(invalidRangeRes.statusCode).toBe(416);
     });
 
+    it('GET /api/assets/:id/file?download=1 should send the file as an attachment', async () => {
+      const inlineRes = await app.inject({ method: 'GET', url: '/api/assets/hero_id/file' });
+      expect(inlineRes.headers['content-disposition']).toBeUndefined();
+
+      const downloadRes = await app.inject({ method: 'GET', url: '/api/assets/hero_id/file?download=1' });
+      expect(downloadRes.statusCode).toBe(200);
+      expect(downloadRes.headers['content-disposition'])
+        .toBe(`attachment; filename="hero.png"; filename*=UTF-8''hero.png`);
+      expect(downloadRes.rawPayload.equals(TINY_PNG_BUFFER)).toBe(true);
+
+      const rangeRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets/hero_id/file?download=1',
+        headers: { range: 'bytes=0-3' },
+      });
+      expect(rangeRes.statusCode).toBe(206);
+      expect(rangeRes.headers['content-disposition']).toMatch(/^attachment;/);
+      expect(rangeRes.rawPayload.length).toBe(4);
+
+      const otherRes = await app.inject({ method: 'GET', url: '/api/assets/hero_id/file?download=0' });
+      expect(otherRes.headers['content-disposition']).toBeUndefined();
+    });
+
     it('GET /api/assets/:id/file should serve TGA file with image/x-tga content-type', async () => {
       const diskTga = path.join(tempLibraryDir, 'stone_brick_tile.tga');
       const tgaBuf = createTestTgaBuffer(2, 2, false);
@@ -353,6 +376,30 @@ describe('HTTP API Routes', () => {
         headers: { range: 'bytes=999-1000' },
       });
       expect(badRangeRes.statusCode).toBe(416);
+
+      // Downloads of zip entries are named after the entry, not its inner folder
+      upsertAsset({
+        id: 'zip_entry_nested_name_id',
+        path: 'pack.zip#/inner/data.wav',
+        absolutePath: zipPath,
+        name: 'inner/data.wav',
+        extension: '.wav',
+        category: 'audio',
+        size: innerContent.length,
+        mtime: 100,
+        hash: 'h_zip_entry_nested',
+        isArchiveEntry: true,
+        archivePath: zipPath,
+        archiveEntryPath: 'inner/data.wav',
+      });
+      const downloadRes = await app.inject({
+        method: 'GET',
+        url: '/api/assets/zip_entry_nested_name_id/file?download=1',
+      });
+      expect(downloadRes.statusCode).toBe(200);
+      expect(downloadRes.headers['content-disposition'])
+        .toBe(`attachment; filename="data.wav"; filename*=UTF-8''data.wav`);
+      expect(downloadRes.rawPayload.equals(innerContent)).toBe(true);
     });
 
     it('GET /api/assets/:id/file and /thumbnail should handle long asset IDs exceeding 100 characters', async () => {

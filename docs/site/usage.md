@@ -132,3 +132,11 @@ published by that operation and reports any remaining paths. The success
 message identifies the directory containing the copied files.
 
 ![Copy to project dialog with destination options](screenshots/copy-modal.png)
+
+## Download an asset
+
+**Download** in the inspector saves the displayed file through the browser,
+which is useful when Assettlor runs on another machine. It downloads the
+selected file, the current frame or variation of a stack, or a ZIP entry
+under its own file name. To get every member of a stack, copy it to a project
+instead.
