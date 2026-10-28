@@ -567,6 +567,7 @@ describe('Database Service', () => {
       expect(res.summary.totalAssets).toBe(3);
       expect(res.summary.imageCount).toBe(2);
       expect(res.summary.audioCount).toBe(1);
+      expect(res.summary.modelCount).toBe(0);
       expect(res.summary.animationStackCount).toBe(1);
       expect(res.summary.totalSize).toBe(800);
     });

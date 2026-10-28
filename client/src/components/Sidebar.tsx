@@ -15,6 +15,7 @@ import {
   Layers,
   Image as ImageIcon,
   Volume2,
+  Box,
   Settings,
   RefreshCw,
   Search,
@@ -65,6 +66,7 @@ interface SidebarProps {
     totalAssets: number;
     imageCount: number;
     audioCount: number;
+    modelCount: number;
     animationStackCount: number;
     audioStackCount: number;
   };
@@ -331,6 +333,21 @@ export function Sidebar({
           </button>
 
           <button
+            onClick={() => onSelectCategory('model')}
+            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              selectedCategory === 'model'
+                ? 'bg-indigo-600 text-white font-semibold shadow-xs'
+                : 'text-slate-300 hover:bg-[#202033] hover:text-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Box className="w-3.5 h-3.5 text-emerald-400" />
+              <span>3D Models</span>
+            </div>
+            <span className="text-[11px] font-mono opacity-80">{summary.modelCount}</span>
+          </button>
+
+          <button
             onClick={() => onSelectCategory('animation_stack')}
             className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
               selectedCategory === 'animation_stack'
@@ -401,7 +418,8 @@ export function Sidebar({
         {/* Resolutions Filter */}
         {(resolutions.length > 0 || summary.imageCount > 0) &&
           selectedCategory !== 'audio' &&
-          selectedCategory !== 'audio_stack' && (
+          selectedCategory !== 'audio_stack' &&
+          selectedCategory !== 'model' && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between px-2">
                 <div className="flex items-center gap-1.5">
@@ -471,7 +489,7 @@ export function Sidebar({
           )}
 
         {/* Width & Height Filters (Images / Animations) */}
-        {selectedCategory !== 'audio' && selectedCategory !== 'audio_stack' && (
+        {selectedCategory !== 'audio' && selectedCategory !== 'audio_stack' && selectedCategory !== 'model' && (
           <>
             {/* Width Filter */}
             <div className="space-y-1.5">

@@ -136,6 +136,22 @@ describe('AssetCard preview ownership', () => {
     expect(view.container.textContent).toContain('Preview unavailable');
   });
 
+  it('shows only the rendered thumbnail of a model, smoothly, with its triangle count', async () => {
+    const view = await mountReact(card(asset('crate', {
+      category: 'model', extension: '.glb', name: 'crate.glb',
+      fileUrl: '/file/crate', thumbnailUrl: '/thumb/crate', metadata: { triangleCount: 12_345 },
+    }), 'grid'));
+    mounted.push(view);
+    const image = () => view.container.querySelector('img');
+    expect(image()?.getAttribute('src')).toBe('/thumb/crate');
+    expect(image()?.className).not.toContain('pixelated');
+    expect(view.container.textContent).toContain('12k tris');
+    await act(async () => { image()?.dispatchEvent(new Event('error')); });
+    expect(image()).toBeNull();
+    expect(view.container.querySelector('[role="img"]')?.getAttribute('aria-label'))
+      .toBe('Preview unavailable for crate.glb');
+  });
+
   it('uses separate keyboard controls without selecting the card', async () => {
     const view = await mountReact(card(stack('sheet', asset('base'))));
     mounted.push(view);

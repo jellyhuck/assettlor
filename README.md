@@ -2,7 +2,7 @@
 
 [Documentation](docs/site/index.md) · [Development](docs/site/development.md)
 
-**Assettlor** is a local-first asset manager for images, audio, and asset libraries. It indexes your local images and audio, including files inside ZIP archives, into an embedded SQLite database, automatically detects animation sequences and audio variations, and extracts rich metadata and WebP thumbnails. Its dark web interface lets you search, preview, organize, and copy assets directly into your projects.
+**Assettlor** is a local-first asset manager for images, audio, 3D models, and asset libraries. It indexes your local images, audio, and `.glb` models, including files inside ZIP archives, into an embedded SQLite database, automatically detects animation sequences and audio variations, and extracts rich metadata and WebP thumbnails. Its dark web interface lets you search, preview, organize, and copy assets directly into your projects.
 
 ---
 
@@ -18,6 +18,7 @@
 - **Virtual Paths**: Items indexed as `Archive.zip#/path/to/sprite.png`.
 - **Cached Thumbnails & On-Demand Files**: Builds thumbnails during scanning, then extracts archive entry buffers when serving the original file.
 - **Archive-Aware Filters**: Find archive entries with `is:archive` and `path:`, and attribute them to packs by archive name.
+- **3D Models**: Binary glTF (`.glb`) files get software-rendered thumbnails, mesh statistics, and an orbitable three.js viewer in the inspector. Filter them with the sidebar's **3D Models** category or `is:model`.
 - **Library Filters**: Give source libraries optional names (several aliases each, and shared across libraries to merge them), then filter with `lib:kenney` or from the sidebar's Libraries list. Unnamed libraries go by their folder name.
 - **Folder Filters**: The Folder Classifier records every subfolder in an asset's library-relative path (including folders inside ZIP archives); filter by them from the sidebar's Folders list or with `folder:coins`.
 
@@ -43,6 +44,7 @@
 |---|---|
 | **Images** | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`, `.tga`, `.svg` |
 | **Audio** | `.wav`, `.mp3`, `.ogg`, `.flac` |
+| **3D Models** | `.glb` (binary glTF 2.0) |
 | **Archives** | `.zip` (Virtual in-memory inspection) |
 
 TGA preview supports uncompressed or RLE true-color (24/32-bit) and grayscale
@@ -52,6 +54,14 @@ interleaved TGA variants are rejected. Image decoding limits sources to
 Thumbnails apply EXIF orientation, preserve transparency, and use the first
 frame of animated images as their still preview. SVG viewBox dimensions are
 used as the intrinsic size when no width or height is specified.
+
+GLB thumbnails are rendered on the CPU from the model's default scene:
+flat-shaded geometry in its base colors (tinted by the average color of each
+base-color texture), seen from the front right. Draco-compressed geometry,
+buffers stored outside the file, and models over 256 MB keep their statistics
+but get a placeholder thumbnail, and the inspector notes why. The inspector's
+three.js viewer decodes meshopt compression but not Draco geometry or KTX2
+textures. Multi-file `.gltf` models are not indexed.
 
 ---
 
@@ -156,6 +166,9 @@ assettlor/
 │   │       ├── stacker.ts       # Sequential animation & audio variation stacker
 │   │       ├── image.ts         # Sharp image processor, TGA/BMP decoder, WebP thumbnails
 │   │       ├── audio.ts         # Music-metadata extractor & audio artwork generator
+│   │       ├── gltf.ts          # Bounds-checked GLB container, accessor & scene reader
+│   │       ├── model.ts         # GLB metadata summary & placeholder thumbnails
+│   │       ├── modelRender.ts   # CPU rasterizer for GLB card thumbnails
 │   │       ├── archive.ts       # Random-access ZIP inspector & virtual streaming
 │   │       └── copier.ts        # Copy to active project service
 ├── client/
@@ -168,6 +181,8 @@ assettlor/
 │   │   │   ├── Inspector.tsx    # Right inspector with zoom, flipbook, wavesurfer
 │   │   │   ├── FlipbookPlayer.tsx  # Interactive animation player (Play/Pause/FPS/scrub)
 │   │   │   ├── AudioWaveformPlayer.tsx # Wavesurfer waveform audio player
+│   │   │   ├── ModelViewer.tsx  # Lazy-loaded three.js GLB viewer
+│   │   │   ├── ModelDetails.tsx # Model statistics in the inspector
 │   │   │   ├── SettingsModal.tsx   # Config modal for active project
 │   │   │   ├── FolderBrowserModal.tsx # File system folder picker
 │   │   │   ├── CopyModal.tsx    # Stack copy confirmation modal

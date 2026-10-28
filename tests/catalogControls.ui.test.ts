@@ -36,7 +36,7 @@ function sidebarProps(overrides: Partial<ComponentProps<typeof Sidebar>> = {}): 
     onCancelScan: vi.fn(),
     onOpenSettings: vi.fn(),
     settings: emptySettings,
-    summary: { totalAssets: 0, imageCount: 0, audioCount: 0, animationStackCount: 0, audioStackCount: 0 },
+    summary: { totalAssets: 0, imageCount: 0, audioCount: 0, modelCount: 0, animationStackCount: 0, audioStackCount: 0 },
     ...overrides,
   };
 }

@@ -1203,9 +1203,10 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
       COUNT(id) as totalAssets,
       COALESCE(SUM(size), 0) as totalSize,
       COALESCE(SUM(CASE WHEN category = 'image' THEN 1 ELSE 0 END), 0) as imageCount,
-      COALESCE(SUM(CASE WHEN category = 'audio' THEN 1 ELSE 0 END), 0) as audioCount
+      COALESCE(SUM(CASE WHEN category = 'audio' THEN 1 ELSE 0 END), 0) as audioCount,
+      COALESCE(SUM(CASE WHEN category = 'model' THEN 1 ELSE 0 END), 0) as modelCount
     FROM assets
-  `).get() as { totalAssets: number; totalSize: number; imageCount: number; audioCount: number };
+  `).get() as { totalAssets: number; totalSize: number; imageCount: number; audioCount: number; modelCount: number };
 
   const stackSummaryRow = db.prepare(`
     SELECT
@@ -1219,6 +1220,7 @@ export function queryAssets(params: AssetQueryParams): AssetListResponse {
     totalSize: summaryRow.totalSize,
     imageCount: summaryRow.imageCount,
     audioCount: summaryRow.audioCount,
+    modelCount: summaryRow.modelCount,
     animationStackCount: stackSummaryRow.animationStackCount,
     audioStackCount: stackSummaryRow.audioStackCount,
   };

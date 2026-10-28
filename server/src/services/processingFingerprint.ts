@@ -23,7 +23,22 @@ export const AUDIO_THUMBNAIL_SPEC = Object.freeze({
   withoutEnlargement: false,
 });
 
-export type ThumbnailCategory = 'image' | 'audio';
+export const MODEL_THUMBNAIL_SPEC = Object.freeze({
+  rendererVersion: 1,
+  width: 400,
+  height: 400,
+  encoder: 'webp',
+  fit: 'contain',
+  withoutEnlargement: false,
+});
+
+export type ThumbnailCategory = 'image' | 'audio' | 'model';
+
+const THUMBNAIL_SPECS = {
+  image: IMAGE_THUMBNAIL_SPEC,
+  audio: AUDIO_THUMBNAIL_SPEC,
+  model: MODEL_THUMBNAIL_SPEC,
+} as const;
 
 export interface ThumbnailProcessingSpec {
   category: ThumbnailCategory;
@@ -64,7 +79,7 @@ export function getProcessingFingerprint(
   category: ThumbnailCategory,
   settings: Pick<AppSettings, 'thumbnailQuality'>
 ): string {
-  const base = category === 'image' ? IMAGE_THUMBNAIL_SPEC : AUDIO_THUMBNAIL_SPEC;
+  const base = THUMBNAIL_SPECS[category];
   return fingerprintThumbnailProcessing({
     category,
     ...base,
@@ -74,6 +89,5 @@ export function getProcessingFingerprint(
 
 /** Decoder/metadata revision without thumbnail-only quality settings. */
 export function getMetadataProcessingVersion(category: ThumbnailCategory): string {
-  const spec = category === 'image' ? IMAGE_THUMBNAIL_SPEC : AUDIO_THUMBNAIL_SPEC;
-  return `${category}:${spec.rendererVersion}`;
+  return `${category}:${THUMBNAIL_SPECS[category].rendererVersion}`;
 }

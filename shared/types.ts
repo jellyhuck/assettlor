@@ -1,4 +1,4 @@
-export type AssetCategory = 'image' | 'audio' | 'archive' | 'other';
+export type AssetCategory = 'image' | 'audio' | 'model' | 'archive' | 'other';
 
 export type SpriteCategory = 'character' | 'object' | 'texture' | 'background' | 'unclassified';
 
@@ -30,7 +30,34 @@ export interface AudioMetadata {
   audioMetadataError?: string;
 }
 
-export type AssetMetadata = ImageMetadata & AudioMetadata & {
+export type ModelVector3 = [number, number, number];
+
+export interface ModelMetadata {
+  gltfVersion?: string;
+  generator?: string;
+  sceneCount?: number;
+  nodeCount?: number;
+  meshCount?: number;
+  primitiveCount?: number;
+  vertexCount?: number;
+  triangleCount?: number;
+  materialCount?: number;
+  textureCount?: number;
+  animationCount?: number;
+  skinCount?: number;
+  /** World-space axis-aligned bounds of the default scene. */
+  modelBounds?: { min: ModelVector3; max: ModelVector3 };
+  gltfExtensionsUsed?: string[];
+  gltfExtensionsRequired?: string[];
+  modelThumbnailVersion?: number;
+  modelMetadataStatus?: 'complete' | 'partial' | 'failed';
+  modelMetadataError?: string;
+  /** 'partial' renders skipped some geometry; 'placeholder' drew none. */
+  modelThumbnailStatus?: 'rendered' | 'partial' | 'placeholder';
+  modelThumbnailIssue?: string;
+}
+
+export type AssetMetadata = ImageMetadata & AudioMetadata & ModelMetadata & {
   pack?: string;
   /** Subfolders of the asset's library-relative path, outermost first (Folder Classifier). */
   folders?: string[];
@@ -259,6 +286,7 @@ export interface AssetListResponse {
     totalSize: number;
     imageCount: number;
     audioCount: number;
+    modelCount: number;
     animationStackCount: number;
     audioStackCount: number;
   };

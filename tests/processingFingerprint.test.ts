@@ -7,6 +7,7 @@ import {
   AUDIO_THUMBNAIL_SPEC,
   DEFAULT_THUMBNAIL_QUALITY,
   fingerprintThumbnailProcessing,
+  getMetadataProcessingVersion,
   getProcessingFingerprint,
   IMAGE_THUMBNAIL_SPEC,
   normalizeThumbnailQuality,
@@ -33,6 +34,10 @@ describe('processing fingerprint', () => {
     expect(image80).toBe(getProcessingFingerprint('image', { thumbnailQuality: 80 }));
     expect(image80).not.toBe(getProcessingFingerprint('image', { thumbnailQuality: 90 }));
     expect(image80).not.toBe(getProcessingFingerprint('audio', { thumbnailQuality: 80 }));
+    expect(image80).not.toBe(getProcessingFingerprint('model', { thumbnailQuality: 80 }));
+    expect(getProcessingFingerprint('model', { thumbnailQuality: 80 }))
+      .not.toBe(getProcessingFingerprint('audio', { thumbnailQuality: 80 }));
+    expect(getMetadataProcessingVersion('model')).toBe('model:1');
     expect(image80).toMatch(/^[0-9a-f]{64}$/);
   });
 

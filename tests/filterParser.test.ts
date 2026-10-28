@@ -114,6 +114,11 @@ describe('Filter Expression Parser (Liqe + Bytes)', () => {
       const stackRes = compileFilterExpression('is:stacked', false);
       expect(stackRes.sql).toBe('a.stack_id IS NOT NULL');
     });
+
+    it('should compile is:model and its is:3d alias in both views', () => {
+      expect(compileFilterExpression('is:model', false).sql).toBe("a.category = 'model'");
+      expect(compileFilterExpression('is:3d', true).sql).toBe("a.category = 'model'");
+    });
   });
 
   describe('compileFilterExpression - Dimensions & Duration', () => {

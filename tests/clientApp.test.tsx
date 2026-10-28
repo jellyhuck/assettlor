@@ -27,6 +27,7 @@ vi.mock('../client/src/components/Sidebar.tsx', () => ({
   }) => <aside>
     <button onClick={() => onSelectCategory('all')}>All category</button>
     <button onClick={() => onSelectCategory('audio')}>Audio category</button>
+    <button onClick={() => onSelectCategory('model')}>Model category</button>
     <button onClick={onTriggerScan}>Start scan</button>
     <button onClick={onCancelScan}>Cancel scan</button>
     <button onClick={onOpenSettings}>Open settings</button>
@@ -125,7 +126,7 @@ function catalogPage(items: Item[], page: number, total: number): AssetListRespo
     items, page, limit: 100, total, totalPages: Math.max(1, Math.ceil(total / 100)),
     summary: {
       totalAssets: total, totalSize: total * 100, imageCount: total,
-      audioCount: 0, animationStackCount: 0, audioStackCount: 0,
+      audioCount: 0, modelCount: 0, animationStackCount: 0, audioStackCount: 0,
     },
   };
 }
@@ -585,6 +586,24 @@ describe('App catalog and live request lifecycle', () => {
     await click(button('Retry'));
     await act(async () => { latestCatalog().resolveJson(catalogPage([asset(1)], 1, 1)); });
     expect(itemIds()).toEqual(['asset-1']);
+  });
+
+  it('requests the model category and drops image and audio-only filters', async () => {
+    await mount();
+    await resolveBootstrap([asset(1)], 1);
+    const search = view!.container.querySelector<HTMLInputElement>('input[aria-label="Search assets"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'crate width:>64 bpm:120');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button('Model category'));
+    expect(query(latestCatalog(), 'category')).toBe('model');
+    expect(query(latestCatalog(), 'search')).toBe('crate');
+    await act(async () => { latestCatalog().resolveJson(catalogPage([{
+      ...asset(2, 'crate'), category: 'model', extension: '.glb',
+      metadata: { triangleCount: 12 },
+    }], 1, 1)); });
+    expect(itemIds()).toEqual(['asset-2']);
   });
 
   it('retries a network failure without showing an old query as current', async () => {

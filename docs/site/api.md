@@ -30,7 +30,13 @@ contracts are defined in
 
 `GET /api/assets` accepts `category`, `tag`, `format`, `resolution`, `bpm`,
 `sprite`, `pack`, `folder`, `library`, `width`, `height`, `duration`, `search`, `stackType`, and
-`isStackedView`. See [search behavior](usage.md#search) for stacked filtering.
+`isStackedView`. `category` is `image`, `audio`, or `model`. See
+[search behavior](usage.md#search) for stacked filtering.
+
+`/api/assets/:id/file` serves `.glb` models as `model/gltf-binary`. Model
+metadata includes `triangleCount`, `vertexCount`, `meshCount`,
+`materialCount`, `textureCount`, `animationCount`, `modelBounds`, and
+`modelThumbnailStatus` (`rendered`, `partial`, or `placeholder`).
 
 Use `sortBy` with `name`, `size`, `mtime`, `resolution`, `duration`, `bpm`,
 `width`, or `height`, and `sortOrder` with `asc` or `desc`. `page` and `limit`

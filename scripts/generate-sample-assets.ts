@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import AdmZip from 'adm-zip';
+import { createBoxesGlb, type GlbBox } from './glbFixtures.js';
 
 const sampleDir = path.join(process.cwd(), 'sample', 'assets');
 
@@ -143,6 +144,32 @@ async function createCoinSprite(frame: number, totalFrames: number): Promise<Buf
   `;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// A wooden crate: a body with darker planks along every edge.
+function createCrateGlb(): Buffer {
+  const wood: [number, number, number, number] = [0.42, 0.22, 0.08, 1];
+  const plank: [number, number, number, number] = [0.2, 0.09, 0.03, 1];
+  const boxes: GlbBox[] = [{ name: 'Body', size: [0.96, 0.96, 0.96], translation: [0, 0.5, 0], color: wood }];
+  for (const a of [-0.46, 0.46]) {
+    for (const b of [-0.46, 0.46]) {
+      boxes.push({ name: 'EdgeX', size: [1, 0.1, 0.1], translation: [0, 0.5 + a, b], color: plank });
+      boxes.push({ name: 'EdgeY', size: [0.1, 1, 0.1], translation: [a, 0.5, b], color: plank });
+      boxes.push({ name: 'EdgeZ', size: [0.1, 0.1, 1], translation: [a, 0.5 + b, 0], color: plank });
+    }
+  }
+  return createBoxesGlb(boxes, { generator: 'Assettlor sample generator' });
+}
+
+// A stylized pine: a trunk and three foliage tiers turned 45° to each other.
+function createPineTreeGlb(): Buffer {
+  const turn: [number, number, number, number] = [0, Math.sin(Math.PI / 8), 0, Math.cos(Math.PI / 8)];
+  return createBoxesGlb([
+    { name: 'Trunk', size: [0.25, 0.8, 0.25], translation: [0, 0.4, 0], color: [0.25, 0.12, 0.05, 1] },
+    { name: 'Lower', size: [1.4, 0.5, 1.4], translation: [0, 0.95, 0], color: [0.05, 0.3, 0.1, 1] },
+    { name: 'Middle', size: [1, 0.45, 1], translation: [0, 1.4, 0], rotation: turn, color: [0.07, 0.38, 0.12, 1] },
+    { name: 'Top', size: [0.6, 0.45, 0.6], translation: [0, 1.8, 0], color: [0.1, 0.46, 0.15, 1] },
+  ], { generator: 'Assettlor sample generator' });
 }
 
 export async function generateSampleAssets() {
@@ -321,7 +348,13 @@ export async function generateSampleAssets() {
   fs.writeFileSync(path.join(sampleDir, 'audio', 'ambient_chime.wav'), ambientWav);
   console.log('✓ Generated audio variation files and sound effects (WAV)');
 
-  // 5. Virtual Archive: RetroPack.zip
+  // 5. 3D models (binary glTF)
+  const modelsDir = path.join(sampleDir, 'models');
+  fs.mkdirSync(modelsDir, { recursive: true });
+  fs.writeFileSync(path.join(modelsDir, 'wooden_crate.glb'), createCrateGlb());
+  console.log('✓ Generated 3D model (GLB)');
+
+  // 6. Virtual Archive: RetroPack.zip
   const zip = new AdmZip();
 
   // Nested Hero Jump animation sequence inside zip
@@ -366,6 +399,9 @@ export async function generateSampleAssets() {
     amplitudeFn: (t) => Math.exp(-t * 50),
   });
   zip.addFile('audio/ui_click_02.wav', click2);
+
+  // 3D model inside zip
+  zip.addFile('models/pine_tree.glb', createPineTreeGlb());
 
   const zipPath = path.join(sampleDir, 'RetroPack.zip');
   zip.writeZip(zipPath);

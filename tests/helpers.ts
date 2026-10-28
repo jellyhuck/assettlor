@@ -3,6 +3,9 @@ import path from 'path';
 import os from 'os';
 import AdmZip from 'adm-zip';
 import { addAssetTags, closeDatabase, initDatabase, upsertAsset } from '../server/src/db/database.js';
+import { createBoxesGlb, type GlbBuildOptions } from '../scripts/glbFixtures.js';
+
+export { createBoxesGlb, encodeGlb } from '../scripts/glbFixtures.js';
 
 export function createTempDir(prefix = 'assettlor-test-'): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -50,6 +53,11 @@ export const TINY_PNG_BUFFER = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
   'base64'
 );
+
+/** A one-node GLB holding an orange unit cube. */
+export function createTestGlbBuffer(options: GlbBuildOptions = {}): Buffer {
+  return createBoxesGlb([{ name: 'Cube', size: [1, 1, 1], color: [0.9, 0.4, 0.1, 1] }], options);
+}
 
 // Minimal valid 1-second 8kHz mono 16-bit PCM WAV buffer
 export function createTestWavBuffer(durationSec = 0.1, sampleRate = 8000): Buffer {

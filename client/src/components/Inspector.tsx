@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Asset, AssetStack, AppSettings, TagInfo, LibraryInfo, type ClassifierRunResult } from '../types';
 import {
   X,
@@ -9,6 +9,7 @@ import {
   Grid,
   Volume2,
   Image as ImageIcon,
+  Box,
   Tag,
   Play,
   ChevronLeft,
@@ -25,12 +26,16 @@ import { FlipbookPlayer } from './FlipbookPlayer';
 import { AudioWaveformPlayer } from './AudioWaveformPlayer';
 import { ImagePreview } from './ImagePreview';
 import { ImageThumbnail } from './ImageThumbnail';
+import { ModelDetails } from './ModelDetails';
 import { SoundIcon, MusicPlateIcon } from './AudioIcons';
 import { useToast } from './Toast';
 import { directoryKey } from '../lib/settingsDraft';
 import { CopyModal } from './CopyModal';
 import { createRequestGate, errorMessage, isAbortError, requestJson, expectArray, expectRecord } from '../lib/requestLifecycle';
 import { isBoolean, usePersistentState } from '../lib/persistentState';
+
+// three.js is large; load it only when a model is inspected.
+const ModelViewer = lazy(() => import('./ModelViewer'));
 
 type StackItem = AssetStack & { isStack: true };
 type MemberState = { key: string; phase: 'ready' | 'error'; assets: Asset[]; error: string | null };
@@ -326,6 +331,7 @@ export function Inspector({
 
   const isDisplayedImage = displayedAsset.category === 'image';
   const isDisplayedAudio = displayedAsset.category === 'audio';
+  const isDisplayedModel = displayedAsset.category === 'model';
   const displayedName = isStack && stackViewMode === 'stack' ? stack?.name || displayedAsset.name : displayedAsset.name;
   const archiveFilePath = displayedAsset.archivePath || displayedAsset.absolutePath;
   const archiveMemberPath = displayedAsset.archiveEntryPath
@@ -523,6 +529,8 @@ export function Inspector({
               <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
             ) : isDisplayedImage ? (
               <ImageIcon className="w-4 h-4 text-cyan-400 shrink-0" />
+            ) : isDisplayedModel ? (
+              <Box className="w-4 h-4 text-emerald-400 shrink-0" />
             ) : displayedAsset.metadata.duration !== undefined && displayedAsset.metadata.duration <= 5 ? (
               <SoundIcon className="w-4 h-4 text-cyan-400 shrink-0" />
             ) : (
@@ -800,6 +808,19 @@ export function Inspector({
               <span className="text-xs font-semibold text-slate-300">Audio Waveform</span>
               <AudioWaveformPlayer asset={displayedAsset} variants={[]} />
             </div>
+          ) : isDisplayedModel ? (
+            /* Standalone 3D model viewer */
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-slate-300">3D Preview</span>
+              <Suspense fallback={
+                <div role="status" className="flex h-64 items-center justify-center gap-2 rounded-lg border border-[#2b2b44] bg-[#11111d] text-xs text-indigo-300">
+                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  Loading 3D viewer…
+                </div>
+              }>
+                <ModelViewer asset={displayedAsset} revision={revision} />
+              </Suspense>
+            </div>
           ) : null}
 
           {/* Quick Action Buttons */}
@@ -1064,6 +1085,8 @@ export function Inspector({
                   </div>
                 </div>
               )}
+
+              {isDisplayedModel && <ModelDetails asset={displayedAsset} />}
 
               {/* Asset Pack */}
               <div className="flex justify-between py-1 border-b border-[#202033] items-center">

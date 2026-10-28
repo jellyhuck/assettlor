@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import YAML from 'yaml';
+import type { Asset } from '../shared/types.js';
 
 type DatabaseApi = Pick<typeof import('../server/src/db/database.js'), 'addAssetTags' | 'getDatabase' | 'queryAssets'>;
 
@@ -43,6 +44,20 @@ async function verifyPipeline(sampleDir: string, projectDir: string, { addAssetT
   for (const za of zipAssets) {
     console.log(`  - [ZIP] ${za.path} (Size: ${za.size} bytes, Archive: ${path.basename(za.archive_path)})`);
   }
+
+  // 2b. Test 3D models on disk and inside the archive
+  console.log('\n--- 2b. Testing 3D Model Indexing ---');
+  const models = queryAssets({ category: 'model', limit: 200 }).items as Asset[];
+  for (const model of models) {
+    console.log(`  - [MODEL] ${model.path} (${model.metadata.triangleCount} triangles, thumbnail ${model.metadata.modelThumbnailStatus})`);
+  }
+  if (!models.some((model) => !model.isArchiveEntry) || !models.some((model) => model.isArchiveEntry)) {
+    throw new Error('Assertion failed: GLB models were not indexed from both disk and ZIP!');
+  }
+  if (models.some((model) => model.metadata.modelThumbnailStatus !== 'rendered')) {
+    throw new Error('Assertion failed: Sample GLB thumbnails were not rendered!');
+  }
+  console.log(`✓ Indexed ${models.length} GLB models with rendered thumbnails`);
 
   // 3. Test stacking
   console.log('\n--- 3. Testing Stacking Engine ---');
@@ -146,6 +161,15 @@ async function verifyPipeline(sampleDir: string, projectDir: string, { addAssetT
     targetPath: projectDir,
   });
   console.log('✓ Copied archive virtual asset on-the-fly:', copyRes2.message);
+
+  // B2: Copy a 3D model from the archive
+  const zipModel = models.find((model) => model.isArchiveEntry)!;
+  const copyModel = await copyAssetToProject({ assetId: zipModel.id, targetPath: projectDir });
+  const copiedModel = fs.readFileSync(copyModel.copiedFiles[0]);
+  if (copiedModel.toString('ascii', 0, 4) !== 'glTF') {
+    throw new Error('Assertion failed: Copied archive model is not a GLB file!');
+  }
+  console.log('✓ Copied archive 3D model:', copyModel.message);
 
   // C: Copy entire animation stack
   const copyRes3 = await copyAssetToProject({

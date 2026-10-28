@@ -493,7 +493,7 @@ function compileAstNode(
       };
     }
 
-    // 7. Boolean flags: is:archive, is:disk, is:stacked, is:flat, is:audio, is:image
+    // 7. Boolean flags: is:archive, is:disk, is:stacked, is:flat, is:audio, is:image, is:model
     if (fieldName === 'is') {
       const flagVal = String(expr.value || '').toLowerCase().trim();
       switch (flagVal) {
@@ -517,6 +517,9 @@ function compileAstNode(
           return isStackedView
             ? { sql: `(a.category = 'audio' OR s.type = 'audio_variation')`, args: [] }
             : { sql: `a.category = 'audio'`, args: [] };
+        case 'model':
+        case '3d':
+          return { sql: `a.category = 'model'`, args: [] };
         default:
           return unsupported();
       }

@@ -47,6 +47,7 @@ function getMimeTypeForExtension(ext: string): string {
     case '.mp3': return 'audio/mpeg';
     case '.ogg': return 'audio/ogg';
     case '.flac': return 'audio/flac';
+    case '.glb': return 'model/gltf-binary';
     default: return 'application/octet-stream';
   }
 }

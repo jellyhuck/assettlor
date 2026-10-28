@@ -27,6 +27,7 @@ your machine.
 |---|---|
 | Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`, `.tga`, `.svg` |
 | Audio | `.wav`, `.mp3`, `.ogg`, `.flac` |
+| 3D models | `.glb` (binary glTF 2.0) |
 | Archives | `.zip` |
 
 ZIP entries use virtual paths such as `RetroPack.zip#/sprites/hero.png` and
@@ -37,5 +38,13 @@ Image decoding is limited to 16 million pixels. Thumbnails apply EXIF
 orientation, preserve transparency, and use the first frame of animated images.
 TGA previews support uncompressed and RLE true-color or grayscale images;
 color-mapped and interleaved variants are unsupported.
+
+GLB thumbnails are rendered on the CPU from the model's default scene:
+flat-shaded geometry in its base colors (tinted by the average color of each
+base-color texture), seen from the front right. Draco-compressed geometry,
+buffers stored outside the file, and models over 256 MB keep their statistics
+but get a placeholder thumbnail, and the inspector notes why. The inspector's
+three.js viewer decodes meshopt compression but not Draco geometry or KTX2
+textures. Multi-file `.gltf` models are not indexed.
 
 [Source repository](https://github.com/jellyhuck/assettlor)

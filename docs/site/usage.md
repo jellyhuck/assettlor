@@ -31,7 +31,7 @@ Use category, tag, and format filters in the sidebar and search in the top bar.
 The gallery offers stacked and flat views, sorting, and **Load more** paging.
 To browse numbered pages of 100 results instead, set **Paging** to
 **Numbered pages** under **Catalog Results** in Settings.
-Open an asset to inspect its dimensions, audio metadata, tags, and source path.
+Open an asset to inspect its dimensions, audio or model metadata, tags, and source path.
 
 ![Browsing assets in the library catalog](screenshots/overview.png)
 
@@ -46,6 +46,7 @@ Open an asset to inspect its dimensions, audio metadata, tags, and source path.
 | `folder:none` | Match assets directly in a library root |
 | `lib:kenney` | Match assets from libraries named `kenney` (or `library:kenney`) |
 | `tag:target AND bpm:fast` | Combine tag and tempo filters |
+| `is:model` | Match 3D models (or `is:3d`, `cat:model`) |
 
 Quote names containing spaces, punctuation, or search operators. Inside quoted
 values, escape `"` and `\` with a backslash. Unquoted `*` acts as a wildcard
@@ -82,6 +83,12 @@ The inspector includes a flipbook player with playback, a 1–60 FPS control,
 and a frame scrubber. Audio previews use a waveform player and variant
 selection. Image previews support zoom, pointer dragging, arrow-key panning,
 and resetting the pan position. TGA images use converted thumbnails for display.
+
+3D models (`.glb`) open in an interactive viewer: drag to orbit, scroll to
+zoom, and right-drag to pan. The toolbar resets the view, toggles auto-rotation
+and wireframe, and plays animation clips. The metadata panel lists triangle,
+vertex, mesh, material, texture, and animation counts, the model's size, and
+the exporting tool.
 
 ![Flipbook animation preview in the asset inspector](screenshots/inspector-animation.png)
 

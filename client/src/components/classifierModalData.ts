@@ -22,7 +22,7 @@ function isTargetChoice(value: unknown): value is TargetChoice {
 
 function isAssetTargetChoice(value: unknown): value is AssetTargetChoice {
   return isTargetChoice(value) && isRecord(value) && typeof value.category === 'string'
-    && ['image', 'audio', 'archive', 'other'].includes(value.category);
+    && ['image', 'audio', 'model', 'archive', 'other'].includes(value.category);
 }
 
 export function parseTargetInventory(value: unknown): ClassifierTargetInventory {

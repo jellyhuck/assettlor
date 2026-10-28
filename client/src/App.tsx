@@ -59,6 +59,7 @@ const emptySummary = {
   totalSize: 0,
   imageCount: 0,
   audioCount: 0,
+  modelCount: 0,
   animationStackCount: 0,
   audioStackCount: 0,
 };
@@ -92,7 +93,7 @@ function isAsset(value: unknown): value is Asset {
   const metadata = value.metadata;
   return ['id', 'name', 'path', 'extension', 'fileUrl', 'thumbnailUrl'].every(
     (key) => typeof value[key] === 'string')
-    && ['image', 'audio', 'archive', 'other'].includes(String(value.category))
+    && ['image', 'audio', 'model', 'archive', 'other'].includes(String(value.category))
     && typeof value.size === 'number' && Number.isFinite(value.size)
     && typeof value.isArchiveEntry === 'boolean'
     && Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === 'string')
@@ -118,7 +119,7 @@ function parseCatalog(value: unknown): AssetListResponse {
   }
   const items = requireList(value.items, 'asset catalog', isCatalogItem);
   const summary = value.summary;
-  if (!['totalAssets', 'totalSize', 'imageCount', 'audioCount',
+  if (!['totalAssets', 'totalSize', 'imageCount', 'audioCount', 'modelCount',
     'animationStackCount', 'audioStackCount'].every((key) => typeof summary[key] === 'number')) {
     throw new Error('The server returned invalid catalog totals');
   }
@@ -336,6 +337,13 @@ function MainApp() {
         next = updateSearchFilter(next, 'bpm', null);
         setSearchQuery(next);
         setDebouncedSearch(next);
+      } else if (cat === 'model') {
+        let next = searchQuery;
+        for (const type of ['resolution', 'width', 'height', 'duration', 'bpm'] as const) {
+          next = updateSearchFilter(next, type, null);
+        }
+        setSearchQuery(next);
+        setDebouncedSearch(next);
       }
     },
     [searchQuery]
@@ -431,6 +439,7 @@ function MainApp() {
     const params = new URLSearchParams();
     if (selectedCategory === 'image') params.set('category', 'image');
     if (selectedCategory === 'audio') params.set('category', 'audio');
+    if (selectedCategory === 'model') params.set('category', 'model');
     if (selectedCategory === 'animation_stack') params.set('stackType', 'animation');
     if (selectedCategory === 'audio_stack') params.set('stackType', 'audio_variation');
     if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
@@ -487,6 +496,7 @@ function MainApp() {
     const params = new URLSearchParams();
     if (selectedCategory === 'image') params.set('category', 'image');
     if (selectedCategory === 'audio') params.set('category', 'audio');
+    if (selectedCategory === 'model') params.set('category', 'model');
     if (selectedCategory === 'animation_stack') params.set('stackType', 'animation');
     if (selectedCategory === 'audio_stack') params.set('stackType', 'audio_variation');
     if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());

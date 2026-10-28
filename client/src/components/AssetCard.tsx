@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Asset, AssetStack, CardZoom, ViewMode } from '../types';
 import {
-  Layers, Copy, Play, Pause, Image as ImageIcon, ChevronDown, ChevronRight, Eye,
+  Layers, Copy, Play, Pause, Image as ImageIcon, ChevronDown, ChevronRight, Eye, Box,
 } from 'lucide-react';
 import { errorMessage, expectArray, isAbortError, requestJson } from '../lib/requestLifecycle';
 import { useToast } from './Toast';
 import { AudioAssetIcon } from './AudioIcons';
+import { formatCompactCount } from '../lib/modelFormat';
 
 type StackItem = AssetStack & { isStack: true };
 type CardItem = Asset | StackItem;
@@ -65,7 +66,7 @@ function isAsset(value: unknown): value is Asset {
     && typeof candidate.path === 'string' && typeof candidate.extension === 'string'
     && typeof candidate.size === 'number' && Number.isFinite(candidate.size)
     && typeof candidate.fileUrl === 'string' && typeof candidate.thumbnailUrl === 'string'
-    && (candidate.category === 'image' || candidate.category === 'audio'
+    && (candidate.category === 'image' || candidate.category === 'audio' || candidate.category === 'model'
       || candidate.category === 'archive' || candidate.category === 'other')
     && candidate.metadata !== null && typeof candidate.metadata === 'object'
     && !Array.isArray(candidate.metadata);
@@ -86,8 +87,9 @@ function releaseAudio({ audio, onEnded, onError }: CardAudioResource, resetTime:
 }
 
 function CardImage({ asset, title, className }: { asset: Asset; title: string; className: string }) {
-  const isTga = asset.extension.toLowerCase() === '.tga';
-  const sources = [...new Set((isTga
+  // Browsers cannot show TGA or model files in <img>; only their thumbnails.
+  const thumbnailOnly = asset.extension.toLowerCase() === '.tga' || asset.category === 'model';
+  const sources = [...new Set((thumbnailOnly
     ? [asset.thumbnailUrl]
     : [asset.thumbnailUrl, asset.fileUrl]).filter(Boolean))];
   const sourceKey = `${assetRevision(asset)}|${sources.join('|')}`;
@@ -98,7 +100,9 @@ function CardImage({ asset, title, className }: { asset: Asset; title: string; c
   if (!src) {
     return <div role="img" aria-label={`Preview unavailable for ${title}`}
       className="flex h-full w-full items-center justify-center gap-1 text-slate-500">
-      <ImageIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+      {asset.category === 'model'
+        ? <Box aria-hidden="true" className="h-4 w-4 shrink-0" />
+        : <ImageIcon aria-hidden="true" className="h-4 w-4 shrink-0" />}
       <span className="text-[10px]">Preview unavailable</span>
     </div>;
   }
@@ -252,6 +256,9 @@ function AssetCardContent({
   const title = stack ? stack.name : asset.name;
   const isImage = asset.category === 'image';
   const isAudio = asset.category === 'audio';
+  const isModel = asset.category === 'model';
+  // Rendered model thumbnails are smooth; pixel art keeps hard edges.
+  const imageRendering = isModel ? '' : ' pixelated';
   const selection = <button
     type="button"
     aria-label={`Select ${title}`}
@@ -283,7 +290,7 @@ function AssetCardContent({
             ? <AudioAssetIcon duration={currentDisplayAsset.metadata.duration}
               bpm={currentDisplayAsset.metadata.bpm} className="h-6 w-6" />
             : <CardImage asset={currentDisplayAsset} title={title}
-              className="h-full w-full object-contain pixelated" />}
+              className={`h-full w-full object-contain${imageRendering}`} />}
         </div>
         <div className="pointer-events-none min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -354,7 +361,7 @@ function AssetCardContent({
           </span>
         </div>
         : <CardImage asset={currentDisplayAsset} title={title}
-          className="max-h-full max-w-full object-contain p-2 pixelated transition-transform duration-200 group-hover:scale-105" />}
+          className={`max-h-full max-w-full object-contain p-2${imageRendering} transition-transform duration-200 group-hover:scale-105`} />}
       {stack && <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-md border border-white/10 bg-black/80 px-2 py-0.5 font-mono text-[10px] font-semibold text-cyan-300 shadow-sm">
         <Layers aria-hidden="true" className="h-3 w-3 text-indigo-400" />{stack.itemCount}
       </div>}
@@ -382,6 +389,8 @@ function AssetCardContent({
         <span>{formatBytes(asset.size)}</span>
         {isImage && asset.metadata.width && asset.metadata.height && <span>{asset.metadata.width}×{asset.metadata.height}</span>}
         {isAudio && asset.metadata.duration && <span>{asset.metadata.duration.toFixed(1)}s</span>}
+        {isModel && asset.metadata.triangleCount !== undefined
+          && <span>{formatCompactCount(asset.metadata.triangleCount)} tris</span>}
       </div>
       {audioError && <span role="alert" className="text-[10px] text-rose-300">{audioError}</span>}
       {stack && isHovered && members.status === 'error' && <button type="button"

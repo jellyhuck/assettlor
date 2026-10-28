@@ -189,7 +189,7 @@ export function TopBar({
               <div>
                 <div className="text-slate-300 font-medium mb-1">Tags & Formats:</div>
                 <div className="flex flex-wrap gap-1">
-                  {['tag:coin', 'ext:png', 'cat:image', 'type:audio'].map((sample) => (
+                  {['tag:coin', 'ext:png', 'cat:image', 'type:audio', 'is:model'].map((sample) => (
                     <button
                       key={sample}
                       onClick={() => handleAddFilter(sample)}

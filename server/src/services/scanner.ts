@@ -20,7 +20,8 @@ import {
 import type { ArchiveRecord, CompletedScanScope, TagRow } from '../db/database.js';
 import { isSupportedImageExtension, processImageFile } from './image.js';
 import { isSupportedAudioExtension, processAudioFile } from './audio.js';
-import { isArchiveFile, openZipArchive, ArchiveCancelledError } from './archive.js';
+import { isSupportedModelExtension, processModelFile } from './model.js';
+import { isArchiveFile, openZipArchive, ArchiveCancelledError, INDEXABLE_ENTRY_TYPES } from './archive.js';
 import type { ArchiveInventory, ArchiveInventoryEntry } from './archive.js';
 import { runStackingEngine } from './stacker.js';
 import {
@@ -33,6 +34,7 @@ import type { AssetMetadata, ScanProgressEvent } from '../../../shared/types.js'
 import { config, getDataDir } from '../config.js';
 import { canonicalAssetId, sourceDisplaySuffix } from './assetIdentity.js';
 import { getProcessingFingerprint, getMetadataProcessingVersion } from './processingFingerprint.js';
+import type { ThumbnailCategory } from './processingFingerprint.js';
 
 type SseListener = (event: ScanProgressEvent) => void;
 const sseListeners = new Set<SseListener>();
@@ -178,7 +180,7 @@ interface DiskInventoryItem {
   absolutePath: string;
   displayPath: string;
   stats: fs.Stats;
-  category: 'image' | 'audio';
+  category: ThumbnailCategory;
   extension: string;
   id: string;
 }
@@ -199,7 +201,7 @@ interface ScanCandidate {
   scope: ScanScope;
   absolutePath: string;
   extension: string;
-  kind: 'image' | 'audio' | 'archive';
+  kind: ThumbnailCategory | 'archive';
 }
 
 /** Minimum interval between routine progress events; milestones are sent at once. */
@@ -403,7 +405,8 @@ async function runScanLibrary(
       const extension = path.extname(entry.name).toLowerCase();
       const kind = isArchiveFile(absolutePath) ? 'archive'
         : isSupportedImageExtension(extension) ? 'image'
-          : isSupportedAudioExtension(extension) ? 'audio' : null;
+          : isSupportedAudioExtension(extension) ? 'audio'
+            : isSupportedModelExtension(extension) ? 'model' : null;
       if (!kind) continue;
       // Overlapping roots reach the same file; the most specific root owns it.
       if (kind === 'archive') {
@@ -442,7 +445,7 @@ async function runScanLibrary(
     if (kind === 'archive') {
       seenArchives.add(absolutePath);
       // ctime and inode catch in-place rewrites that preserve size and mtime.
-      const signature = `${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
+      const signature = `${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}:${INDEXABLE_ENTRY_TYPES}`;
       const unchangedIds = unchangedArchiveEntryIds(absolutePath, itemDisplayPath, root, signature);
       if (unchangedIds) {
         for (const id of unchangedIds) seenIds.add(id);
@@ -528,7 +531,7 @@ async function runScanLibrary(
       return null;
     }
     for (const entry of entries) {
-      const category = entry.category as 'image' | 'audio';
+      const category = entry.category as ThumbnailCategory;
       if (entry.metadata.thumbnailFingerprint !== getProcessingFingerprint(category, settings) ||
           entry.metadata.metadataProcessingVersion !== getMetadataProcessingVersion(category) ||
           !entry.thumbnailPath || !fs.existsSync(entry.thumbnailPath)) {
@@ -554,8 +557,8 @@ async function runScanLibrary(
       return;
     }
     const category = isZip ? item.entry.category : item.category;
-    const fingerprint = getProcessingFingerprint(category as 'image' | 'audio', settings);
-    const metadataVersion = getMetadataProcessingVersion(category as 'image' | 'audio');
+    const fingerprint = getProcessingFingerprint(category as ThumbnailCategory, settings);
+    const metadataVersion = getMetadataProcessingVersion(category as ThumbnailCategory);
     const sourceDirectory = item.sourceDirectory;
     const currentPath = isZip ? item.entry.virtualPath : item.displayPath;
     const absolutePath = isZip ? item.archivePath : item.absolutePath;
@@ -581,7 +584,9 @@ async function runScanLibrary(
         ? await item.inventory.processEntry(item.entry, { quality: settings.thumbnailQuality, isCancelled: cancelled })
         : item.category === 'image'
           ? await processImageFile(item.absolutePath, undefined, undefined, settings.thumbnailQuality)
-          : await processAudioFile(item.absolutePath, settings.thumbnailQuality);
+          : item.category === 'model'
+            ? await processModelFile(item.absolutePath, settings.thumbnailQuality)
+            : await processAudioFile(item.absolutePath, settings.thumbnailQuality);
       throwIfCancelled();
       if (!isZip) {
         const currentStats = await fs.promises.stat(item.absolutePath);

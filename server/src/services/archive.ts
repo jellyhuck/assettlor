@@ -5,8 +5,9 @@ import type { Readable } from 'stream';
 import zlib from 'zlib';
 import yauzl from 'yauzl';
 import type { Entry, ZipFile } from 'yauzl';
-import { isSupportedImageExtension, processImageBuffer } from './image.js';
-import { isSupportedAudioExtension, processAudioBuffer } from './audio.js';
+import { SUPPORTED_IMAGE_EXTENSIONS, isSupportedImageExtension, processImageBuffer } from './image.js';
+import { SUPPORTED_AUDIO_EXTENSIONS, isSupportedAudioExtension, processAudioBuffer } from './audio.js';
+import { SUPPORTED_MODEL_EXTENSIONS, isSupportedModelExtension, processModelBuffer } from './model.js';
 import { canonicalAssetId } from './assetIdentity.js';
 import { IMAGE_THUMBNAIL_SPEC } from './processingFingerprint.js';
 import type { AssetMetadata, AssetCategory } from '../../../shared/types.js';
@@ -92,6 +93,16 @@ function assertEntryWithinLimits(entryName: string, entry: Entry, limits: Archiv
   }
 }
 
+/**
+ * Names the set of indexable entry types. Scans store it in each archive
+ * signature, so supporting a new format makes unchanged archives be listed
+ * again once; their unchanged entries still reuse the per-entry cache.
+ */
+export const INDEXABLE_ENTRY_TYPES = crypto.createHash('sha256')
+  .update([...SUPPORTED_IMAGE_EXTENSIONS, ...SUPPORTED_AUDIO_EXTENSIONS, ...SUPPORTED_MODEL_EXTENSIONS].sort().join(','))
+  .digest('hex')
+  .slice(0, 12);
+
 // Only these entries are ever read or inflated. Others, such as PSD sources,
 // are never read and do not count against inflation limits.
 function isIndexableMediaEntry(entryName: string): boolean {
@@ -99,7 +110,8 @@ function isIndexableMediaEntry(entryName: string): boolean {
   const filename = path.posix.basename(entryName);
   if (entryName.includes('__MACOSX') || filename.startsWith('.')) return false;
   const extension = path.extname(filename).toLowerCase();
-  return isSupportedImageExtension(extension) || isSupportedAudioExtension(extension);
+  return isSupportedImageExtension(extension) || isSupportedAudioExtension(extension) ||
+    isSupportedModelExtension(extension);
 }
 
 const ARCHIVE_JUNK_ROOT_FILES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
@@ -228,7 +240,8 @@ export async function openZipArchive(
       if (isCancelled?.()) throw new ArchiveCancelledError();
       const filename = path.posix.basename(entryName);
       const extension = path.extname(filename).toLowerCase();
-      const category: AssetCategory = isSupportedImageExtension(extension) ? 'image' : 'audio';
+      const category: AssetCategory = isSupportedImageExtension(extension) ? 'image'
+        : isSupportedModelExtension(extension) ? 'model' : 'audio';
       const mtime = zipEntry.getLastModDate({ forceDosFormat: true }).getTime();
       let hash: string;
       try {
@@ -283,12 +296,14 @@ export async function openZipArchive(
           IMAGE_THUMBNAIL_SPEC.height,
           options.quality
         )
-        : await processAudioBuffer(
-          entryBuffer,
-          descriptor.filename,
-          descriptor.extension,
-          options.quality
-        );
+        : descriptor.category === 'model'
+          ? await processModelBuffer(entryBuffer, descriptor.filename, options.quality)
+          : await processAudioBuffer(
+            entryBuffer,
+            descriptor.filename,
+            descriptor.extension,
+            options.quality
+          );
       if (options.isCancelled?.()) throw new ArchiveCancelledError();
 
       return {
